@@ -76,6 +76,8 @@ class ModelTable(Base):
     training_config: Column[dict[str, Any]] = Column(JSON)
     performance_metrics: Column[dict[str, Any]] = Column(JSON)
     deployment_constraints: Column[dict[str, Any]] = Column(JSON)
+    output_schema: Column[dict[str, Any]] = Column(JSON)
+    calibration: Column[dict[str, Any]] = Column(JSON)
     deployment_status: Column[str] = Column(String(50), nullable=False)
     deployed_to: Column[list[str]] = Column(ARRAY(Text))
     version = Column(String(50), nullable=False)

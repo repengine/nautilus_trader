@@ -123,7 +123,7 @@ def test_emit_cascade_preserves_correlation(facade_manager: Any) -> None:
         "instrument_id": "BTC.USD",
         "ts_event": 1_000_000_000,
         "event_id": "evt_001",
-        "payload": {"feature_name": "sma_20"},
+        "payload": {"feature_name": "price_sma_20"},
     }
 
     result = facade_manager.emit_cascade(source_event, "model", delay_ns=100)

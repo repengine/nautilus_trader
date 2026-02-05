@@ -594,3 +594,10 @@ class TestConfigToDict:
         # Should include string, int, float, bool values
         assert "data_source" in result
         assert "target_column" in result
+
+    def test_config_to_dict_includes_target_horizon_minutes(
+        self, trainer_facade: TestableTrainerFacade
+    ) -> None:
+        """_config_to_dict includes derived target horizon minutes."""
+        result = trainer_facade._config_to_dict()
+        assert result["target_horizon_minutes"] == 15

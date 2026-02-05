@@ -65,7 +65,7 @@ def test_mock_fixtures(mock_model_registry, mock_feature_registry, mock_data_sto
     # Test feature registry mock
     feature_info = mock_feature_registry.get_feature_set("test_features")
     assert feature_info.manifest.feature_set_id == "test_features_v1"
-    assert "sma_20" in feature_info.manifest.feature_names  # Use correct field name
+    assert "price_sma_20" in feature_info.manifest.feature_names  # Use correct field name
 
     # Test data store mock
     assert mock_data_store.write("test", {}) is True
@@ -145,7 +145,7 @@ def test_sample_data_fixtures(sample_features, sample_predictions, test_timestam
     Test sample data fixtures.
     """
     assert isinstance(sample_features, dict)
-    assert "sma_20" in sample_features
+    assert "price_sma_20" in sample_features
     assert "rsi" in sample_features
 
     assert len(sample_predictions) == 3

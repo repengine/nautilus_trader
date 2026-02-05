@@ -38,7 +38,7 @@ logger = structlog.get_logger(__name__)
 @runtime_checkable
 class RawIngestionWriterProtocol(Protocol):
     """
-    Protocol for writing raw datasets (bars/quotes/trades/mbp1/tbbo).
+    Protocol for writing raw datasets (bars/quotes/trades/mbp1/mbp10/mbo/tbbo).
     """
 
     def write(
@@ -505,6 +505,13 @@ class ParquetCatalogRawWriter(RawIngestionWriterProtocol):
                 else:
                     self._catalog.write_data(trades)
                 return len(trades)
+
+        if dataset_type in (DatasetType.MBP10, DatasetType.MBO):
+            msg = (
+                f"Tabular conversion not supported for {dataset_type.value}. "
+                "Pass domain objects (OrderBookDepth10/OrderBookDelta) instead."
+            )
+            raise ValueError(msg)
 
         # Unsupported conversion for other raw types
         return 0

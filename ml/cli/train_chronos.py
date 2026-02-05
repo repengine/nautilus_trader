@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ml.common.logging_config import configure_logging
+from ml.common.validation_strategies import HOLDOUT_STRATEGIES
 
 
 __all__ = ["main"]
@@ -100,6 +101,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Target semantics JSON (string or path to .json file).",
     )
     parser.add_argument(
+        "--target_col",
+        "--target-col",
+        default=None,
+        help=(
+            "Target column name declared in target_semantics labels (or legacy_aliases when enabled). "
+            "Defaults to primary_target when omitted."
+        ),
+    )
+    parser.add_argument(
         "--eval-metric",
         type=str,
         default="RMSE",
@@ -150,6 +160,75 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=str,
         default=None,
         help="AutoGluon searcher for HPO (e.g., random, bayes)",
+    )
+    parser.add_argument(
+        "--time_split_eval",
+        "--time-split-eval",
+        dest="time_split_eval",
+        action="store_true",
+        help="Run time-split evaluation after dataset build",
+    )
+    parser.add_argument(
+        "--eval_train_fraction",
+        type=float,
+        default=None,
+        help="Train split fraction for time-split evaluation",
+    )
+    parser.add_argument(
+        "--eval_val_fraction",
+        type=float,
+        default=None,
+        help="Validation split fraction for time-split evaluation",
+    )
+    parser.add_argument(
+        "--eval_test_fraction",
+        type=float,
+        default=None,
+        help="Test split fraction for time-split evaluation",
+    )
+    parser.add_argument(
+        "--eval_min_rows",
+        type=int,
+        default=None,
+        help="Minimum rows required per split in time-split evaluation",
+    )
+    parser.add_argument(
+        "--eval_min_series_rows",
+        type=int,
+        default=None,
+        help="Minimum rows required per series per split in time-split evaluation",
+    )
+    parser.add_argument(
+        "--eval_baseline_strategy",
+        type=str,
+        default=None,
+        choices=["global_mean", "per_item_mean"],
+        help="Baseline strategy for time-split evaluation",
+    )
+    parser.add_argument(
+        "--eval_validation_strategy",
+        type=str,
+        default=None,
+        choices=list(HOLDOUT_STRATEGIES),
+        help="Validation strategy for time-split evaluation (time_window or purged)",
+    )
+    parser.add_argument(
+        "--eval_purge_gap",
+        type=int,
+        default=None,
+        help="Purge gap for purged validation splits",
+    )
+    parser.add_argument(
+        "--eval_embargo_pct",
+        type=float,
+        default=None,
+        help="Embargo percentage for purged validation splits",
+    )
+    parser.add_argument(
+        "--eval_cv_splits",
+        type=int,
+        default=None,
+        help="Number of purged splits for validation",
     )
 
     # Feature arguments
@@ -330,12 +409,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"--num_val_windows={args.num_val_windows}",
         f"--refit_every_n_windows={args.refit_every_n_windows}",
     ]
+    if args.target_col is not None:
+        experiment_argv.append(f"--target_col={args.target_col}")
     if args.tune_num_trials is not None:
         experiment_argv.append(f"--tune_num_trials={args.tune_num_trials}")
     if args.tune_scheduler is not None:
         experiment_argv.append(f"--tune_scheduler={args.tune_scheduler}")
     if args.tune_searcher is not None:
         experiment_argv.append(f"--tune_searcher={args.tune_searcher}")
+    if args.time_split_eval:
+        experiment_argv.append("--time_split_eval")
+    if args.eval_train_fraction is not None:
+        experiment_argv.append(f"--eval_train_fraction={args.eval_train_fraction}")
+    if args.eval_val_fraction is not None:
+        experiment_argv.append(f"--eval_val_fraction={args.eval_val_fraction}")
+    if args.eval_test_fraction is not None:
+        experiment_argv.append(f"--eval_test_fraction={args.eval_test_fraction}")
+    if args.eval_min_rows is not None:
+        experiment_argv.append(f"--eval_min_rows={args.eval_min_rows}")
+    if args.eval_min_series_rows is not None:
+        experiment_argv.append(f"--eval_min_series_rows={args.eval_min_series_rows}")
+    if args.eval_baseline_strategy is not None:
+        experiment_argv.append(f"--eval_baseline_strategy={args.eval_baseline_strategy}")
+    if args.eval_validation_strategy is not None:
+        experiment_argv.append(f"--eval_validation_strategy={args.eval_validation_strategy}")
+    if args.eval_purge_gap is not None:
+        experiment_argv.append(f"--eval_purge_gap={args.eval_purge_gap}")
+    if args.eval_embargo_pct is not None:
+        experiment_argv.append(f"--eval_embargo_pct={args.eval_embargo_pct}")
+    if args.eval_cv_splits is not None:
+        experiment_argv.append(f"--eval_cv_splits={args.eval_cv_splits}")
 
     if args.distill:
         experiment_argv.append("--distill")

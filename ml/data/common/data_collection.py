@@ -26,7 +26,9 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.data.common.dataset_registration import build_dataset_id_for_schema
 from ml.data.common.scheduler_feature_job import VENUE_MAP
+from ml.schema import map_schema_to_dataset_type
 
 
 if TYPE_CHECKING:
@@ -569,17 +571,7 @@ class DataCollectionComponent:
 
                     # Prepare low-cardinality metric labels ahead of time
                     schema_name = config.databento.schema
-                    schema_base = schema_name.split("-")[0].lower()
-                    if schema_base == "ohlcv":
-                        dataset_type_label = "bars"
-                    elif schema_base == "trades":
-                        dataset_type_label = "trades"
-                    elif schema_base.startswith("mbp"):
-                        dataset_type_label = "mbp1"
-                    elif schema_base == "tbbo":
-                        dataset_type_label = "tbbo"
-                    else:
-                        dataset_type_label = schema_base
+                    dataset_type_label = map_schema_to_dataset_type(schema_name).value
 
                     try:
                         catalog.write_data(data)
@@ -594,8 +586,11 @@ class DataCollectionComponent:
                                 ts_max = max(item.ts_event for item in data) if data else 0
 
                                 # Determine dataset_id based on schema type
-                                schema_type = config.databento.schema.split("-")[0].upper()
-                                dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+                                dataset_id = build_dataset_id_for_schema(
+                                    schema=config.databento.schema,
+                                    symbol_code=symbol_code,
+                                    venue=venue,
+                                )
 
                                 # Ensure dataset manifest exists before emitting events
                                 ensure_registered_fn(
@@ -668,8 +663,11 @@ class DataCollectionComponent:
                         # Try to emit failure event
                         if registry is not None:
                             try:
-                                schema_type = config.databento.schema.split("-")[0].upper()
-                                dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+                                dataset_id = build_dataset_id_for_schema(
+                                    schema=config.databento.schema,
+                                    symbol_code=symbol_code,
+                                    venue=venue,
+                                )
 
                                 registry.emit_event(
                                     dataset_id=dataset_id,

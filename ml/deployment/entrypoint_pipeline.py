@@ -80,16 +80,11 @@ from ml.deployment.scheduling_utils import DailyTime
 from ml.deployment.scheduling_utils import compute_next_utc_run
 from ml.deployment.scheduling_utils import parse_bool_env
 from ml.deployment.scheduling_utils import parse_daily_spec
-from ml.deployment.scheduling_utils import parse_dataset_template_map_env
-from ml.deployment.scheduling_utils import parse_template_map_env
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.registry.dataclasses import DatasetType
 from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
 from ml.schema import DEFAULT_BAR_IDENTIFIER_TEMPLATE
 from ml.schema import schema_spec_for
-from ml.schema import validate_dataset_type_templates
-from ml.schema import validate_identifier_template
-from ml.schema import validate_schema_identifier_templates
 from ml.stores.feature_store import FeatureStore
 from ml.stores.migrations_runner import MigrationRunnerError
 from ml.stores.migrations_runner import SchemaHealthCheckError
@@ -435,18 +430,6 @@ class PipelineRunner:
             )
             return default
 
-    def _parse_template_map_env(self, raw: str | None) -> dict[str, str]:
-        """
-        Parse a schema→template mapping from environment payloads.
-        """
-        return parse_template_map_env(raw)
-
-    def _parse_dataset_template_map_env(self, raw: str | None) -> dict[DatasetType, str]:
-        """
-        Parse a dataset-type→template mapping from environment payloads.
-        """
-        return parse_dataset_template_map_env(raw)
-
     def _dual_write_dataset_types_from_env(self) -> dict[DatasetType, bool]:
         """
         Parse per-schema dual-write toggles; defaults stay enabled.
@@ -461,6 +444,8 @@ class PipelineRunner:
             DatasetType.TRADES: _flag("DUAL_WRITE_TRADES"),
             DatasetType.TBBO: _flag("DUAL_WRITE_TBBO"),
             DatasetType.MBP1: _flag("DUAL_WRITE_MBP"),
+            DatasetType.MBP10: _flag("DUAL_WRITE_MBP"),
+            DatasetType.MBO: _flag("DUAL_WRITE_MBP"),
         }
 
     def _resolve_rehydrator_config(self) -> CatalogRehydrationConfig:
@@ -690,24 +675,21 @@ class PipelineRunner:
         enabled = parse_bool_env(os.environ.get("CATALOG_REHYDRATE_ENABLED"))
         lookback = self._get_int_env("CATALOG_REHYDRATE_LOOKBACK_DAYS", 5)
         batch_size = self._get_int_env("CATALOG_REHYDRATE_BATCH_SIZE", 1_000)
-        identifier_template = os.environ.get(
+        ignored_vars = [
             "CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE",
-            DEFAULT_BAR_IDENTIFIER_TEMPLATE,
-        )
-        identifier_template = validate_identifier_template(
-            identifier_template,
-            label="CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE",
-        )
-        schema_template_map = validate_schema_identifier_templates(
-            self._parse_template_map_env(
-                os.environ.get("CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP"),
-            ),
-        )
-        dataset_template_map = validate_dataset_type_templates(
-            self._parse_dataset_template_map_env(
-                os.environ.get("CATALOG_REHYDRATE_DATASET_TYPE_TEMPLATES"),
-            ),
-        )
+            "CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP",
+            "CATALOG_REHYDRATE_DATASET_TYPE_TEMPLATES",
+        ]
+        ignored = [name for name in ignored_vars if os.environ.get(name)]
+        if ignored:
+            logger.warning(
+                "Ignoring deprecated catalog identifier template overrides; "
+                "schema registry defaults are enforced",
+                extra={"variables": sorted(ignored)},
+            )
+        identifier_template = DEFAULT_BAR_IDENTIFIER_TEMPLATE
+        schema_template_map: dict[str, str] = {}
+        dataset_template_map = DATASET_TYPE_IDENTIFIER_DEFAULTS.copy()
         table_name = os.environ.get("CATALOG_REHYDRATE_TABLE", "market_data")
         rescan = parse_bool_env(os.environ.get("CATALOG_REHYDRATE_RESCAN"))
         exhaustive = parse_bool_env(os.environ.get("CATALOG_REHYDRATE_EXHAUSTIVE"))

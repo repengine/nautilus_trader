@@ -337,9 +337,9 @@ class DatabaseLifecycleComponent:
 
     def run_migrations(self) -> None:
         """
-        Run database migrations using the shared CLI plan builder.
+        Run database migrations using the shared task plan builder.
 
-        Attempts to use the CLI migration helpers first. If unavailable,
+        Attempts to use the shared migration helpers first. If unavailable,
         falls back to applying a hardcoded list of base migrations inline.
 
         Handles "already exists" and similar idempotent errors gracefully
@@ -369,10 +369,10 @@ class DatabaseLifecycleComponent:
 
         engine = EngineManager.get_engine(self.db_connection)
 
-        # Prefer the CLI helpers to keep in sync
+        # Prefer the shared task helpers to keep in sync
         try:
-            from ml.cli.apply_migrations import apply_files as _apply
-            from ml.cli.apply_migrations import build_plan as _build
+            from ml.tasks.db import apply_migration_files as _apply
+            from ml.tasks.db import build_migration_plan as _build
 
             plan = _build(include_optional=full, schema=schema_enum)
             result = _apply(engine, plan, dry_run=False)
@@ -385,7 +385,7 @@ class DatabaseLifecycleComponent:
             )
         except Exception as exc:
             # Fallback to the former inlined list with simple splitting
-            logger.warning("CLI migration helpers unavailable (%s); using fallback plan", exc)
+            logger.warning("Migration helpers unavailable (%s); using fallback plan", exc)
             migrations = [
                 "ml/registry/migrations/001_initial_schema.sql",
                 "ml/registry/migrations/002_add_cold_path_fields.sql",
@@ -393,9 +393,9 @@ class DatabaseLifecycleComponent:
                 "ml/stores/migrations_bootstrap/001_bootstrap.sql",
             ]
 
-            # Use the same splitter as the CLI when available
+            # Use the same splitter as the shared task helper when available
             try:
-                from ml.cli.apply_migrations import split_statements as _splitter
+                from ml.tasks.db import split_sql_statements as _splitter
             except Exception:
 
                 def _splitter(sql: str) -> Iterable[str]:

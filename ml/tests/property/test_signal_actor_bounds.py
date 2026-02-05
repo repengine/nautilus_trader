@@ -52,6 +52,7 @@ from ml.actors.signal import SignalStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
 from ml.features.config import FeatureConfig
+from ml.registry.base import DataRequirements
 
 if TYPE_CHECKING:
     from ml.tests.fixtures.model_factory import TestModelFactory
@@ -348,11 +349,20 @@ def ml_signal_actor_configs(draw, feature_config=None, strategy=None):
     model_path = _cached_model_path(10, 2)
 
     if feature_config is None:
+        include_micro = draw(st.booleans())
+        include_trade_flow = draw(st.booleans())
+        if include_trade_flow:
+            data_requirements = DataRequirements.L1_L2_L3
+        elif include_micro:
+            data_requirements = DataRequirements.L1_L2
+        else:
+            data_requirements = DataRequirements.L1_ONLY
         feature_config = FeatureConfig(
             lookback_window=draw(st.integers(min_value=5, max_value=100)),
             normalize_features=draw(st.booleans()),
-            include_microstructure=draw(st.booleans()),
-            include_trade_flow=draw(st.booleans()),
+            include_microstructure=include_micro,
+            include_trade_flow=include_trade_flow,
+            data_requirements=data_requirements,
         )
 
     if strategy is None:

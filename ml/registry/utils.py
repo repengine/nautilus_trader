@@ -102,6 +102,8 @@ def build_student_manifest(
     pipeline_version: str | None = None,
     decision_policy: str | None = None,
     decision_config: Mapping[str, Any] | None = None,
+    output_schema: Mapping[str, Any] | None = None,
+    calibration: Mapping[str, Any] | None = None,
 ) -> ModelManifest:
     """
     Build a student model manifest.
@@ -128,6 +130,10 @@ def build_student_manifest(
         Optional decision policy adapter path for inference.
     decision_config : Mapping[str, Any] | None
         Optional decision adapter configuration (e.g., positive_class_index).
+    output_schema : Mapping[str, Any] | None
+        Optional output schema metadata for inference.
+    calibration : Mapping[str, Any] | None
+        Optional calibration metadata for inference parity.
 
     Returns
     -------
@@ -152,6 +158,8 @@ def build_student_manifest(
         pipeline_version=pipeline_version,
         decision_policy=decision_policy,
         decision_config=dict(decision_config or {}),
+        output_schema=dict(output_schema) if output_schema is not None else None,
+        calibration=dict(calibration) if calibration is not None else None,
     )
 
 

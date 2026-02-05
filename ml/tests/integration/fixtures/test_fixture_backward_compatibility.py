@@ -49,7 +49,7 @@ def test_sample_features_backward_compatibility(
 ) -> None:
     """Verify sample_features fixture still works."""
     assert isinstance(sample_features, dict)
-    assert "sma_20" in sample_features
+    assert "price_sma_20" in sample_features
     assert "rsi" in sample_features
 
     # Values should be reasonable

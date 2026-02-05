@@ -176,7 +176,7 @@ class _TradeFlowTransform:
         ]
 
     def requires(self) -> DataRequirements:
-        return DataRequirements.L1_L2
+        return DataRequirements.L1_L2_L3
 
 
 class _MacroTransform:
@@ -251,6 +251,25 @@ class _MacroTransform:
         return DataRequirements.L1_ONLY
 
 
+class _MacroDeltasTransform:
+    """
+    Macro delta features for canonical batch/stream parity.
+
+    Emits per-series 1-day deltas for configured macro series.
+    """
+
+    name = "macro_deltas"
+
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
+        series_ids: list[str] = params.get("series_ids", [])
+        if not series_ids:
+            return []
+        return [f"{series_id}_delta_1d" for series_id in series_ids]
+
+    def requires(self) -> DataRequirements:
+        return DataRequirements.L1_ONLY
+
+
 class _CalendarTransform:
     """
     Calendar-based known-future features for TFT models.
@@ -308,7 +327,7 @@ class _CalendarTransform:
         else:  # onehot
             base_features.extend([f"month_{m}" for m in range(1, 13)])
 
-        # Additional calendar indicators
+        # Additional calendar indicators and session flags
         base_features.extend(
             [
                 "is_weekend",
@@ -318,6 +337,11 @@ class _CalendarTransform:
                 "is_quarter_end",
                 "days_to_month_end",
                 "days_from_month_start",
+                "is_trading_day",
+                "is_market_hours",
+                "is_pre_market",
+                "is_after_hours",
+                "minutes_to_close",
             ],
         )
 
@@ -601,6 +625,7 @@ register_transform(_StaticCovariatesTransform())
 
 # Register ALFRED/FRED macro features with revision awareness
 register_transform(_MacroTransform())
+register_transform(_MacroDeltasTransform())
 
 
 class _MacroCompositesTransform:
@@ -810,6 +835,25 @@ def _hash_pipeline(transforms: list[TransformSpec]) -> str:
             h.update(b";")
         h.update(b"\n")
     return h.hexdigest()
+
+
+def transform_feature_names(spec: TransformSpec) -> list[str]:
+    """
+    Resolve feature names for a single transform spec.
+
+    Args:
+        spec: Transform specification.
+
+    Returns:
+        Ordered feature names for the transform.
+
+    Raises:
+        ValueError: If the transform name is unknown.
+    """
+    if spec.name not in _CATALOG:
+        msg = f"Unknown transform: {spec.name}"
+        raise ValueError(msg)
+    return _CATALOG[spec.name].feature_names(spec.params)
 
 
 class PipelineRunner:

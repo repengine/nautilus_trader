@@ -7,11 +7,23 @@ import numpy as np
 import pytest
 
 from ml.cli import hpo_tft
+from ml.tests.utils.targets import build_default_target_semantics
+from ml.training.datasets.target_generator import build_target_semantics_metadata
 
 
 def _make_dataset(tmp_path: Path) -> Path:
     dataset = tmp_path / "dataset.csv"
     dataset.write_text("time_index,y\n0,0\n1,1\n", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    labels = semantics.get("labels", {})
+    target_col = next(iter(labels)) if isinstance(labels, dict) and labels else "y"
+    metadata = {
+        "dataset_id": "dataset",
+        "build_ts": "2025-01-01T00:00:00Z",
+        "column_info": {"target_col": target_col},
+        "target_semantics": semantics,
+    }
+    (tmp_path / "dataset_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     return dataset
 
 
@@ -23,6 +35,8 @@ def test_hpo_tft_grid_selects_best_trial(
 
     def _fake_teacher(argv: list[str] | None = None) -> int:
         assert argv is not None
+        assert "--dataset_metadata" in argv
+        assert "--target_col" in argv
         out_dir = Path(argv[argv.index("--out_dir") + 1])
         out_dir.mkdir(parents=True, exist_ok=True)
         hidden_size = int(argv[argv.index("--hidden_size") + 1])
@@ -31,7 +45,11 @@ def test_hpo_tft_grid_selects_best_trial(
             json.dumps({"prx": metric, "logloss": 1.0 / max(hidden_size, 1)}),
             encoding="utf-8",
         )
-        np.savez(out_dir / "teacher_preds.npz", q_val=np.array([metric], dtype=np.float32), y_val_true=np.array([1], dtype=np.float32))
+        np.savez(
+            out_dir / "teacher_preds.npz",
+            q_val=np.array([0.1, 0.9], dtype=np.float32),
+            y_val_true=np.array([0, 1], dtype=np.float32),
+        )
         return 0
 
     monkeypatch.setattr(hpo_tft, "teacher_main", _fake_teacher)
@@ -74,6 +92,8 @@ def test_hpo_tft_falls_back_to_grid_when_optuna_missing(
 
     def _fake_teacher(argv: list[str] | None = None) -> int:
         assert argv is not None
+        assert "--dataset_metadata" in argv
+        assert "--target_col" in argv
         out_dir = Path(argv[argv.index("--out_dir") + 1])
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "model_metrics.json").write_text(json.dumps({"logloss": 0.5}), encoding="utf-8")

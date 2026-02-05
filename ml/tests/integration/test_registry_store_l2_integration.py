@@ -69,7 +69,7 @@ class TestL2L3RegistryStoreIntegration:
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
-            data_requirements=DataRequirements.L1_L2,
+            data_requirements=DataRequirements.L1_L2_L3,
         )
 
         feature_names = config.get_feature_names()
@@ -111,7 +111,7 @@ class TestL2L3RegistryStoreIntegration:
             config = FeatureConfig(
                 include_microstructure=True,
                 include_trade_flow=True,
-                data_requirements=DataRequirements.L1_L2,
+                data_requirements=DataRequirements.L1_L2_L3,
             )
             feature_names = config.get_feature_names()
             feature_dtypes = ["float32"] * len(feature_names)
@@ -124,7 +124,7 @@ class TestL2L3RegistryStoreIntegration:
                     TransformSpec(name="trade_flow"),
                 ],
             )
-            pipeline_runner = PipelineRunner(pipeline_spec, DataRequirements.L1_L2)
+            pipeline_runner = PipelineRunner(pipeline_spec, DataRequirements.L1_L2_L3)
             pipeline_signature = pipeline_runner.compute_signature()
 
             schema_hash = compute_schema_hash(
@@ -138,7 +138,7 @@ class TestL2L3RegistryStoreIntegration:
                 name="L2/L3 Microstructure Features",
                 version="1.0.0",
                 role=FeatureRole.TEACHER,
-                data_requirements=DataRequirements.L1_L2,
+                data_requirements=DataRequirements.L1_L2_L3,
                 feature_names=feature_names,
                 feature_dtypes=feature_dtypes,
                 schema_hash=schema_hash,
@@ -166,7 +166,7 @@ class TestL2L3RegistryStoreIntegration:
             assert retrieved.capability_flags["has_microstructure"] is True
             assert retrieved.capability_flags["has_l2_depth"] is True
             assert "spread_mean" in retrieved.feature_names
-            assert retrieved.data_requirements == DataRequirements.L1_L2
+            assert retrieved.data_requirements == DataRequirements.L1_L2_L3
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -181,7 +181,7 @@ class TestL2L3RegistryStoreIntegration:
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
-            data_requirements=DataRequirements.L1_L2,
+            data_requirements=DataRequirements.L1_L2_L3,
         )
 
         store = FeatureStore(
@@ -223,7 +223,7 @@ class TestL2L3RegistryStoreIntegration:
         )
 
         # Create runner with L1_L2 data requirements
-        runner = PipelineRunner(pipeline_spec, DataRequirements.L1_L2)
+        runner = PipelineRunner(pipeline_spec, DataRequirements.L1_L2_L3)
 
         # Get feature names from pipeline
         feature_names = runner.compute_feature_names()

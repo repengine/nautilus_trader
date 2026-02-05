@@ -362,6 +362,8 @@ class RegistryInitializationComponent:
                         DatasetType.TRADES: True,
                         DatasetType.TBBO: True,
                         DatasetType.MBP1: True,
+                        DatasetType.MBP10: True,
+                        DatasetType.MBO: True,
                         DatasetType.QUOTES: True,
                     },
                 )

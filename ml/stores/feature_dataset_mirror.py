@@ -18,7 +18,7 @@ from sqlalchemy import text
 from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
-from ml.config.feature_dataset_mirror import FeatureDatasetMirrorConfig
+from ml.config import FeatureDatasetMirrorConfig
 from ml.core.db_engine import EngineManager
 
 

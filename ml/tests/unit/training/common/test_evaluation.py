@@ -28,6 +28,12 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import MulticlassTargetConfig
+from ml.config.targets import RegressionTargetConfig
+from ml.config.targets import TargetCostModelConfig
+from ml.config.targets import TargetHorizonSpec
+from ml.config.targets import TargetSemanticsConfig
 from ml.training.common.evaluation import (
     EvaluationComponent,
     EvaluationTrainerProtocol,
@@ -44,6 +50,7 @@ class MockConfig:
     """Mock training configuration for evaluation testing."""
 
     objective: str = "regression"
+    target_semantics: TargetSemanticsConfig | None = None
 
 
 class TestableTrainer:
@@ -73,6 +80,21 @@ class TestableTrainer:
         if return_labels:
             return np.round(np.random.rand(len(X))).astype(np.float64)
         return np.random.randn(len(X)).astype(np.float64)
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def _build_cost_semantics(cost_bps: float) -> TargetSemanticsConfig:
+    return TargetSemanticsConfig(
+        horizons=(TargetHorizonSpec(minutes=15),),
+        cost_model=TargetCostModelConfig(cost_bps=cost_bps),
+        binary=BinaryTargetConfig(enabled=True, threshold_bps=10.0, return_basis="raw"),
+        multiclass=MulticlassTargetConfig(enabled=False),
+        regression=RegressionTargetConfig(enabled=False),
+    )
 
 
 # ============================================================================
@@ -258,6 +280,30 @@ class TestCalculateTradingMetrics:
         metrics = eval_component.calculate_trading_metrics(returns, predictions)
 
         assert "total_return" in metrics
+
+    def test_calculate_trading_metrics_applies_cost_model(
+        self,
+        sample_returns: npt.NDArray[np.float64],
+    ) -> None:
+        """Verify configured cost model reduces strategy returns."""
+        cost_semantics = _build_cost_semantics(cost_bps=10.0)
+        trainer_cost = TestableTrainer(
+            MockConfig(objective="binary:logistic", target_semantics=cost_semantics),
+        )
+        trainer_raw = TestableTrainer(MockConfig(objective="binary:logistic"))
+
+        predictions = np.full(sample_returns.shape, 0.75, dtype=np.float64)
+
+        metrics_cost = EvaluationComponent(trainer_cost).calculate_trading_metrics(
+            sample_returns,
+            predictions,
+        )
+        metrics_raw = EvaluationComponent(trainer_raw).calculate_trading_metrics(
+            sample_returns,
+            predictions,
+        )
+
+        assert metrics_cost["total_return"] < metrics_raw["total_return"]
 
     def test_calculate_trading_metrics_empty_returns_empty_dict(
         self,

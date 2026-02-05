@@ -100,7 +100,6 @@ def test_pipeline_runner_performs_catalog_rehydration(
         "UNIVERSE_EXPAND": "0",
         "DATABENTO_DATASET": "EQUS.MINI",
         "DATABENTO_SCHEMA": "ohlcv-1m",
-        "CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE": "{instrument_id}-1-MINUTE-LAST-EXTERNAL",
     }
     for name, value in env_overrides.items():
         monkeypatch.setenv(name, value)

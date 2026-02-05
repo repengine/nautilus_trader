@@ -38,9 +38,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ml.common import WatermarkRegistryProtocol
+from ml.common import resolve_watermark_start_datetime
 from ml.common.metrics_bootstrap import get_counter
-from ml.common.watermark_window import WatermarkRegistryProtocol
-from ml.common.watermark_window import resolve_watermark_start_datetime
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 from ml.config.events import Source
 

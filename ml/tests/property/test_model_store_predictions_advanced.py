@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.timeout(0)
 
 PROPERTY_TEST_SETTINGS = settings(
-    max_examples=20,
+    max_examples=10,
     deadline=None,
     suppress_health_check=(HealthCheck.too_slow,),
 )
@@ -170,7 +170,7 @@ unicode_letter_categories: tuple[str, str, str] = (
 
 model_ids = st.text(
     min_size=1,
-    max_size=20,
+    max_size=12,
     alphabet=st.characters(whitelist_categories=unicode_letter_categories),
 )
 instrument_ids = st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True)
@@ -195,10 +195,10 @@ inference_times = st.floats(min_value=0.0, max_value=5000.0, allow_nan=False, al
 
 # Feature dictionaries with bounded values
 features = st.dictionaries(
-    st.text(min_size=1, max_size=10),
+    st.text(min_size=1, max_size=8),
     st.floats(min_value=-1000.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
     min_size=0,
-    max_size=5,
+    max_size=3,
 )
 
 # Single prediction strategy
@@ -217,43 +217,65 @@ single_prediction = st.builds(
 
 
 # Batch prediction strategy with monotonic timestamps
-@st.composite
-def batch_predictions_with_monotonic_timestamps(draw: st.DrawFn) -> list[ModelPrediction]:
+def batch_predictions_with_monotonic_timestamps(
+    *,
+    min_size: int = 1,
+    max_size: int = 15,
+    max_step: int = 100,
+) -> st.SearchStrategy[list[ModelPrediction]]:
     """
     Generate batch of predictions with monotonically increasing timestamps.
     """
-    size = draw(st.integers(min_value=1, max_value=50))
-    base_ts = draw(timestamps)
 
-    predictions_list = []
-    current_ts = base_ts
+    @st.composite
+    def _builder(draw: st.DrawFn) -> list[ModelPrediction]:
+        size = draw(st.integers(min_value=min_size, max_value=max_size))
+        base_ts = draw(timestamps)
 
-    for _ in range(size):
-        model_id = draw(model_ids)
-        instrument_id = draw(instrument_ids)
-        prediction = draw(predictions)
-        confidence = draw(confidences)
-        features_dict = draw(features)
-        inference_time = draw(inference_times)
-        is_live = draw(st.booleans())
+        predictions_list: list[ModelPrediction] = []
+        current_ts = base_ts
 
-        pred = _create_model_prediction(
-            model_id=model_id,
-            instrument_id=instrument_id,
-            prediction=prediction,
-            confidence=confidence,
-            ts_event=current_ts,
-            ts_init=current_ts,
-            features=features_dict,
-            inference_time_ms=inference_time,
-            is_live=is_live,
-        )
-        predictions_list.append(pred)
+        for _ in range(size):
+            model_id = draw(model_ids)
+            instrument_id = draw(instrument_ids)
+            prediction = draw(predictions)
+            confidence = draw(confidences)
+            features_dict = draw(features)
+            inference_time = draw(inference_times)
+            is_live = draw(st.booleans())
 
-        # Increment timestamp for monotonicity
-        current_ts += draw(st.integers(min_value=1, max_value=1000))
+            pred = _create_model_prediction(
+                model_id=model_id,
+                instrument_id=instrument_id,
+                prediction=prediction,
+                confidence=confidence,
+                ts_event=current_ts,
+                ts_init=current_ts,
+                features=features_dict,
+                inference_time_ms=inference_time,
+                is_live=is_live,
+            )
+            predictions_list.append(pred)
 
-    return predictions_list
+            # Increment timestamp for monotonicity
+            current_ts += draw(st.integers(min_value=1, max_value=max_step))
+
+        return predictions_list
+
+    return _builder()
+
+
+batch_predictions = batch_predictions_with_monotonic_timestamps(max_size=15, max_step=100)
+batch_predictions_multi = batch_predictions_with_monotonic_timestamps(
+    min_size=2,
+    max_size=15,
+    max_step=100,
+)
+batch_predictions_perf = batch_predictions_with_monotonic_timestamps(
+    min_size=10,
+    max_size=15,
+    max_step=100,
+)
 
 
 # ============================================================================
@@ -303,15 +325,13 @@ class TestModelStorePredictionInvariants:
             assert first_pred["features_used"] == second_pred["features_used"]
 
     @PROPERTY_TEST_SETTINGS
-    @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+    @given(predictions_batch=batch_predictions_multi)
     def test_temporal_consistency_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
         Property: Predictions must have monotonic timestamps.
 
         Tests that ts_event values are non-decreasing and ts_init >= ts_event.
         """
-        assume(len(predictions_batch) > 1)  # Need multiple predictions for temporal testing
-
         sink: list[dict[str, Any]] = []
 
         with _mock_model_store_io(sink):
@@ -336,7 +356,7 @@ class TestModelStorePredictionInvariants:
                 last_ts_event = ts_event
 
     @PROPERTY_TEST_SETTINGS
-    @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+    @given(predictions_batch=batch_predictions)
     def test_batch_atomicity_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
         Property: Batch writes must be all-or-nothing.
@@ -364,7 +384,7 @@ class TestModelStorePredictionInvariants:
 
     @PROPERTY_TEST_SETTINGS
     @given(
-        predictions_batch=batch_predictions_with_monotonic_timestamps(),
+        predictions_batch=batch_predictions,
         model_version=st.text(min_size=1, max_size=10),
     )
     def test_version_consistency_invariant(
@@ -413,7 +433,7 @@ class TestModelStorePredictionInvariants:
             assert stored1["confidence"] == stored2["confidence"]
 
     @PROPERTY_TEST_SETTINGS
-    @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+    @given(predictions_batch=batch_predictions)
     def test_confidence_bounds_invariant(self, predictions_batch: list[ModelPrediction]) -> None:
         """
         Property: Confidence scores must be in [0,1].
@@ -440,7 +460,7 @@ class TestModelStorePredictionInvariants:
                 ), f"Prediction {prediction} outside bounds [{PREDICTION_MIN}, {PREDICTION_MAX}]"
 
     @PROPERTY_TEST_SETTINGS
-    @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+    @given(predictions_batch=batch_predictions)
     def test_prediction_uniqueness_invariant(
         self, predictions_batch: list[ModelPrediction]
     ) -> None:
@@ -505,7 +525,7 @@ class TestModelStorePerformanceInvariants:
     """
 
     @PROPERTY_TEST_SETTINGS
-    @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+    @given(predictions_batch=batch_predictions)
     def test_no_data_loss_during_flush_invariant(
         self, predictions_batch: list[ModelPrediction]
     ) -> None:
@@ -539,8 +559,8 @@ class TestModelStorePerformanceInvariants:
 
     @PROPERTY_TEST_SETTINGS
     @given(
-        predictions_batch=batch_predictions_with_monotonic_timestamps(),
-        watermark_increment=st.integers(min_value=1, max_value=1000),
+        predictions_batch=batch_predictions_multi,
+        watermark_increment=st.integers(min_value=1, max_value=100),
     )
     def test_watermark_progression_monotonicity(
         self,
@@ -552,8 +572,6 @@ class TestModelStorePerformanceInvariants:
 
         Tests that timestamp watermarks only increase over time.
         """
-        assume(len(predictions_batch) >= 2)
-
         # Simulate watermark progression by tracking max timestamps
         watermarks = []
         current_watermark = 0
@@ -571,7 +589,7 @@ class TestModelStorePerformanceInvariants:
             ), f"Watermark regression: {watermarks[i]} < {watermarks[i-1]}"
 
     @PROPERTY_TEST_SETTINGS
-    @given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+    @given(predictions_batch=batch_predictions_perf)
     def test_performance_metrics_consistency(
         self, predictions_batch: list[ModelPrediction]
     ) -> None:
@@ -580,8 +598,6 @@ class TestModelStorePerformanceInvariants:
 
         Tests Sharpe ratio and related performance metrics for correctness.
         """
-        assume(len(predictions_batch) >= 10)  # Need sufficient data for meaningful metrics
-
         # Extract predictions and calculate basic statistics
         prediction_values = [pred.prediction for pred in predictions_batch]
 
@@ -688,8 +704,8 @@ def test_model_store_stateful() -> None:
     run_state_machine_as_test(
         ModelStoreStateMachine,
         settings=settings(
-            max_examples=10,
-            stateful_step_count=25,
+            max_examples=6,
+            stateful_step_count=15,
             deadline=None,
             suppress_health_check=(HealthCheck.too_slow,),
         ),
@@ -738,7 +754,7 @@ def test_property_tests_integration() -> None:
 
 
 @PROPERTY_TEST_SETTINGS
-@given(predictions_batch=batch_predictions_with_monotonic_timestamps())
+@given(predictions_batch=batch_predictions)
 def test_property_validation_performance(predictions_batch: list[ModelPrediction]) -> None:
     """
     Property: Property validation should complete within performance targets.

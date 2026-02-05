@@ -16,10 +16,10 @@
 
 ## Code Hotspots (Current)
 
-- Dataset build + chunked writer: `ml/data/__init__.py:_build_dataset_chunked`
+- Dataset build + chunked writer: `ml/data/build.py:_build_dataset_chunked`
   - `df_chunk.select(...).to_numpy()` materializes full float matrices.
   - Per-chunk `.parquet` files are re-read as full DataFrames before final write.
-- Dataset build per-symbol processing: `ml/data/tft_dataset_builder.py:_build_training_dataset_direct`
+- Dataset build per-symbol processing: `ml/data/tft_dataset_builder_facade.py:_build_training_dataset_direct`
   - Per-symbol DataFrames are accumulated then concatenated.
 - Streaming loader: `ml/training/teacher/streaming_loader.py:TFTStreamingDataset._iter_shard_batches`
   - `scanner.to_table()` materializes full shard tables and then converts to numpy.
@@ -93,7 +93,7 @@
 ### Phase 1: Minimal Refactor (Targeted)
 
 1. Dataset build (writer + features)
-   - File: `ml/data/__init__.py`
+   - File: `ml/data/build.py`
    - Change `_build_dataset_chunked` to:
      - Use `table.to_batches(max_chunksize=...)` for feature extraction.
      - Stream batches into `_StreamingFeatureWriter` (float32 blocks).

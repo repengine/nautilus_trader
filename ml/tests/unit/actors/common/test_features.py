@@ -704,6 +704,43 @@ def test_synchronous_persistence_when_worker_disabled(
     mock_feature_store.write_features.assert_called_once()
 
 
+# Test 1.19: test_sync_persistence_disabled_when_worker_missing
+def test_sync_persistence_disabled_when_worker_missing(
+    compute_function,
+    mock_feature_registry,
+    mock_feature_store,
+):
+    """Verify sync fallback can be disabled when no worker is available."""
+    config = MLActorConfig(
+        model_path="/tmp/test_model.onnx",
+        model_id="test_model_features",
+        bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL"),
+        instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+        feature_config=MLFeatureConfig(lookback_window=50),
+        allow_sync_persistence_fallback=False,
+    )
+    component = FeaturesComponent(
+        config=config,
+        compute_function=compute_function,
+        feature_registry=mock_feature_registry,
+        feature_store=mock_feature_store,
+        persistence_worker=None,
+    )
+
+    feature_dict = {"feature_0": 0.5}
+
+    success = component.persist_features_async(
+        feature_set_id="default",
+        instrument_id="EUR/USD.SIM",
+        features=feature_dict,
+        ts_event=1234567890000000000,
+        ts_init=1234567890000000000,
+    )
+
+    assert success is False, "Expected sync fallback to be disabled"
+    mock_feature_store.write_features.assert_not_called()
+
+
 # Test 1.19: test_health_monitor_feature_latency_normal
 def test_health_monitor_feature_latency_normal(
     compute_function,

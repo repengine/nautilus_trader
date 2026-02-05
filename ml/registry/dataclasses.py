@@ -37,6 +37,10 @@ class DatasetType(Enum):
         Bid/ask quote ticks
     MBP1 : str
         Market by price depth 1 (best bid/ask)
+    MBP10 : str
+        Market by price depth 10 (full 10-level depth snapshot)
+    MBO : str
+        Market by order (order book delta updates)
     TBBO : str
         Top of book best bid/offer
     FEATURES : str
@@ -62,6 +66,8 @@ class DatasetType(Enum):
     TRADES = "trades"
     QUOTES = "quotes"
     MBP1 = "mbp1"
+    MBP10 = "mbp10"
+    MBO = "mbo"
     TBBO = "tbbo"
     FEATURES = "features"
     PREDICTIONS = "predictions"
@@ -447,6 +453,8 @@ class DatasetManifest:
             DatasetType.TRADES,
             DatasetType.QUOTES,
             DatasetType.MBP1,
+            DatasetType.MBP10,
+            DatasetType.MBO,
             DatasetType.TBBO,
             DatasetType.FEATURES,
             DatasetType.PREDICTIONS,

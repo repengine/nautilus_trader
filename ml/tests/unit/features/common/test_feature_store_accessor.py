@@ -59,7 +59,7 @@ class TestReadFeaturesFromStore:
     ) -> None:
         """Verify reading specific features (not all) works."""
         accessor = FeatureStoreAccessor(feature_store=mock_feature_store)
-        feature_names = ["sma_20", "rsi_14", "volume_ratio"]
+        feature_names = ["price_sma_20", "rsi_14", "volume_ratio_20"]
 
         result = accessor.read_features_from_store(
             "SPY",
@@ -220,11 +220,11 @@ class TestValidateFeatureSchema:
         accessor = FeatureStoreAccessor()
 
         features_df = pd.DataFrame({
-            "sma_20": [100.5],
+            "price_sma_20": [100.5],
             "rsi_14": [55.3],
-            "volume_ratio": [1.2],
+            "volume_ratio_20": [1.2],
         })
-        expected_columns = ["sma_20", "rsi_14", "volume_ratio"]
+        expected_columns = ["price_sma_20", "rsi_14", "volume_ratio_20"]
 
         is_valid, errors = accessor.validate_feature_schema(
             features_df,
@@ -239,10 +239,10 @@ class TestValidateFeatureSchema:
         accessor = FeatureStoreAccessor()
 
         features_df = pd.DataFrame({
-            "sma_20": [100.5],
-            # Missing "rsi_14" and "volume_ratio"
+            "price_sma_20": [100.5],
+            # Missing "rsi_14" and "volume_ratio_20"
         })
-        expected_columns = ["sma_20", "rsi_14", "volume_ratio"]
+        expected_columns = ["price_sma_20", "rsi_14", "volume_ratio_20"]
 
         is_valid, errors = accessor.validate_feature_schema(
             features_df,
@@ -252,19 +252,19 @@ class TestValidateFeatureSchema:
         assert is_valid is False
         assert len(errors) > 0
         assert "rsi_14" in errors[0]
-        assert "volume_ratio" in errors[0]
+        assert "volume_ratio_20" in errors[0]
 
     def test_validate_feature_schema_extra_columns_strict(self) -> None:
         """Verify strict validation rejects extra columns."""
         accessor = FeatureStoreAccessor()
 
         features_df = pd.DataFrame({
-            "sma_20": [100.5],
+            "price_sma_20": [100.5],
             "rsi_14": [55.3],
-            "volume_ratio": [1.2],
+            "volume_ratio_20": [1.2],
             "unexpected_feature": [999],  # Extra column
         })
-        expected_columns = ["sma_20", "rsi_14", "volume_ratio"]
+        expected_columns = ["price_sma_20", "rsi_14", "volume_ratio_20"]
 
         is_valid, errors = accessor.validate_feature_schema(
             features_df,
@@ -281,12 +281,12 @@ class TestValidateFeatureSchema:
         accessor = FeatureStoreAccessor()
 
         features_df = pd.DataFrame({
-            "sma_20": [100.5],
+            "price_sma_20": [100.5],
             "rsi_14": [55.3],
-            "volume_ratio": [1.2],
+            "volume_ratio_20": [1.2],
             "unexpected_feature": [999],  # Extra column
         })
-        expected_columns = ["sma_20", "rsi_14", "volume_ratio"]
+        expected_columns = ["price_sma_20", "rsi_14", "volume_ratio_20"]
 
         is_valid, errors = accessor.validate_feature_schema(
             features_df,
@@ -302,13 +302,13 @@ class TestValidateFeatureSchema:
         accessor = FeatureStoreAccessor()
 
         features_df = pd.DataFrame({
-            "sma_20": [],
+            "price_sma_20": [],
             "rsi_14": [],
         })
 
         is_valid, errors = accessor.validate_feature_schema(
             features_df,
-            expected_columns=["sma_20", "rsi_14"],
+            expected_columns=["price_sma_20", "rsi_14"],
         )
 
         assert is_valid is False

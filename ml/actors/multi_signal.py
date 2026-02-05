@@ -28,9 +28,9 @@ import numpy.typing as npt
 from nautilus_trader.model.data import Bar
 
 from ml.actors.signal import MLSignalActor
-from ml.common.prediction_surface import normalize_prediction_batch
-from ml.common.prediction_surface import resolve_output_is_logits
-from ml.common.prediction_surface import resolve_positive_class_index
+from ml.common import normalize_prediction_batch
+from ml.common import resolve_output_is_logits
+from ml.common import resolve_positive_class_index
 from ml.config.actors import MLSignalActorConfig as _BaseCfg
 
 

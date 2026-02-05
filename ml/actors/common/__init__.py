@@ -21,6 +21,8 @@ from ml.actors.common.performance_monitoring import PerformanceMonitoringCompone
 from ml.actors.common.prediction_buffer import PredictionBufferComponent
 from ml.actors.common.registry import RegistryComponent
 from ml.actors.common.registry import RegistryProtocol
+from ml.actors.common.signal_metadata import build_prediction_surface_metadata
+from ml.actors.common.signal_metadata import build_signal_metadata
 from ml.actors.common.signal_strategy import AdaptiveStrategy
 from ml.actors.common.signal_strategy import EnsembleStrategy
 from ml.actors.common.signal_strategy import ExtremesStrategy
@@ -64,4 +66,6 @@ __all__ = [
     "StrategySwapper",
     "ThresholdSignalStrategy",
     "ThresholdStrategy",
+    "build_prediction_surface_metadata",
+    "build_signal_metadata",
 ]

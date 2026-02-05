@@ -103,7 +103,7 @@ def facade_with_mocks(
         mock_schema.metadata = MagicMock()
         mock_schema.pipeline_hash = "abc123def456"
         mock_schema.get_feature_set_id.return_value = "fs_abc123def4"
-        mock_schema.get_feature_names.return_value = ["close_return", "volume_ratio"]
+        mock_schema.get_feature_names.return_value = ["close_return", "volume_ratio_20"]
         mock_schema.get_feature_names_online.return_value = ["close_return"]
         mock_schema.compute_config_hash.return_value = "1234567890abcdef"
         mock_schema_cls.return_value = mock_schema
@@ -117,7 +117,7 @@ def facade_with_mocks(
         mock_reader.get_training_data.return_value = (
             np.array([[0.01, 1.5]]),
             np.array([1700000000000000000]),
-            ["close_return", "volume_ratio"],
+            ["close_return", "volume_ratio_20"],
         )
         mock_reader.get_latest_at_or_before.return_value = {"close_return": 0.01}
         mock_reader_cls.return_value = mock_reader

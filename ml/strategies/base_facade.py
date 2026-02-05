@@ -27,7 +27,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from ml.common.prediction_surface import decision_from_probability
+from ml.common import decision_from_probability
 from ml.config.base import AccountMode
 from ml.config.base import ReturnsUpdateMode
 from ml.config.base import ShortEntryPolicy
@@ -177,6 +177,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         self._store_breaker: Any = None
         self._order_breaker: Any = None
         self._bus_publisher: Any = None
+        self._bus_bridge: Any = None
         self._decision_publisher: Any = None
         self._init_optional_components()
         self._positions_provider: PositionsProviderProtocol | None = None
@@ -580,7 +581,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
 
         try:
             from ml.config.base import ReturnsConfig
-            from ml.strategies.common.returns_updater import ReturnsUpdater
+            from ml.strategies.common import ReturnsUpdater
 
             returns_cfg = getattr(self._config, "returns_config", None)
             if returns_cfg is None:
@@ -630,12 +631,69 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 error=str(exc),
             )
 
-        # Initialize message bus publisher
+        # Initialize message bus publisher (async bridge preferred)
         try:
+            from ml.common.bus_bridge import DomainEventBridge
+            from ml.common.bus_bridge import parse_topic_throttles_from_env
             from ml.common.message_bus import publisher_from_config as _pfc
+            from ml.common.throttler import Throttler
+            from ml.config.actor_bus import ActorBusConfig as _ABCfg
             from ml.config.bus import MessageBusConfig as _MBCfg
 
-            self._bus_publisher = _pfc(_MBCfg.from_env())
+            bridge_cfg = _ABCfg.from_env()
+            bus_cfg = _MBCfg.from_env()
+            if bridge_cfg.from_strategy and bus_cfg.enabled:
+                publisher = _pfc(bus_cfg)
+                throttler = (
+                    Throttler(
+                        rate_per_sec=float(bridge_cfg.throttle_rate_per_sec),
+                        burst=int(bridge_cfg.throttle_burst),
+                    )
+                    if bridge_cfg.throttle_enabled
+                    else None
+                )
+                per_topic_throttles = parse_topic_throttles_from_env()
+                self._bus_bridge = DomainEventBridge(
+                    publisher,
+                    max_queue=int(bridge_cfg.max_queue),
+                    throttler=throttler,
+                    per_topic_throttles=per_topic_throttles,
+                    component_id="ml_strategy",
+                )
+                self._bus_bridge.start()
+                self._bus_publisher = self._bus_bridge
+
+                # Mutual exclusion: disable store-level publishing when strategy bridge active
+                try:
+                    if self.strategy_store is not None:
+                        if hasattr(self.strategy_store, "publisher"):
+                            setattr(self.strategy_store, "publisher", None)
+                        if hasattr(self.strategy_store, "_enable_publishing"):
+                            setattr(self.strategy_store, "_enable_publishing", False)
+                except Exception as exc:
+                    self.log.debug(
+                        "ml_strategy.bus_store_mutual_exclusion_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(exc),
+                    )
+            elif bridge_cfg.from_store:
+                from ml.common.message_bus import NoopPublisher
+
+                # Store-level publishing is responsible for bus output.
+                self._bus_publisher = NoopPublisher()
+            elif not bus_cfg.enabled:
+                # Disabled bus (noop publisher)
+                self._bus_publisher = _pfc(bus_cfg)
+            else:
+                from ml.common.message_bus import NoopPublisher
+
+                # Bus enabled but no async bridge configured; avoid sync hot-path I/O.
+                self._bus_publisher = NoopPublisher()
+                _SafeLogger(self.log).debug(
+                    "ml_strategy.bus_publish_disabled_no_async_bridge",
+                    strategy_id=str(self.id),
+                )
         except Exception as exc:
             self.log.debug(
                 "ml_strategy.bus_publisher_init_failed",
@@ -821,6 +879,23 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
         )
 
         # 3. Position Management Component
+        portfolio_cfg = getattr(self._config, "portfolio_config", None)
+        portfolio_batching_config = None
+        if portfolio_cfg is not None:
+            portfolio_batching_config = getattr(portfolio_cfg, "batching_config", None)
+        if portfolio_batching_config is None:
+            try:
+                from ml.strategies.portfolio import PortfolioBatchingConfig
+
+                portfolio_batching_config = PortfolioBatchingConfig()
+            except Exception as exc:
+                self.log.debug(
+                    "ml_strategy.portfolio_batching_config_unavailable",
+                    strategy_id=strategy_id,
+                    exc_info=True,
+                    error=str(exc),
+                )
+                portfolio_batching_config = None
         self._position_manager = PositionManagementComponent(
             position_size_pct=self._config.position_size_pct,
             position_sizer=self.position_sizer,
@@ -829,6 +904,7 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
             cache=self.cache if hasattr(self, "cache") else None,
             portfolio=self.portfolio if hasattr(self, "portfolio") else None,
             instrument_id=self._config.instrument_id,
+            portfolio_batching_config=portfolio_batching_config,
             positions_provider=self._positions_provider,
             log=self.log,
             strategy_id=strategy_id,
@@ -1084,6 +1160,17 @@ class BaseMLStrategyFacade(StrategyBase, ABC):  # type: ignore[misc]
                 total_pnl=self._total_pnl,
                 dry_run_trades=self._dry_run_trades,
             )
+        bridge = getattr(self, "_bus_bridge", None)
+        if bridge is not None:
+            try:
+                bridge.stop(drain=True, timeout=1.0)
+            except Exception as exc:
+                self.log.debug(
+                    "ml_strategy.bus_bridge_stop_failed",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(exc),
+                )
 
     # -------------------------------------------------------------------------
     # Position Events

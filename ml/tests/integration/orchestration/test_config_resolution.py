@@ -145,7 +145,7 @@ def test_infer_default_schema_from_config_hints(config_resolver):
     Verify schema inference analyzes config for appropriate default.
 
     Phase 2.2.8 Expected Behavior:
-    - Returns "tbbo" if quotes are primary
+    - Returns "quotes" if quotes are primary
     - Returns "ohlcv-1m" if bars are primary
     - Returns "trades" if trades are primary
     - Falls back to "ohlcv-1m" if no hints

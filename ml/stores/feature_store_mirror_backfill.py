@@ -13,8 +13,8 @@ from typing import Any
 
 from sqlalchemy import text
 
-from ml.config.feature_store_mirror import FeatureStoreMirrorBackfillConfig
-from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
+from ml.config import FeatureStoreMirrorBackfillConfig
+from ml.config import FeatureStoreMirrorConfig
 from ml.core.db_engine import EngineManager
 from ml.stores.feature_raw_writer import FeatureValuesParquetMirrorWriter
 

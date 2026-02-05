@@ -186,6 +186,8 @@ __all__ = [
     "MicrostructureAggregator",
     "PipelineRunner",
     "PipelineSpec",
+    "PipelineStreamContext",
+    "PipelineStreamExecutor",
     "TransformSpec",
     "ZScoreSpreadState",
     "aggregate_l2_minute_pl",
@@ -234,6 +236,14 @@ def __getattr__(name: str) -> object:
         from ml.features.pipeline import PipelineRunner
 
         return PipelineRunner
+    elif name == "PipelineStreamContext":
+        from ml.features.pipeline_stream import PipelineStreamContext
+
+        return PipelineStreamContext
+    elif name == "PipelineStreamExecutor":
+        from ml.features.pipeline_stream import PipelineStreamExecutor
+
+        return PipelineStreamExecutor
     elif name == "TransformSpec":
         from ml.features.pipeline import TransformSpec
 

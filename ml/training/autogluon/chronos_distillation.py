@@ -24,8 +24,10 @@ from ml._imports import TimeSeriesPredictor
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml._imports import pl
+from ml.common.model_sidecar import extract_inference_metadata
+from ml.common.model_sidecar import load_sidecar_metadata
 from ml.config.autogluon import ChronosOnnxDistillationConfig
-from ml.data import _write_feature_npz_from_polars
+from ml.data.build import _write_feature_npz_from_polars
 from ml.ml_types import PolarsDF
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
@@ -450,6 +452,10 @@ def _train_lightgbm_student(
     feature_schema = build_feature_schema(artifacts.feature_names, dtypes)
 
     decision_cfg = build_student_decision_config()
+    sidecar = load_sidecar_metadata(registry_meta)
+    output_schema, calibration = (
+        extract_inference_metadata(sidecar) if sidecar is not None else (None, None)
+    )
 
     student_manifest = build_student_manifest(
         model_id=config.model_id,
@@ -462,6 +468,8 @@ def _train_lightgbm_student(
         pipeline_signature=feature_manifest.pipeline_signature,
         pipeline_version=feature_manifest.pipeline_version,
         decision_config=decision_cfg,
+        output_schema=output_schema,
+        calibration=calibration,
     )
     registry.register_model(registry_onnx, student_manifest, auto_deploy=True)
 

@@ -23,6 +23,8 @@ from nautilus_trader.model.identifiers import InstrumentId
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.data.common.dataset_registration import build_dataset_id_for_schema
+from ml.schema import map_schema_to_dataset_type
 
 
 if TYPE_CHECKING:
@@ -638,17 +640,7 @@ class CollectionCoordinator:
 
         # Prepare low-cardinality metric labels ahead of time
         schema_name = self._config.databento.schema
-        schema_base = schema_name.split("-")[0].lower()
-        if schema_base == "ohlcv":
-            dataset_type_label = "bars"
-        elif schema_base == "trades":
-            dataset_type_label = "trades"
-        elif schema_base.startswith("mbp"):
-            dataset_type_label = "mbp1"
-        elif schema_base == "tbbo":
-            dataset_type_label = "tbbo"
-        else:
-            dataset_type_label = schema_base
+        dataset_type_label = map_schema_to_dataset_type(schema_name).value
 
         try:
             self._catalog.write_data(data)
@@ -663,8 +655,11 @@ class CollectionCoordinator:
                     ts_max = max(item.ts_event for item in data) if data else 0
 
                     # Determine dataset_id based on schema type
-                    schema_type = self._config.databento.schema.split("-")[0].upper()
-                    dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+                    dataset_id = build_dataset_id_for_schema(
+                        schema=self._config.databento.schema,
+                        symbol_code=symbol_code,
+                        venue=venue,
+                    )
 
                     # Ensure dataset manifest exists before emitting events/watermarks
                     self._registry_integrator.ensure_dataset_registered(
@@ -766,8 +761,11 @@ class CollectionCoordinator:
                     from ml.config.events import Source as _source
                     from ml.config.events import Stage as _stage
 
-                    schema_type = self._config.databento.schema.split("-")[0].upper()
-                    dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+                    dataset_id = build_dataset_id_for_schema(
+                        schema=self._config.databento.schema,
+                        symbol_code=symbol_code,
+                        venue=venue,
+                    )
 
                     self._data_registry.emit_event(
                         dataset_id=dataset_id,

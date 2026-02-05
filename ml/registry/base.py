@@ -94,6 +94,26 @@ class ModelManifest:
         Unix timestamp of creation
     last_modified : float
         Unix timestamp of last modification
+    serveable : bool
+        Whether the model is hot-path serveable.
+    artifact_format : str
+        Artifact format (onnx/torchscript/none).
+    feature_set_id : str | None
+        Feature registry linkage identifier.
+    pipeline_signature : str | None
+        Pipeline signature used to generate features.
+    pipeline_version : str | None
+        Pipeline version used to generate features.
+    decision_policy : str | None
+        Optional decision policy adapter path for inference.
+    decision_config : dict[str, Any]
+        Free-form configuration for the decision adapter.
+    output_schema : dict[str, Any] | None
+        Output schema metadata for inference (surface/kind/shape).
+    calibration : dict[str, Any] | None
+        Calibration metadata (method, params, version) for inference parity.
+    artifact_sha256_digest : str | None
+        SHA-256 digest of the model artifact for integrity verification
 
     """
 
@@ -123,6 +143,9 @@ class ModelManifest:
     decision_policy: str | None = None
     # Free-form config for the adapter
     decision_config: dict[str, Any] = field(default_factory=dict)
+    # Output schema + calibration metadata for inference parity
+    output_schema: dict[str, Any] | None = None
+    calibration: dict[str, Any] | None = None
     # SHA-256 digest of the model artifact for integrity verification
     artifact_sha256_digest: str | None = None
 

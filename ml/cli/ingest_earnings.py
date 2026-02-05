@@ -14,11 +14,11 @@ from typing import cast
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.config import WatermarkWindowConfig
+from ml.config import earnings_window_defaults
 from ml.config.earnings_ingestion import DEFAULT_SKIP_ACTUALS_TICKERS
 from ml.config.earnings_ingestion import EarningsIngestionConfig
 from ml.config.edgar_smoke import EdgarSmokeTestConfig
-from ml.config.ingestion_windows import WatermarkWindowConfig
-from ml.config.ingestion_windows import earnings_window_defaults
 from ml.config.sec_identity import SecIdentityConfig
 from ml.core.common.registry_initialization import RegistryInitializationComponent
 from ml.core.common.store_initialization import StoreInitializationComponent

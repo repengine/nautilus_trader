@@ -7,7 +7,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from ml.orchestration.vintage import VintagePolicy
+from ml.orchestration.vintage import VintageWindowPolicy
 
 
 @pytest.mark.e2e
@@ -56,7 +56,7 @@ class TestOrchestratorVintage:
 
         """
         # Given: Vintage policy with 30-day window
-        policy = VintagePolicy(max_age_days=30)
+        policy = VintageWindowPolicy(max_age_days=30)
 
         # When: Apply vintage filtering with current date as 2024-12-15
         current_date = datetime(2024, 12, 15)
@@ -114,7 +114,7 @@ class TestOrchestratorVintage:
 
         """
         # Test 7-day window
-        policy_7d = VintagePolicy(max_age_days=7)
+        policy_7d = VintageWindowPolicy(max_age_days=7)
         current_date = datetime(2024, 12, 15)
 
         filtered_7d = policy_7d.filter_by_vintage(
@@ -128,7 +128,7 @@ class TestOrchestratorVintage:
         assert filtered_7d["timestamp"].min() >= pd.Timestamp("2024-12-08")
 
         # Test 90-day window
-        policy_90d = VintagePolicy(max_age_days=90)
+        policy_90d = VintageWindowPolicy(max_age_days=90)
         filtered_90d = policy_90d.filter_by_vintage(
             sample_data,
             current_date,
@@ -147,10 +147,10 @@ class TestOrchestratorVintage:
         """
         # Test invalid max_age_days
         with pytest.raises(ValueError, match="max_age_days must be > 0"):
-            VintagePolicy(max_age_days=0)
+            VintageWindowPolicy(max_age_days=0)
 
         with pytest.raises(ValueError, match="max_age_days must be > 0"):
-            VintagePolicy(max_age_days=-10)
+            VintageWindowPolicy(max_age_days=-10)
 
     def test_vintage_policy_missing_timestamp_column(
         self,
@@ -161,7 +161,7 @@ class TestOrchestratorVintage:
         Verifies that missing timestamp columns raise descriptive errors.
 
         """
-        policy = VintagePolicy(max_age_days=30)
+        policy = VintageWindowPolicy(max_age_days=30)
         current_date = datetime(2024, 12, 15)
 
         # Test with non-existent column
@@ -187,7 +187,7 @@ class TestOrchestratorVintage:
             }
         )
 
-        policy = VintagePolicy(max_age_days=30)
+        policy = VintageWindowPolicy(max_age_days=30)
         current_date = datetime(2024, 12, 15)
 
         filtered = policy.filter_by_vintage(
@@ -206,7 +206,7 @@ class TestOrchestratorVintage:
         Verifies graceful handling of edge cases.
 
         """
-        policy = VintagePolicy(max_age_days=30)
+        policy = VintageWindowPolicy(max_age_days=30)
         current_date = datetime(2024, 12, 15)
 
         empty_df = pd.DataFrame({"timestamp": [], "value": []})
@@ -228,7 +228,7 @@ class TestOrchestratorVintage:
         Verifies handling when all data is too old.
 
         """
-        policy = VintagePolicy(max_age_days=1)
+        policy = VintageWindowPolicy(max_age_days=1)
 
         # Use a current date far in the future
         current_date = datetime(2025, 12, 31)
@@ -248,7 +248,7 @@ class TestOrchestratorVintage:
         Verifies handling when all data is within window.
 
         """
-        policy = VintagePolicy(max_age_days=365)
+        policy = VintageWindowPolicy(max_age_days=365)
 
         # Use end of year as current date
         current_date = datetime(2024, 12, 31)
@@ -269,7 +269,7 @@ class TestOrchestratorVintage:
         Verifies that metadata accurately reflects filtering results.
 
         """
-        policy = VintagePolicy(max_age_days=30)
+        policy = VintageWindowPolicy(max_age_days=30)
         current_date = datetime(2024, 12, 15)
 
         metadata = policy.compute_vintage_metadata(

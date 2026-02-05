@@ -467,6 +467,50 @@ def test_refresh_decision_metadata_includes_prediction_surface_metadata(
     assert decision_metadata.get("version") == "v1"
 
 
+def test_refresh_decision_metadata_includes_calibration_from_model_metadata(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+) -> None:
+    """
+    Ensure calibration metadata in model metadata flows into decision metadata.
+    """
+    import msgspec
+
+    class _ConcreteActor(BaseMLInferenceActor):
+        def _load_model(self) -> None:
+            return None
+
+        def _initialize_features(self) -> None:
+            return None
+
+        def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
+            return np.zeros(2, dtype=np.float32)
+
+        def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
+            return 0.5, 0.5
+
+    config = msgspec.structs.replace(
+        base_ml_config,
+        model_path=str(dummy_onnx_model),
+    )
+    actor = _ConcreteActor(config)
+    actor._model_id = "model-test"
+    actor._model_version = "v1"
+    actor._model_metadata = {
+        "calibration": {"kind": "platt", "params": {"coef": 1.1, "intercept": -0.2}},
+    }
+    actor._refresh_decision_metadata_payload()
+
+    metadata = actor._signal_metadata_extra
+    assert isinstance(metadata, dict)
+    decision_metadata = metadata.get("decision_metadata")
+    assert isinstance(decision_metadata, dict)
+    assert decision_metadata.get("calibration") == {
+        "kind": "platt",
+        "params": {"coef": 1.1, "intercept": -0.2},
+    }
+
+
 def test_facade_delegates_health_monitoring_to_components(
     concrete_ml_inference_actor,
 ):

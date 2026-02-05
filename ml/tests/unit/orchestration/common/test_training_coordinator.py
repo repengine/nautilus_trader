@@ -16,9 +16,14 @@ from unittest.mock import Mock
 
 import pytest
 
+from ml.orchestration.config_types import HPOConfig
+from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
 from ml.orchestration.training_coordinator import TrainingCoordinator
+from ml.tests.utils.targets import build_default_target_semantics
+from ml.training.datasets.target_generator import build_target_semantics_metadata
 
+TARGET_SEMANTICS = build_target_semantics_metadata(build_default_target_semantics())
 
 # ============================= Fixtures =============================
 
@@ -89,6 +94,24 @@ def sample_distillation_config() -> Mock:
     config.distillation_temperature = 3.0
     config.alpha = 0.5  # Weight for distillation loss
     return config
+
+
+def _write_dataset_metadata(
+    dataset_dir: Path,
+    *,
+    target_semantics: dict[str, object] | None,
+    target_col: str = "y",
+) -> Path:
+    payload: dict[str, object] = {
+        "dataset_id": "dataset",
+        "build_ts": "2025-01-01T00:00:00Z",
+        "column_info": {"target_col": target_col},
+    }
+    if target_semantics is not None:
+        payload["target_semantics"] = target_semantics
+    metadata_path = dataset_dir / "dataset_metadata.json"
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+    return metadata_path
 
 
 @pytest.fixture
@@ -237,6 +260,64 @@ def test_run_hpo_returns_success_placeholder(
 
 
 @pytest.mark.unit
+def test_run_hpo_requires_target_semantics_metadata(
+    model_store: Mock,
+    model_registry: Mock,
+    tmp_path: Path,
+) -> None:
+    """Verify run_hpo() enforces target semantics metadata."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    dataset_csv = dataset_dir / "dataset.csv"
+    dataset_csv.write_text("timestamp,close\n1704067200,100.0\n", encoding="utf-8")
+    _write_dataset_metadata(dataset_dir, target_semantics=None)
+
+    cfg = HPOConfig(enabled=True)
+
+    coordinator = TrainingCoordinator(
+        model_store=model_store,
+        model_registry=model_registry,
+        hpo_main=lambda _: 0,
+        teacher_main=None,
+        distill_cli=None,
+    )
+
+    with pytest.raises(ValueError, match="dataset metadata missing target_semantics"):
+        coordinator.run_hpo(cfg, dataset_csv, dataset_dir)
+
+
+@pytest.mark.unit
+def test_run_hpo_requires_target_col_declared(
+    model_store: Mock,
+    model_registry: Mock,
+    tmp_path: Path,
+) -> None:
+    """Verify run_hpo() enforces target column alignment with semantics."""
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    dataset_csv = dataset_dir / "dataset.csv"
+    dataset_csv.write_text("timestamp,close\n1704067200,100.0\n", encoding="utf-8")
+    _write_dataset_metadata(
+        dataset_dir,
+        target_semantics=TARGET_SEMANTICS,
+        target_col="missing_target",
+    )
+
+    cfg = HPOConfig(enabled=True)
+
+    coordinator = TrainingCoordinator(
+        model_store=model_store,
+        model_registry=model_registry,
+        hpo_main=lambda _: 0,
+        teacher_main=None,
+        distill_cli=None,
+    )
+
+    with pytest.raises(ValueError, match="target_col 'missing_target'"):
+        coordinator.run_hpo(cfg, dataset_csv, dataset_dir)
+
+
+@pytest.mark.unit
 def test_train_teacher_returns_success_placeholder(
     training_coordinator: TrainingCoordinator,
     sample_training_config: Mock,
@@ -276,6 +357,54 @@ def test_distill_student_returns_success_placeholder(
     )
     assert result == 0  # Success (disabled skips)
     assert isinstance(result, int)
+
+
+@pytest.mark.unit
+def test_distill_student_requires_target_semantics_metadata(
+    training_coordinator: TrainingCoordinator,
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "features_npz.npz").touch()
+    (dataset_dir / "teacher_preds.npz").touch()
+    _write_dataset_metadata(dataset_dir, target_semantics=None)
+
+    cfg = StudentDistillConfig(
+        enabled=True,
+        model_id="student",
+        model_registry_dir=str(tmp_path / "model_registry"),
+        feature_registry_dir=str(tmp_path / "feature_registry"),
+        feature_set_id="feature_set",
+    )
+    teacher_cfg = TeacherTrainConfig(target_col="target_bin_15m")
+
+    with pytest.raises(ValueError, match="dataset metadata missing target_semantics"):
+        training_coordinator.distill_student(cfg, dataset_dir=dataset_dir, teacher_cfg=teacher_cfg)
+
+
+@pytest.mark.unit
+def test_distill_student_requires_target_col_declared(
+    training_coordinator: TrainingCoordinator,
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    (dataset_dir / "features_npz.npz").touch()
+    (dataset_dir / "teacher_preds.npz").touch()
+    _write_dataset_metadata(dataset_dir, target_semantics=TARGET_SEMANTICS)
+
+    cfg = StudentDistillConfig(
+        enabled=True,
+        model_id="student",
+        model_registry_dir=str(tmp_path / "model_registry"),
+        feature_registry_dir=str(tmp_path / "feature_registry"),
+        feature_set_id="feature_set",
+    )
+    teacher_cfg = TeacherTrainConfig(target_col="missing_target")
+
+    with pytest.raises(ValueError, match="target_col 'missing_target'"):
+        training_coordinator.distill_student(cfg, dataset_dir=dataset_dir, teacher_cfg=teacher_cfg)
 
 
 @pytest.mark.unit
@@ -361,12 +490,14 @@ def test_train_teacher_builds_cli_args(
         "dataset_id": "test_dataset",
         "vintage_policy": "real_time",
         "vintage_cutoff": None,
+        "target_semantics": TARGET_SEMANTICS,
     }
     (dataset_dir / "dataset_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
 
     cfg = TeacherTrainConfig(
         enabled=True,
         model_id="teacher_X",
+        target_col="target_bin_15m",
         batch_size=128,
         dataloader_workers=2,
         accelerator="cpu",
@@ -422,3 +553,74 @@ def test_train_teacher_builds_cli_args(
     assert _arg_value("--decision_policy") == "ml.policy.Policy"
     decision_payload = json.loads(_arg_value("--decision_config"))
     assert decision_payload == {"alpha": 0.5}
+
+
+@pytest.mark.unit
+def test_train_teacher_when_target_col_not_in_semantics_raises_value_error(
+    model_store: Mock,
+    model_registry: Mock,
+    tmp_path: Path,
+) -> None:
+    """Verify train_teacher() enforces target column alignment with semantics."""
+    coordinator = TrainingCoordinator(
+        model_store=model_store,
+        model_registry=model_registry,
+        hpo_main=None,
+        teacher_main=lambda _: 0,
+        distill_cli=None,
+    )
+
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    dataset_csv = dataset_dir / "dataset.csv"
+    dataset_csv.write_text("timestamp,close\n1704067200,100.0\n", encoding="utf-8")
+    metadata = {
+        "dataset_id": "test_dataset",
+        "vintage_policy": "real_time",
+        "vintage_cutoff": None,
+        "target_semantics": TARGET_SEMANTICS,
+    }
+    (dataset_dir / "dataset_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    cfg = TeacherTrainConfig(
+        enabled=True,
+        model_id="teacher_X",
+    )
+
+    with pytest.raises(ValueError, match="target_col"):
+        coordinator.train_teacher(cfg, dataset_csv, dataset_dir)
+
+
+@pytest.mark.unit
+def test_train_teacher_when_target_semantics_missing_raises_value_error(
+    model_store: Mock,
+    model_registry: Mock,
+    tmp_path: Path,
+) -> None:
+    """Verify train_teacher() enforces target semantics metadata."""
+    coordinator = TrainingCoordinator(
+        model_store=model_store,
+        model_registry=model_registry,
+        hpo_main=None,
+        teacher_main=lambda _: 0,
+        distill_cli=None,
+    )
+
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    dataset_csv = dataset_dir / "dataset.csv"
+    dataset_csv.write_text("timestamp,close\n1704067200,100.0\n", encoding="utf-8")
+    metadata = {
+        "dataset_id": "test_dataset",
+        "vintage_policy": "real_time",
+        "vintage_cutoff": None,
+    }
+    (dataset_dir / "dataset_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    cfg = TeacherTrainConfig(
+        enabled=True,
+        model_id="teacher_X",
+    )
+
+    with pytest.raises(ValueError, match="target_semantics"):
+        coordinator.train_teacher(cfg, dataset_csv, dataset_dir)

@@ -29,8 +29,10 @@ from ml.registry.common.data_persistence import DataPersistenceComponent
 from ml.registry.common.deployment_manager import DeploymentManagerComponent
 from ml.registry.common.event_emission import EventEmissionComponent
 from ml.registry.common.lineage_tracker import LineageTrackerComponent
+from ml.registry.common.manifest_defaults import resolve_primary_keys
 from ml.registry.common.manifest_manager import ManifestManagerComponent
 from ml.registry.common.model_persistence import ModelPersistenceComponent
+from ml.registry.common.sql_utils import set_instrumentation_search_path
 from ml.registry.common.version_manager import VersionManagerComponent
 from ml.registry.common.watermark_manager import WatermarkManagerComponent
 
@@ -45,4 +47,6 @@ __all__ = [
     "ModelPersistenceComponent",
     "VersionManagerComponent",
     "WatermarkManagerComponent",
+    "resolve_primary_keys",
+    "set_instrumentation_search_path",
 ]

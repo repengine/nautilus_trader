@@ -25,7 +25,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -33,8 +33,13 @@ import numpy.typing as npt
 from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
+from ml.common.validation_strategies import DEFAULT_HOLDOUT_STRATEGY
+from ml.common.validation_strategies import HOLDOUT_STRATEGIES
+from ml.common.validation_strategies import require_holdout_strategy
 from ml.data import DatasetMetadataExpectations
 from ml.data import load_dataset_metadata
+from ml.data import require_target_column_in_semantics
+from ml.data import require_target_semantics_metadata
 from ml.data import validate_dataset_metadata_expectations
 from ml.data.vintage import VintagePolicy
 from ml.registry.feature_registry import FeatureRegistry
@@ -44,6 +49,9 @@ from ml.training.teacher.base import TeacherConfig
 
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from pandas import DataFrame
 
 
 def _resolve_tft_feature_columns(
@@ -118,6 +126,96 @@ def _resolve_tft_feature_columns(
         encoded_cols.append(name)
 
     return numeric_cols, static_cols, encoded_cols
+
+
+def _resolve_validation_split(
+    df_sorted: DataFrame,
+    *,
+    validation_strategy: str,
+    val_days: int,
+    timestamp_col: str,
+    test_fraction: float,
+    cv_splits: int,
+    purge_gap: int,
+    embargo_hours: float,
+    embargo_pct: float | None,
+) -> tuple[DataFrame, DataFrame]:
+    """
+    Resolve train/validation splits based on the requested strategy.
+
+    Parameters
+    ----------
+    df_sorted : pd.DataFrame
+        Dataset sorted by time index.
+    validation_strategy : str
+        Validation strategy ("time_window" or "purged").
+    val_days : int
+        Number of days for time-window validation.
+    timestamp_col : str
+        Timestamp column name.
+    test_fraction : float
+        Hold-out fraction for test splits when using purged validation.
+    cv_splits : int
+        Number of purged cross-validation splits to generate.
+    purge_gap : int
+        Purge gap between train and validation folds.
+    embargo_hours : float
+        Embargo window in hours for derived embargo percentage.
+    embargo_pct : float | None
+        Optional embargo percentage override.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        Training and validation dataframes.
+    """
+    if not HAS_PANDAS or pd is None:
+        check_ml_dependencies(["pandas"])
+        raise ImportError("pandas is required for validation splits")
+
+    strategy = require_holdout_strategy(validation_strategy)
+    if strategy == "time_window":
+        if val_days <= 0:
+            raise ValueError("validation_strategy=time_window requires val_days > 0")
+        if timestamp_col not in df_sorted.columns:
+            raise ValueError(
+                f"timestamp_col '{timestamp_col}' required for time_window validation",
+            )
+        ts = pd.to_datetime(df_sorted[timestamp_col], errors="coerce")
+        df_sorted = df_sorted.assign(_ts=ts)
+        max_ts = df_sorted["_ts"].max()
+        if pd.isna(max_ts):
+            raise ValueError("timestamp_col could not be parsed for time_window validation")
+        cutoff_ts = max_ts - pd.Timedelta(days=val_days)
+        mask_val = df_sorted["_ts"] > cutoff_ts
+        df_val = df_sorted.loc[mask_val].drop(columns=["_ts"], errors="ignore")
+        df_train = df_sorted.loc[~mask_val].drop(columns=["_ts"], errors="ignore")
+        if df_val.empty or df_train.empty:
+            raise ValueError("time_window split produced empty train/val partitions")
+        return df_train, df_val
+
+    if timestamp_col not in df_sorted.columns:
+        raise ValueError(f"timestamp_col '{timestamp_col}' required for purged validation")
+    if cv_splits < 2:
+        raise ValueError("purged validation requires cv_splits >= 2")
+
+    split_info = create_purged_splits(
+        df_sorted,
+        timestamp_col=timestamp_col,
+        test_fraction=float(test_fraction),
+        n_splits=int(cv_splits),
+        purge_gap=int(purge_gap),
+        embargo_hours=float(embargo_hours),
+        embargo_pct=embargo_pct,
+    )
+    if not split_info["cv_splits"]:
+        raise ValueError("purged validation produced no CV splits")
+    train_idx, val_idx = split_info["cv_splits"][-1]
+    df_train = df_sorted.iloc[train_idx]
+    df_val = df_sorted.iloc[val_idx]
+    if df_val.empty or df_train.empty:
+        raise ValueError("purged split produced empty train/val partitions")
+    return df_train, df_val
 
 
 def _compute_sharpe_ratio(
@@ -284,7 +382,12 @@ def main(argv: list[str] | None = None) -> int:
     # Optional training mode
     ap.add_argument("--train_data_csv", required=False, help="CSV with training data")
     ap.add_argument("--train_data_parquet", required=False, help="Parquet with training data")
-    ap.add_argument("--target_col", required=False, default="y")
+    ap.add_argument(
+        "--target_col",
+        required=False,
+        default="y",
+        help="Target column name declared in target_semantics labels (or legacy_aliases when enabled).",
+    )
     ap.add_argument("--time_index_col", required=False, default="time_index")
     ap.add_argument("--timestamp_col", required=False, default="timestamp")
     ap.add_argument("--group_id_col", required=False, default="instrument_id")
@@ -306,11 +409,26 @@ def main(argv: list[str] | None = None) -> int:
         help="If >0 and timestamp column exists, use last N days for validation",
     )
     ap.add_argument(
+        "--validation_strategy",
+        "--cv_strategy",
+        dest="validation_strategy",
+        choices=list(HOLDOUT_STRATEGIES),
+        default=DEFAULT_HOLDOUT_STRATEGY,
+        help="Validation strategy: time_window or purged (default: purged)",
+    )
+    ap.add_argument(
         "--embargo_hours",
         required=False,
         type=float,
         default=24.0,
         help="Embargo window in hours for purged splits",
+    )
+    ap.add_argument(
+        "--embargo_pct",
+        required=False,
+        type=float,
+        default=None,
+        help="Embargo percentage for purged splits (overrides --embargo_hours)",
     )
     ap.add_argument(
         "--purge_gap",
@@ -478,6 +596,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if metadata.dataset_id is None:
             raise ValueError("dataset_metadata.json must include dataset_id when training a teacher")
+        require_target_semantics_metadata(metadata, context="tft_cli")
+        require_target_column_in_semantics(metadata, args.target_col, context="tft_cli")
     elif metadata_path is not None:
         metadata = load_dataset_metadata(metadata_path)
         expected_policy = (
@@ -495,6 +615,8 @@ def main(argv: list[str] | None = None) -> int:
             expectations,
             context="tft_cli",
         )
+        require_target_semantics_metadata(metadata, context="tft_cli")
+        require_target_column_in_semantics(metadata, args.target_col, context="tft_cli")
 
     if metadata_path is not None and args.dataset_metadata is None:
         args.dataset_metadata = str(metadata_path)
@@ -573,50 +695,24 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 # Fallback: global tail if groupby-tail not available
                 df_sorted = df_sorted.tail(int(args.tail_rows)).reset_index(drop=True)
-        # Prefer time-based validation window if requested and timestamp is available
-        _df_train = None
-        df_val = None
-        use_time_window = (
-            int(getattr(args, "val_days", 0) or 0) > 0 and args.timestamp_col in df_sorted.columns
+        df_sorted = df_sorted.reset_index(drop=True)
+        _df_train, df_val = _resolve_validation_split(
+            df_sorted,
+            validation_strategy=str(args.validation_strategy),
+            val_days=int(args.val_days),
+            timestamp_col=str(args.timestamp_col),
+            test_fraction=float(args.test_fraction),
+            cv_splits=int(args.cv_splits),
+            purge_gap=int(args.purge_gap),
+            embargo_hours=float(args.embargo_hours),
+            embargo_pct=(
+                float(args.embargo_pct)
+                if getattr(args, "embargo_pct", None) is not None
+                else None
+            ),
         )
-        if use_time_window:
-            try:
-                ts = pd.to_datetime(df_sorted[args.timestamp_col], errors="coerce")
-                df_sorted = df_sorted.assign(_ts=ts)
-                max_ts = df_sorted["_ts"].max()
-                if pd.notna(max_ts):
-                    cutoff_ts = max_ts - pd.Timedelta(days=int(args.val_days))
-                    mask_val = df_sorted["_ts"] > cutoff_ts
-                    df_val = df_sorted.loc[mask_val].drop(columns=["_ts"], errors="ignore")
-                    _df_train = df_sorted.loc[~mask_val].drop(columns=["_ts"], errors="ignore")
-            except Exception:
-                _df_train = None
-                df_val = None
-
-        if (_df_train is None or df_val is None or len(df_val) == 0) and not use_time_window:
-            try:
-                split_info = create_purged_splits(
-                    df_sorted,
-                    timestamp_col=args.timestamp_col,
-                    test_fraction=float(args.test_fraction),
-                    n_splits=int(args.cv_splits),
-                    purge_gap=int(args.purge_gap),
-                    embargo_hours=float(args.embargo_hours),
-                )
-                if split_info["cv_splits"]:
-                    train_idx, val_idx = split_info["cv_splits"][-1]
-                    _df_train = df_sorted.iloc[train_idx]
-                    df_val = df_sorted.iloc[val_idx]
-            except Exception:
-                _df_train = None
-                df_val = None
-
-        if _df_train is None or df_val is None or len(df_val) == 0:
-            n_total = len(df_sorted)
-            min_val_len = max(int(n_total * 0.2), 1)
-            cutoff = max(int(n_total * 0.8), n_total - min_val_len)
-            _df_train = df_sorted.iloc[:cutoff]
-            df_val = df_sorted.iloc[cutoff:]
+        train_indices = np.asarray(_df_train.index.to_numpy(), dtype=np.int64)
+        val_indices = np.asarray(df_val.index.to_numpy(), dtype=np.int64)
         y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
         if "forward_return" in df_val.columns:
             try:
@@ -716,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Fallback path 1: predict on the full sorted frame and slice
                 try:
                     z_all = teacher_tft.predict_logits(df_sorted)
-                    z_val_vec = z_all[cutoff:]
+                    z_val_vec = z_all[val_indices]
                     # use original df_val labels already assigned above
                 except Exception:
                     z_val_vec = None
@@ -732,7 +828,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 try:
                     if z_all is not None:
-                        z_train_vec = z_all[:cutoff]
+                        z_train_vec = z_all[train_indices]
                     else:
                         z_train_vec = None
                 except Exception:

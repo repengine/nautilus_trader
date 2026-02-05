@@ -128,14 +128,15 @@ def test_build_tft_dataset_when_chunked_adds_known_future_features(
 
     df = pl.read_parquet(result.dataset_parquet)
     expected_cols = {
-        "tod_sin",
-        "tod_cos",
-        "dow",
+        "hour_sin",
+        "hour_cos",
+        "minute_sin",
+        "minute_cos",
         "dow_sin",
         "dow_cos",
-        "is_market_open",
-        "is_premarket",
-        "is_aftermarket",
+        "is_market_hours",
+        "is_pre_market",
+        "is_after_hours",
     }
     assert expected_cols.issubset(set(df.columns))
     assert df.height > 0

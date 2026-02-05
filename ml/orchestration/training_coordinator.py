@@ -23,6 +23,9 @@ from typing import Protocol
 
 from ml.data import DatasetMetadata
 from ml.data import load_dataset_metadata
+from ml.data import require_target_column_in_semantics
+from ml.data import require_target_semantics_metadata
+from ml.data import resolve_target_col_from_metadata
 from ml.orchestration.config_types import HPOConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
@@ -237,6 +240,26 @@ class TrainingCoordinator:
             return 0
 
         artifacts = self._build_artifacts
+        metadata_path = dataset_csv.parent / "dataset_metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"Dataset metadata missing at {metadata_path}")
+
+        if artifacts and artifacts.dataset_metadata is not None:
+            metadata_source = artifacts.dataset_metadata
+        else:
+            metadata_source = load_dataset_metadata(metadata_path)
+
+        require_target_semantics_metadata(metadata_source, context="run_hpo")
+        resolved_target_col = resolve_target_col_from_metadata(
+            metadata_path,
+            context="run_hpo",
+        )
+        require_target_column_in_semantics(
+            metadata_source,
+            resolved_target_col,
+            context="run_hpo",
+        )
+
         dataset_parquet_candidates = (
             dataset_csv.with_name("dataset_with_vintage_age.parquet"),
             dataset_csv.with_name("dataset.parquet"),
@@ -258,6 +281,10 @@ class TrainingCoordinator:
             *dataset_args,
             "--out_dir",
             str(out_dir),
+            "--dataset_metadata",
+            str(metadata_path),
+            "--target_col",
+            resolved_target_col,
             "--epochs",
             str(cfg.epochs),
             "--batch_size",
@@ -355,6 +382,15 @@ class TrainingCoordinator:
 
         if metadata_source is None or metadata_source.dataset_id is None:
             raise ValueError("Dataset metadata must include dataset_id before teacher training")
+        require_target_semantics_metadata(
+            metadata_source,
+            context="train_teacher",
+        )
+        require_target_column_in_semantics(
+            metadata_source,
+            cfg.target_col,
+            context="train_teacher",
+        )
 
         dataset_parquet_candidates = (
             dataset_csv.with_name("dataset_with_vintage_age.parquet"),
@@ -402,8 +438,14 @@ class TrainingCoordinator:
             str(cfg.max_prediction_length),
             "--val_days",
             str(cfg.val_days),
+            "--validation_strategy",
+            str(cfg.validation_strategy),
             "--embargo_hours",
             str(cfg.embargo_hours),
+        ]
+        if cfg.embargo_pct is not None:
+            args += ["--embargo_pct", str(cfg.embargo_pct)]
+        args += [
             "--purge_gap",
             str(cfg.purge_gap),
             "--cv_splits",
@@ -514,7 +556,30 @@ class TrainingCoordinator:
             )
             return 1
 
+        metadata_path = dataset_dir / "dataset_metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"Dataset metadata missing at {metadata_path}")
+
         artifacts = self._build_artifacts
+        metadata_source: DatasetMetadata | None = None
+        if artifacts and artifacts.dataset_metadata is not None:
+            metadata_source = artifacts.dataset_metadata
+        else:
+            metadata_source = load_dataset_metadata(metadata_path)
+
+        require_target_semantics_metadata(metadata_source, context="distill_student")
+
+        resolved_target_col = (
+            teacher_cfg.target_col
+            if teacher_cfg is not None
+            else resolve_target_col_from_metadata(metadata_path, context="distill_student")
+        )
+        require_target_column_in_semantics(
+            metadata_source,
+            resolved_target_col,
+            context="distill_student",
+        )
+
         feature_registry_dir = cfg.feature_registry_dir or (
             artifacts.feature_registry_dir if artifacts else None
         )

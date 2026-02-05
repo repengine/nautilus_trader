@@ -112,7 +112,7 @@ class TestFeatureTransformMetamorphic:
     )
     @settings(max_examples=5, deadline=3000)
     def test_trade_flow_scaling_invariance(self, scale_factor: float, prices: list[float]) -> None:
-        cfg = FeatureConfig(include_trade_flow=True, data_requirements=DataRequirements.L1_L2)
+        cfg = FeatureConfig(include_trade_flow=True, data_requirements=DataRequirements.L1_L2_L3)
 
         base_df = pd.DataFrame(
             {
@@ -188,7 +188,7 @@ class TestFeatureTransformMetamorphic:
         prices = prices[:assume_len]
         volumes = volumes[:assume_len]
 
-        cfg = FeatureConfig(include_trade_flow=True)
+        cfg = FeatureConfig(include_trade_flow=True, data_requirements=DataRequirements.L1_L2_L3)
         engineer_with_trades = FeatureEngineer(cfg)
         engineer_ohlcv_only = FeatureEngineer(cfg)
 

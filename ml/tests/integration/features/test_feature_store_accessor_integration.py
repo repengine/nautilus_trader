@@ -76,9 +76,9 @@ class TestFeatureStoreAccessorIntegration:
 
         # Prepare test data
         features_df = pd.DataFrame({
-            "sma_20": [100.5, 101.2, 102.3],
+            "price_sma_20": [100.5, 101.2, 102.3],
             "rsi_14": [55.3, 58.7, 60.1],
-            "volume_ratio": [1.2, 0.9, 1.5],
+            "volume_ratio_20": [1.2, 0.9, 1.5],
         })
         instrument_id = "SPY"
         ts_event = 1609459200000000000
@@ -170,7 +170,7 @@ class TestFeatureStoreAccessorIntegration:
         accessor = FeatureStoreAccessor(feature_store=mock_store)
 
         # Write features for SPY
-        spy_features = pd.DataFrame({"sma_20": [100.5], "rsi_14": [55.3]})
+        spy_features = pd.DataFrame({"price_sma_20": [100.5], "rsi_14": [55.3]})
         accessor.write_features_to_store(
             "SPY",
             spy_features,
@@ -179,7 +179,7 @@ class TestFeatureStoreAccessorIntegration:
         )
 
         # Write features for QQQ
-        qqq_features = pd.DataFrame({"sma_20": [200.5], "rsi_14": [65.3]})
+        qqq_features = pd.DataFrame({"price_sma_20": [200.5], "rsi_14": [65.3]})
         accessor.write_features_to_store(
             "QQQ",
             qqq_features,
@@ -206,5 +206,5 @@ class TestFeatureStoreAccessorIntegration:
         assert qqq_read is not None
         assert all(spy_read["instrument_id"] == "SPY")
         assert all(qqq_read["instrument_id"] == "QQQ")
-        assert spy_read["sma_20"].iloc[0] == 100.5
-        assert qqq_read["sma_20"].iloc[0] == 200.5
+        assert spy_read["price_sma_20"].iloc[0] == 100.5
+        assert qqq_read["price_sma_20"].iloc[0] == 200.5

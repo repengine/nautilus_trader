@@ -139,7 +139,7 @@ def create_mock_feature_engineer(
         batch_features = MockPolarsDataFrame(
             data={
                 "close_return": [0.01, 0.02],
-                "volume_ratio": [1.5, 1.6],
+                "volume_ratio_20": [1.5, 1.6],
             },
         )
     engineer.calculate_features_batch.return_value = (batch_features, None)
@@ -225,8 +225,8 @@ def feature_computation(
         feature_writer=mock_feature_writer,
         feature_reader=mock_feature_reader,
         get_feature_set_id=lambda: "fs_test_001",
-        get_feature_names=lambda: ["close_return", "volume_ratio"],
-        get_feature_names_online=lambda: ["close_return", "volume_ratio"],
+        get_feature_names=lambda: ["close_return", "volume_ratio_20"],
+        get_feature_names_online=lambda: ["close_return", "volume_ratio_20"],
     )
 
 

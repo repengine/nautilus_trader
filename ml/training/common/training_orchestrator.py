@@ -27,6 +27,9 @@ import numpy as np
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
+from ml.data import load_dataset_metadata
+from ml.data import require_target_column_in_semantics
+from ml.data import require_target_semantics_metadata
 
 
 if TYPE_CHECKING:
@@ -265,6 +268,7 @@ class TrainingOrchestratorComponent:
         >>> print(f"Training time: {results['metrics']['training_time']:.2f}s")
 
         """
+        self._validate_dataset_target_semantics()
         start_time = time.perf_counter()
 
         if not HAS_POLARS:
@@ -399,6 +403,44 @@ class TrainingOrchestratorComponent:
             "config": self._trainer._config,
             "best_params": best_params,
         }
+
+    def _validate_dataset_target_semantics(self) -> None:
+        """
+        Validate target semantics against dataset metadata when available.
+        """
+        cfg = self._trainer._config
+        data_source = getattr(cfg, "data_source", None)
+        if not data_source:
+            return
+
+        metadata_path = self._resolve_dataset_metadata_path(str(data_source))
+        if metadata_path is None:
+            return
+
+        metadata = load_dataset_metadata(metadata_path)
+        require_target_semantics_metadata(metadata, context="training_orchestrator")
+        require_target_column_in_semantics(
+            metadata,
+            cfg.target_column,
+            context="training_orchestrator",
+        )
+
+    @staticmethod
+    def _resolve_dataset_metadata_path(data_source: str) -> Path | None:
+        """
+        Resolve dataset metadata path for a training data source.
+        """
+        data_path = Path(data_source).expanduser()
+        if not data_path.exists():
+            return None
+        metadata_path = (
+            data_path / "dataset_metadata.json"
+            if data_path.is_dir()
+            else data_path.with_name("dataset_metadata.json")
+        )
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"Dataset metadata missing at {metadata_path}")
+        return metadata_path
 
     def _log_info(self, message: str, *args: object, **kwargs: Any) -> None:
         """

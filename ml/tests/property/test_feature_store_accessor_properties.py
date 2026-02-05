@@ -97,7 +97,7 @@ class TestFeatureStoreAccessorProperties:
 
         # Write features with the generated timestamps
         for ts_event in ts_events:
-            features = pd.DataFrame({"sma_20": [100.5], "rsi_14": [55.3]})
+            features = pd.DataFrame({"price_sma_20": [100.5], "rsi_14": [55.3]})
             accessor.write_features_to_store(
                 "SPY",
                 features,

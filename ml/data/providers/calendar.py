@@ -82,11 +82,14 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
             DataFrame with calendar features:
             - timestamp: int
             - is_trading_day: bool
+            - is_market_hours: bool
             - is_pre_market: bool
             - is_after_hours: bool
             - minutes_to_close: int
             - hour_sin: float
             - hour_cos: float
+            - minute_sin: float
+            - minute_cos: float
             - dow_sin: float (day of week)
             - dow_cos: float
             - month_sin: float
@@ -95,6 +98,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
             - is_month_start: bool
             - is_month_end: bool
             - days_to_month_end: int
+            - days_from_month_start: int
 
         """
         if pl_runtime is None:
@@ -112,6 +116,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
 
                 # Time encodings
                 hour_sin, hour_cos = cyclic_encode(dt.hour + dt.minute / 60, 24)
+                minute_sin, minute_cos = cyclic_encode(dt.minute, 60)
                 dow_sin, dow_cos = cyclic_encode(dt.weekday(), 7)
                 month_sin, month_cos = cyclic_encode(dt.month - 1, 12)
 
@@ -130,11 +135,14 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
                     {
                         "timestamp": ts,
                         "is_trading_day": schedule.is_trading_day,
+                        "is_market_hours": schedule.is_market_hours,
                         "is_pre_market": schedule.is_pre_market,
                         "is_after_hours": schedule.is_after_hours,
                         "minutes_to_close": schedule.minutes_to_close,
                         "hour_sin": hour_sin,
                         "hour_cos": hour_cos,
+                        "minute_sin": minute_sin,
+                        "minute_cos": minute_cos,
                         "dow_sin": dow_sin,
                         "dow_cos": dow_cos,
                         "month_sin": month_sin,
@@ -196,6 +204,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
         """
         # Time encodings (always available)
         hour_sin, hour_cos = cyclic_encode(dt.hour + dt.minute / 60, 24)
+        minute_sin, minute_cos = cyclic_encode(dt.minute, 60)
         dow_sin, dow_cos = cyclic_encode(dt.weekday(), 7)
         month_sin, month_cos = cyclic_encode(dt.month - 1, 12)
 
@@ -213,11 +222,14 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
         return {
             "timestamp": timestamp,
             "is_trading_day": dt.weekday() < 5,  # Assume weekdays are trading days
+            "is_market_hours": False,
             "is_pre_market": False,
             "is_after_hours": False,
             "minutes_to_close": 0,
             "hour_sin": hour_sin,
             "hour_cos": hour_cos,
+            "minute_sin": minute_sin,
+            "minute_cos": minute_cos,
             "dow_sin": dow_sin,
             "dow_cos": dow_cos,
             "month_sin": month_sin,

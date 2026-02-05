@@ -22,6 +22,8 @@ import numpy as np
 import numpy.typing as npt
 
 from ml._imports import HAS_SKLEARN
+from ml.training.common.trading_costs import apply_round_trip_costs
+from ml.training.common.trading_costs import resolve_round_trip_cost_decimal
 
 
 if TYPE_CHECKING:
@@ -172,7 +174,8 @@ class EvaluationComponent:
         Calculate trading-specific performance metrics.
 
         Converts model predictions to trading signals and computes
-        strategy performance metrics.
+        strategy performance metrics. When a target cost model is configured,
+        round-trip costs are applied to the strategy returns.
 
         Parameters
         ----------
@@ -207,8 +210,16 @@ class EvaluationComponent:
         else:
             signals = np.sign(predictions)
 
-        # Calculate strategy returns
+        # Calculate gross strategy returns
         strategy_returns = returns * signals
+
+        # Apply round-trip costs when configured (Stage2 parity)
+        cost_decimal = resolve_round_trip_cost_decimal(self._trainer._config)
+        strategy_returns = apply_round_trip_costs(
+            strategy_returns=strategy_returns,
+            signals=signals,
+            cost_decimal=cost_decimal,
+        )
 
         # Remove any NaN or infinite values
         strategy_returns = strategy_returns[np.isfinite(strategy_returns)]

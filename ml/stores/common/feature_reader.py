@@ -191,7 +191,7 @@ class FeatureReaderComponent:
     ...     engine=engine,
     ...     table=feature_values_table,
     ...     get_feature_set_id=lambda: "fs_001",
-    ...     get_feature_names=lambda: ["close_return", "volume_ratio"],
+    ...     get_feature_names=lambda: ["close_return", "volume_ratio_20"],
     ... )
     >>> features, timestamps, names = reader.get_training_data(
     ...     instrument_id="SPY.DATABENTO",

@@ -17,8 +17,8 @@ from typing import Protocol
 
 from ml._imports import HAS_EDGARTOOLS
 from ml._imports import load_edgartools
-from ml.common.watermark_window import WatermarkRegistryProtocol
-from ml.common.watermark_window import resolve_watermark_start_date
+from ml.common import WatermarkRegistryProtocol
+from ml.common import resolve_watermark_start_date
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.earnings_ingestion import EarningsIngestionConfig

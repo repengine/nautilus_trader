@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import pytest
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import OrderBookDepth10
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 
 from ml.registry.dataclasses import DatasetType
 from ml.schema import DEFAULT_BAR_IDENTIFIER_TEMPLATE
+from ml.schema import DATASET_TYPE_REQUIRES_INSTRUMENT_ID
 from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
 from ml.schema import default_identifier_template_for_dataset_type
 from ml.schema import map_schema_to_dataset_type
@@ -21,14 +24,26 @@ from ml.stores.providers import resolve_catalog_identifier
 @pytest.mark.unit
 def test_schema_spec_includes_dataset_type_and_template() -> None:
     spec = schema_spec_for("mbp-1")
+    mbp10_spec = schema_spec_for("mbp-10")
+    mbo_spec = schema_spec_for("mbo")
 
     assert spec.dataset_type is DatasetType.MBP1
     assert spec.data_class is QuoteTick
+    assert mbp10_spec.dataset_type is DatasetType.MBP10
+    assert mbp10_spec.data_class is OrderBookDepth10
+    assert mbo_spec.dataset_type is DatasetType.MBO
+    assert mbo_spec.data_class is OrderBookDelta
     assert spec.identifier_template == "{instrument_id}"
     assert map_schema_to_dataset_type("tbbo") is DatasetType.TBBO
     assert map_schema_to_dataset_type("quotes") is DatasetType.QUOTES
+    assert map_schema_to_dataset_type("mbp10") is DatasetType.MBP10
+    assert map_schema_to_dataset_type("mbp-10") is DatasetType.MBP10
+    assert map_schema_to_dataset_type("mbo") is DatasetType.MBO
     assert map_schema_to_dataset_type("predictions") is DatasetType.PREDICTIONS
     assert map_schema_to_dataset_type("signals") is DatasetType.SIGNALS
+    assert map_schema_to_dataset_type("order_events") is DatasetType.ORDER_EVENTS
+    assert map_schema_to_dataset_type("risk_halt_events") is DatasetType.RISK_HALT_EVENTS
+    assert map_schema_to_dataset_type("replay_summary") is DatasetType.REPLAY_SUMMARY
 
 
 @pytest.mark.unit
@@ -90,6 +105,18 @@ def test_validate_identifier_template_requires_instrument_id() -> None:
 
 
 @pytest.mark.unit
+def test_validate_identifier_template_allows_no_instrument_when_optional() -> None:
+    assert (
+        validate_identifier_template(
+            "replay_summary",
+            label="replay summary template",
+            require_instrument_id=False,
+        )
+        == "replay_summary"
+    )
+
+
+@pytest.mark.unit
 def test_validate_schema_identifier_templates_normalizes_keys() -> None:
     templates = {"TBBO": "{instrument_id}-TBBO"}
 
@@ -117,4 +144,7 @@ def test_validate_dataset_type_templates_rejects_non_dataset_type_key() -> None:
 @pytest.mark.unit
 def test_dataset_type_identifier_defaults_require_instrument_id() -> None:
     for dataset_type, template in DATASET_TYPE_IDENTIFIER_DEFAULTS.items():
-        assert "{instrument_id}" in template, f"{dataset_type} missing instrument_id template"
+        if DATASET_TYPE_REQUIRES_INSTRUMENT_ID.get(dataset_type, True):
+            assert "{instrument_id}" in template, (
+                f"{dataset_type} missing instrument_id template"
+            )

@@ -33,9 +33,9 @@ def mock_feature_store() -> Mock:
             "instrument_id": ["SPY", "SPY"],
             "ts_event": [1609459200000000000, 1609459300000000000],
             "ts_init": [1609459200000000100, 1609459300000000100],
-            "sma_20": [100.5, 101.2],
+            "price_sma_20": [100.5, 101.2],
             "rsi_14": [55.3, 58.7],
-            "volume_ratio": [1.2, 0.9],
+            "volume_ratio_20": [1.2, 0.9],
         }
     )
 
@@ -55,9 +55,9 @@ def sample_features_df() -> pd.DataFrame:
     """
     return pd.DataFrame(
         {
-            "sma_20": [100.5, 101.2, 102.3],
+            "price_sma_20": [100.5, 101.2, 102.3],
             "rsi_14": [55.3, 58.7, 60.1],
-            "volume_ratio": [1.2, 0.9, 1.5],
+            "volume_ratio_20": [1.2, 0.9, 1.5],
             "bb_upper": [105.0, 106.0, 107.0],
             "bb_lower": [95.0, 96.0, 97.0],
         }

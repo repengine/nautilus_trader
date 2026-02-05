@@ -29,11 +29,11 @@ from ml._imports import HAS_TORCH
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml._imports import sklearn
+from ml.common import current_rss_mb
 from ml.common.gpu_monitor import GPUMemoryMonitor
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
-from ml.common.resource_monitor import current_rss_mb
 from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import CurriculumGuardContext
 from ml.config.streaming_pipeline import CurriculumResolution

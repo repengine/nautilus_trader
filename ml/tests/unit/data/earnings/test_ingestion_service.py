@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from ml.config.earnings_ingestion import EarningsIngestionConfig
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config import WatermarkWindowConfig
 from ml.data.earnings.edgar_fetcher import EarningsActual
 from ml.data.earnings.ingestion_service import EarningsIngestionService
 from ml.data.earnings.yahoo_fetcher import EarningsConsensus

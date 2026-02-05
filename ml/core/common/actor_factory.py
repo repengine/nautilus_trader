@@ -131,6 +131,16 @@ class ActorFactoryComponent:
             except Exception:
                 logger.exception("Failed to attach db_connection to config")
 
+        # Route MLSignalActor configs to the appropriate implementation.
+        try:
+            from ml.actors.signal import MLSignalActor
+            from ml.actors.signal import create_signal_actor
+
+            if actor_class is MLSignalActor:
+                return create_signal_actor(cast(Any, config))
+        except Exception:
+            logger.debug("actor_factory_signal_dispatch_skipped", exc_info=True)
+
         # Create actor - stores are automatically initialized by the base class
         actor = actor_class(config=config)
 
@@ -322,7 +332,7 @@ class ActorFactoryComponent:
         ...     "instrument_id": "BTC.USD",
         ...     "ts_event": 1000000000,
         ...     "event_id": "evt_001",
-        ...     "payload": {"feature_name": "sma_20"},
+        ...     "payload": {"feature_name": "price_sma_20"},
         ... }
         >>> result = component.emit_cascade(source, "model", delay_ns=100)
         >>> assert result["correlation_id"] == "abc123"

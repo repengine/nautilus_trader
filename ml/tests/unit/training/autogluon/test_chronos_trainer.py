@@ -181,13 +181,13 @@ class TestAutoGluonDataConfig:
     def test_custom_covariates(self) -> None:
         """Test configuration with custom covariates."""
         config = AutoGluonDataConfig(
-            known_covariates=("hour", "dow", "holiday"),
-            past_covariates=("return_1", "volume_ratio"),
+            known_covariates=("hour_sin", "dow_sin", "is_weekend"),
+            past_covariates=("return_1", "volume_ratio_20"),
             static_features=("asset_class", "exchange"),
         )
 
         assert len(config.known_covariates) == 3
-        assert "hour" in config.known_covariates
+        assert "hour_sin" in config.known_covariates
         assert len(config.past_covariates) == 2
         assert len(config.static_features) == 2
 
@@ -389,7 +389,7 @@ class TestDataConversion:
         from ml.data.autogluon_adapter import extract_covariates
 
         config = AutoGluonDataConfig(
-            known_covariates=("hour", "dow", "missing_col"),
+            known_covariates=("hour_sin", "dow_sin", "missing_col"),
             past_covariates=("return_1",),
             static_features=("asset_class",),
         )

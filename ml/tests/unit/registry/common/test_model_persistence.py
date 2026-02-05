@@ -1103,6 +1103,8 @@ class TestAdditionalEdgeCases:
             pipeline_version="1.2.3",
             decision_policy="threshold",
             decision_config={"threshold": 0.5},
+            output_schema={"kind": "binary_proba", "shape": [None, 1]},
+            calibration={"kind": "platt", "params": {"coef": 1.2}},
             artifact_sha256_digest="a" * 64,
         )
         model_path = tmp_path / "full_model.onnx"
@@ -1126,6 +1128,8 @@ class TestAdditionalEdgeCases:
         assert result["manifest"]["feature_set_id"] == "feature_set_abc"
         assert result["manifest"]["pipeline_signature"] == "sig_xyz"
         assert result["manifest"]["decision_policy"] == "threshold"
+        assert result["manifest"]["output_schema"] == {"kind": "binary_proba", "shape": [None, 1]}
+        assert result["manifest"]["calibration"] == {"kind": "platt", "params": {"coef": 1.2}}
         assert result["manifest"]["artifact_sha256_digest"] == "a" * 64
         assert result["deployed_to"] == ["prod_server_1", "prod_server_2"]
 

@@ -12,7 +12,7 @@ import pytest
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config import WatermarkWindowConfig
 from ml.data.ingest.macro_refresh import MacroRefreshResult
 from ml.data.ingest.macro_refresh import ensure_macro_ready
 from ml.data.ingest.macro_refresh import refresh_alfred_if_stale

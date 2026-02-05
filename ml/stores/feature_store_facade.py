@@ -29,8 +29,8 @@ import numpy.typing as npt
 
 from ml.common.db_utils import get_or_create_engine
 from ml.common.protocols import MLComponentMixin
+from ml.config import FeatureStoreMirrorConfig
 from ml.config.base import MLFeatureConfig
-from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
 from ml.core.db_engine import EngineManager
 from ml.features import FeatureConfig
 from ml.features import FeatureEngineer

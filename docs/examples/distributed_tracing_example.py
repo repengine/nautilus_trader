@@ -80,7 +80,7 @@ def example_feature_computation():
         # Generate features
         features = pd.DataFrame(
             {
-                "sma_20": data["price"].rolling(20).mean(),
+                "price_sma_20": data["price"].rolling(20).mean(),
                 "volatility": data["price"].rolling(20).std(),
                 "volume_ma": data["volume"].rolling(20).mean(),
             },

@@ -50,7 +50,7 @@ class TestMockPrometheusProperties:
 class TestFixtureValueProperties:
     """Property tests for data fixture values."""
 
-    @given(key=st.sampled_from(["sma_20", "rsi", "volume_ratio", "price_change", "volatility"]))
+    @given(key=st.sampled_from(["price_sma_20", "rsi", "volume_ratio_20", "price_change", "volatility"]))
     def test_sample_features_keys_always_present(
         self, key: str, sample_features: dict[str, float]
     ) -> None:
@@ -78,9 +78,9 @@ class TestFixtureValueProperties:
     @given(
         feature_dict=st.fixed_dictionaries(
             {
-                "sma_20": st.floats(min_value=1.0, max_value=2.0, allow_nan=False),
+                "price_sma_20": st.floats(min_value=1.0, max_value=2.0, allow_nan=False),
                 "rsi": st.floats(min_value=0.0, max_value=100.0, allow_nan=False),
-                "volume_ratio": st.floats(min_value=0.1, max_value=10.0, allow_nan=False),
+                "volume_ratio_20": st.floats(min_value=0.1, max_value=10.0, allow_nan=False),
                 "price_change": st.floats(min_value=-0.1, max_value=0.1, allow_nan=False),
                 "volatility": st.floats(min_value=0.001, max_value=1.0, allow_nan=False),
             }
@@ -146,9 +146,9 @@ class TestFixtureDeterminism:
         """
         # Expected values from fixture definition
         expected_values = {
-            "sma_20": 1.0900,
+            "price_sma_20": 1.0900,
             "rsi": 55.5,
-            "volume_ratio": 1.2,
+            "volume_ratio_20": 1.2,
             "price_change": 0.002,
             "volatility": 0.015,
         }

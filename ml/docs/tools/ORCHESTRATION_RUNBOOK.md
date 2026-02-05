@@ -56,11 +56,12 @@ Key flags:
   - L2 extras: `--skip_l2_ingest`, `--l2_days`, `--l2_progress_file`, `--l2_symbols`, `--l2_tier`
 - Auto-fill coverage (optional): `--auto_fill_universe` enables pre-build backfills (bars/TBBO/trades) and depth ingestion; pair with overrides such as `--auto_fill_l2_days`, `--auto_fill_skip_l2`, `--auto_fill_l2_progress_file`, and `--auto_fill_allow_dataset_l2_ingest`
 - HPO: `--hpo`, `--hpo_epochs`, `--hpo_batch_size`, `--hpo_tail_rows`, `--hpo_limit_groups`
+  - Requires `dataset_metadata.json` with `target_semantics`; `target_col` must be declared in target_semantics labels (or legacy_aliases).
 - Teacher (core): `--train`, `--teacher_model_id`, `--feature_registry_dir`, `--feature_set_id`, `--max_epochs`
   - Resource tuning: `--batch_size`, `--dataloader_workers`, `--accelerator`, `--devices`, `--precision`
   - Model sizing: `--max_encoder_length`, `--max_prediction_length`, `--hidden_size`, `--lstm_layers`, `--attention_head_size`, `--dropout`
   - Optimizer/loss: `--learning_rate`, `--loss`, `--pos_weight`, `--seed`
-  - Data caps/splits: `--limit_groups`, `--tail_rows`, `--val_days`, `--embargo_hours`, `--purge_gap`, `--cv_splits`, `--test_fraction`
+  - Data caps/splits: `--limit_groups`, `--tail_rows`, `--val_days`, `--validation_strategy`, `--embargo_hours`, `--embargo_pct`, `--purge_gap`, `--cv_splits`, `--test_fraction`
   - Column overrides: `--target_col`, `--time_index_col`, `--timestamp_col`, `--group_id_col`, `--static_categoricals`, `--static_reals`, `--known_future_reals`
   - Artifacts/registration: `--save_interpretability`, `--export_torchscript`, `--export_safetensors`, `--pretrained_state_path`, `--register_teacher`
   - Decision policy: `--decision_policy`, `--decision_config`
@@ -117,10 +118,9 @@ active environment to maintain accurate detection and automated replays.
   or fails targeted ingestion. Opt out only with `COVERAGE_RESTORE_ALLOW_FAILURE=1`
   (not recommended for Tier‑1).
 - Catalog coverage uses the same identifier resolver as the rehydrator. Bars default to
-  `{instrument_id}-1-MINUTE-LAST-EXTERNAL` (override via `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE`);
-  TBBO/Trades/MBP default to raw `instrument_id`, and per-schema overrides can be supplied
-  via `CATALOG_REHYDRATE_IDENTIFIER_TEMPLATE_MAP`. This alignment keeps parquet interval scans
-  fast and prevents redundant Databento backfills when the catalog already contains data.
+  bar-type identifiers; TBBO/Trades/MBP default to raw `instrument_id`. Identifier template
+  overrides are deprecated and ignored. This alignment keeps parquet interval scans fast and
+  prevents redundant Databento backfills when the catalog already contains data.
 
 ### Databento Discovery (dynamic dataset selection)
 

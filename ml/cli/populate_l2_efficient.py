@@ -80,8 +80,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--schema",
         type=str,
-        default="mbp-10",
-        help="Depth schema: mbp-10|mbp-1|mbo (default: mbp-10)",
+        default="mbp-1",
+        help="Depth schema: mbp-10|mbp-1|mbo (default: mbp-1)",
     )
     parser.add_argument(
         "--sleep-between-symbols",

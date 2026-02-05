@@ -324,9 +324,9 @@ def sample_features() -> dict[str, float]:
     Sample feature dictionary for testing.
     """
     return {
-        "sma_20": 1.0900,
+        "price_sma_20": 1.0900,
         "rsi": 55.5,
-        "volume_ratio": 1.2,
+        "volume_ratio_20": 1.2,
         "price_change": 0.002,
         "volatility": 0.015,
     }
@@ -409,7 +409,7 @@ def sample_feature_manifest() -> FeatureManifest:
         version="1.0.0",
         role=FeatureRole.INFERENCE_SUPPORT,
         data_requirements=DataRequirements.L1_ONLY,
-        feature_names=["sma_20", "rsi_14", "volume_ratio"],
+        feature_names=["price_sma_20", "rsi_14", "volume_ratio_20"],
         feature_dtypes=["float32", "float32", "float32"],
         schema_hash="def456",
         pipeline_signature="pipeline_sig_123",

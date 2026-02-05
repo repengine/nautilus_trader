@@ -273,7 +273,7 @@ class FeatureWriterComponent:
         >>> writer.write_features(
         ...     feature_set_id="fs_001",
         ...     instrument_id="SPY.DATABENTO",
-        ...     features={"close_return": 0.01, "volume_ratio": 1.5},
+        ...     features={"close_return": 0.01, "volume_ratio_20": 1.5},
         ...     ts_event=1700000000000000000,
         ... )
         >>> # Batch mode (backwards compatible)

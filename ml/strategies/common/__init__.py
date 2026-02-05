@@ -15,6 +15,9 @@ Components:
 
 from __future__ import annotations
 
+import importlib
+from typing import TYPE_CHECKING
+
 from ml.strategies.common.correlation import CorrelationProviderProtocol
 from ml.strategies.common.correlation import CorrelationSnapshot
 from ml.strategies.common.decision_persistence import CircuitBreakerProtocol
@@ -48,6 +51,26 @@ from ml.strategies.common.positions_provider import NautilusPositionsProvider
 from ml.strategies.common.signal_routing import SignalRoutingComponent
 
 
+if TYPE_CHECKING:
+    from ml.strategies.common.returns_updater import ReturnsUpdater
+    from ml.strategies.common.returns_updater import ReturnUpdateResult
+
+
+_LAZY_STRATEGY_EXPORTS: dict[str, tuple[str, str]] = {
+    "ReturnUpdateResult": ("ml.strategies.common.returns_updater", "ReturnUpdateResult"),
+    "ReturnsUpdater": ("ml.strategies.common.returns_updater", "ReturnsUpdater"),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_STRATEGY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attr_name = target
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)
+
+
 __all__ = [
     "CacheProtocol",
     "CircuitBreakerProtocol",
@@ -74,6 +97,8 @@ __all__ = [
     "PositionsMetadata",
     "PositionsProviderProtocol",
     "PositionsSnapshot",
+    "ReturnUpdateResult",
+    "ReturnsUpdater",
     "RiskManagerProtocol",
     "SignalRoutingComponent",
     "StrategyStoreProtocol",

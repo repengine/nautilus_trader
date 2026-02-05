@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
+from ml.schema import map_schema_to_dataset_type
 
 
 if TYPE_CHECKING:
@@ -28,14 +29,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Mapping from dataset type labels to DatasetType enum values
-_DATASET_TYPE_MAP: dict[str, DatasetType] = {
-    "bars": DatasetType.BARS,
-    "trades": DatasetType.TRADES,
-    "tbbo": DatasetType.TBBO,
-    "mbp1": DatasetType.MBP1,
-    "order_events": DatasetType.ORDER_EVENTS,
-}
+def build_dataset_id_for_schema(
+    *,
+    schema: str,
+    symbol_code: str,
+    venue: str,
+) -> str:
+    """
+    Build a dataset identifier using the canonical schema registry.
+
+    Args:
+        schema: Schema token (for example, "ohlcv-1m", "mbp-10", "mbo").
+        symbol_code: Symbol code without venue (for example, "AAPL").
+        venue: Trading venue code (for example, "XNAS").
+
+    Returns:
+        Dataset identifier using the mapped DatasetType value.
+
+    Example:
+        >>> build_dataset_id_for_schema(schema="mbp-10", symbol_code="AAPL", venue="XNAS")
+        'mbp10_aapl_xnas'
+
+    """
+    dataset_type = map_schema_to_dataset_type(schema)
+    return f"{dataset_type.value}_{symbol_code}_{venue}".lower()
 
 
 class DatasetRegistrationProtocol(Protocol):
@@ -65,9 +82,9 @@ class DatasetRegistrationProtocol(Protocol):
 
         Args:
             registry: DataRegistry instance or None if unavailable.
-            dataset_id: The dataset identifier (e.g., "ohlcv_spy_xnas").
+            dataset_id: The dataset identifier (e.g., "bars_spy_xnas").
             dataset_type_label: High-level dataset type label
-                ("bars", "trades", "tbbo", "mbp1", "order_events").
+                ("bars", "trades", "tbbo", "mbp-1/mbp1", "mbp-10/mbp10", "mbo", "order_events").
             location: Storage location for the dataset (e.g., catalog path).
             retention_days: Number of days to retain data.
 
@@ -95,7 +112,7 @@ class DatasetRegistrationComponent:
         >>> registry = DataRegistry(registry_path=Path("/tmp/registry"))
         >>> component.ensure_dataset_registered(
         ...     registry=registry,
-        ...     dataset_id="ohlcv_spy_xnas",
+        ...     dataset_id="bars_spy_xnas",
         ...     dataset_type_label="bars",
         ...     location="/data/catalogs/bars",
         ...     retention_days=90,
@@ -109,11 +126,13 @@ class DatasetRegistrationComponent:
 
         Args:
             dataset_type_label: High-level dataset type label
-                ("bars", "trades", "tbbo", "mbp1", "order_events").
+                ("bars", "trades", "tbbo", "mbp-1/mbp1", "mbp-10/mbp10", "mbo", "order_events").
 
         Returns:
-            Corresponding DatasetType enum value. Defaults to BARS
-            if label is not recognized.
+            Corresponding DatasetType enum value.
+
+        Raises:
+            ValueError: If the label is not recognized.
 
         Example:
             >>> component = DatasetRegistrationComponent()
@@ -121,7 +140,13 @@ class DatasetRegistrationComponent:
             <DatasetType.TRADES: 'trades'>
 
         """
-        return _DATASET_TYPE_MAP.get(dataset_type_label, DatasetType.BARS)
+        if not dataset_type_label or not dataset_type_label.strip():
+            raise ValueError("dataset type label cannot be empty")
+        try:
+            return map_schema_to_dataset_type(dataset_type_label)
+        except ValueError as exc:
+            msg = f"Unknown dataset type label '{dataset_type_label}'"
+            raise ValueError(msg) from exc
 
     def ensure_dataset_registered(
         self,
@@ -141,17 +166,17 @@ class DatasetRegistrationComponent:
         2. Maps the dataset_type_label to a DatasetType enum
         3. Tries to get existing manifest first, returning if found
         4. Builds and registers a new manifest if not found
-        5. Catches all exceptions silently (debug log only)
+        5. Logs failures and returns without raising (except for unknown labels)
 
-        This method never raises exceptions - it logs debug messages and returns
-        silently on failure to allow the scheduler to continue without
-        registration.
+        This method raises ``ValueError`` for unknown dataset type labels.
+        Registry lookup/registration failures are logged and suppressed so the
+        scheduler can continue without registry integration.
 
         Args:
             registry: DataRegistry instance or None if unavailable.
-            dataset_id: The dataset identifier (e.g., "ohlcv_spy_xnas").
+            dataset_id: The dataset identifier (e.g., "bars_spy_xnas").
             dataset_type_label: High-level dataset type label
-                ("bars", "trades", "tbbo", "mbp1", "order_events").
+                ("bars", "trades", "tbbo", "mbp-1/mbp1", "mbp-10/mbp10", "mbo", "order_events").
             location: Storage location for the dataset (e.g., catalog path).
             retention_days: Number of days to retain data.
 
@@ -161,7 +186,7 @@ class DatasetRegistrationComponent:
             >>> registry = DataRegistry(registry_path=Path("/tmp/registry"))
             >>> component.ensure_dataset_registered(
             ...     registry=registry,
-            ...     dataset_id="ohlcv_spy_xnas",
+        ...     dataset_id="bars_spy_xnas",
             ...     dataset_type_label="bars",
             ...     location="/data/catalogs/bars",
             ...     retention_days=90,
@@ -172,7 +197,7 @@ class DatasetRegistrationComponent:
         if registry is None:
             return
 
-        # Map label to DatasetType enum
+        # Map label to DatasetType enum (raises for unknown labels)
         dataset_type = self.map_dataset_type(dataset_type_label)
 
         try:
@@ -181,7 +206,11 @@ class DatasetRegistrationComponent:
             return
         except Exception:
             # Manifest doesn't exist, need to register
-            pass
+            logger.debug(
+                "Dataset manifest lookup failed; attempting auto-registration",
+                extra={"dataset_id": dataset_id, "dataset_type": dataset_type_label},
+                exc_info=True,
+            )
 
         # Register a minimal manifest
         try:
@@ -218,4 +247,5 @@ class DatasetRegistrationComponent:
 __all__ = [
     "DatasetRegistrationComponent",
     "DatasetRegistrationProtocol",
+    "build_dataset_id_for_schema",
 ]

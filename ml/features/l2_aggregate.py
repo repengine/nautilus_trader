@@ -2,6 +2,9 @@
 L2 order book feature aggregation (per-minute) from MBP-10 snapshots.
 
 This module computes robust per-minute features from Databento MBP-10 snapshots.
+Streaming execution remains gated until a dedicated order-book backend is wired
+and the Databento subscription is active again, to avoid hot-path IO/allocations
+and preserve batch/stream parity guarantees.
 
 """
 
@@ -17,8 +20,8 @@ from typing import cast as _cast
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common import resolve_symbol_data_dir
 from ml.common.safe_math import safe_divide_expr
-from ml.common.symbol_utils import resolve_symbol_data_dir
 
 
 if TYPE_CHECKING:

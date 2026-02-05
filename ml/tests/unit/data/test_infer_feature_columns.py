@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ml.data import _infer_feature_columns
+from ml.data.build import _infer_feature_columns
 
 
 def test_infer_feature_columns_excludes_forward_return() -> None:

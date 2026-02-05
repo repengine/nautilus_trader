@@ -45,6 +45,11 @@ class DatabentoConfig:
     price_precision: int | None = None
     api_key: str | None = None
 
+    def __post_init__(self) -> None:
+        from ml.schema import schema_spec_for
+
+        schema_spec_for(self.schema)
+
 
 @dataclass(frozen=True)
 class SchedulerConfig:

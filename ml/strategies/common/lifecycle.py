@@ -19,6 +19,8 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ml.strategies.common.decision_persistence import _SafeLogger
+
 
 if TYPE_CHECKING:
     pass
@@ -207,7 +209,7 @@ class LifecycleComponent:
         self._subscribe_instrument_callback = subscribe_instrument_callback
         self._subscribe_quote_ticks_callback = subscribe_quote_ticks_callback
         self._subscribe_bars_callback = subscribe_bars_callback
-        self._log = log if log is not None else _NoOpLogger()
+        self._log = _SafeLogger(log if log is not None else _NoOpLogger())
 
     # -------------------------------------------------------------------------
     # Public Properties

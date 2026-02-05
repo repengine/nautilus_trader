@@ -263,6 +263,8 @@ class TestParquetCatalogRehydrator:
 
             assert rehydrator._writer._resolve_table_name("tbbo") == "market_data_tbbo"
             assert rehydrator._writer._resolve_table_name("ohlcv-1m") == "market_data_bar"
+            assert rehydrator._writer._resolve_table_name("mbp-10") == "market_data_mbp10"
+            assert rehydrator._writer._resolve_table_name("mbo") == "market_data_mbo"
             assert rehydrator._coverage._resolve_table_name("tbbo") == "market_data_tbbo"
 
     def test_rehydrate_restores_missing_buckets(

@@ -50,7 +50,7 @@ class TestFeatureStore:
         feature_store.write_features(
             feature_set_id="test_features",
             instrument_id=str(default_instrument_id),
-            features={"sma_20": 150.5, "rsi_14": 65.2},
+            features={"price_sma_20": 150.5, "rsi_14": 65.2},
             ts_event=ts_event,
         )
 
@@ -83,7 +83,7 @@ class TestFeatureStore:
                 ).fetchone()
                 assert result is not None
         else:
-            assert "sma_20" in feature_frame.columns and "rsi_14" in feature_frame.columns
+            assert "price_sma_20" in feature_frame.columns and "rsi_14" in feature_frame.columns
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -131,7 +131,7 @@ class TestFeatureStore:
                     "iid": str(default_instrument_id),
                     "tse": 1000,
                     "tsi": 1001,
-                    "vals": json.dumps({"sma_20": 150.5}),
+                    "vals": json.dumps({"price_sma_20": 150.5}),
                 },
             )
 
@@ -499,7 +499,7 @@ class TestDataProcessor:
         ts_event = int(time.time() * 1e9)
 
         features = {
-            "sma_20": 150.5,
+            "price_sma_20": 150.5,
             "rsi_14": np.nan,  # NaN value
             "volume": 10000,
         }
@@ -826,7 +826,7 @@ class TestDataProcessorSimple:
             ts_event = int(time.time() * 1e9)
 
             features = {
-                "sma_20": 150.5,
+                "price_sma_20": 150.5,
                 "rsi_14": np.nan,  # NaN value
                 "volume": np.inf,  # Inf value
             }

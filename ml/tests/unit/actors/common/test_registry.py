@@ -5,16 +5,20 @@ Tests verify all 4 registries initialize correctly, query operations work,
 progressive fallback chains activate, and caching reduces database load.
 """
 
-import pytest
+import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+import pytest
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
+
 from ml.actors.common.registry import RegistryComponent
 from ml.config.base import MLActorConfig
 from ml.tests.utils.db import build_postgres_url
 
 TEST_DB_CONNECTION = build_postgres_url()
+
+pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
 
 
 @pytest.fixture
@@ -511,3 +515,421 @@ def test_performance_registry_cached_query_latency(valid_actor_config):
 
     # Cached query: <1ms per call
     assert avg_ms < 1.0, f"Cached query took {avg_ms:.3f}ms avg (> 1ms)"
+
+
+# ========================================
+# Deterministic fallback + cache metrics tests
+# ========================================
+
+
+class _Counter:
+    def __init__(self) -> None:
+        self.count = 0
+        self.labels_history: list[dict[str, str]] = []
+
+    def labels(self, **kwargs: str) -> "_Counter":
+        self.labels_history.append(kwargs)
+        return self
+
+    def inc(self) -> None:
+        self.count += 1
+
+
+class _FeatureRegistry:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def get_feature_manifest(self, feature_name: str) -> dict[str, object]:
+        self.calls.append(feature_name)
+        return {"name": feature_name}
+
+
+class _ModelRegistry:
+    def __init__(self, manifest: object) -> None:
+        self._manifest = manifest
+
+    def get_model(self, _model_id: str) -> object:
+        return SimpleNamespace(manifest=self._manifest)
+
+
+class _ExplodingRegistry:
+    def get_feature_manifest(self, _feature_name: str) -> dict[str, object]:
+        raise RuntimeError("boom")
+
+    def get_model(self, _model_id: str) -> object:
+        raise RuntimeError("boom")
+
+    def get_strategy(self, _strategy_id: str) -> dict[str, object]:
+        raise RuntimeError("boom")
+
+    def get_dataset(self, _dataset_id: str) -> dict[str, object]:
+        raise RuntimeError("boom")
+
+
+class _NoneModelRegistry:
+    def get_model(self, _model_id: str) -> None:
+        return None
+
+
+@pytest.mark.unit
+def test_registry_fallback_emits_metrics(monkeypatch) -> None:
+    counters: list[_Counter] = []
+
+    def _get_counter(*_args: object, **_kwargs: object) -> _Counter:
+        counter = _Counter()
+        counters.append(counter)
+        return counter
+
+    monkeypatch.setattr("ml.actors.common.registry.get_counter", _get_counter)
+
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    calls = {"count": 0}
+
+    def _init_services(_config: object) -> object:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("primary failed")
+        return services
+
+    monkeypatch.setattr("ml.actors.actor_services.init_actor_services", _init_services)
+
+    config = SimpleNamespace(allow_dummy_fallback=True)
+    component = RegistryComponent(config)
+
+    assert component.data_registry is services.data_registry
+    assert calls["count"] == 2
+    assert counters[0].count == 4
+    assert {item["registry"] for item in counters[0].labels_history} == {
+        "feature",
+        "model",
+        "strategy",
+        "data",
+    }
+
+
+@pytest.mark.unit
+def test_registry_fallback_disallowed_raises(monkeypatch) -> None:
+    def _init_services(_config: object) -> object:
+        raise RuntimeError("primary failed")
+
+    monkeypatch.setattr("ml.actors.actor_services.init_actor_services", _init_services)
+
+    config = SimpleNamespace(allow_dummy_fallback=False)
+
+    with pytest.raises(RuntimeError):
+        RegistryComponent(config)
+
+
+@pytest.mark.unit
+def test_registry_cache_hits_and_misses() -> None:
+    feature_registry = _FeatureRegistry()
+    services = SimpleNamespace(
+        feature_registry=feature_registry,
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(enable_registry_caching=True, registry_cache_ttl=300.0)
+    component = RegistryComponent(config, services=services)
+
+    hit_counter = _Counter()
+    miss_counter = _Counter()
+    component._cache_hit_counter = hit_counter
+    component._cache_miss_counter = miss_counter
+
+    assert component._query_feature_registry("rsi") == {"name": "rsi"}
+    assert component._query_feature_registry("rsi") == {"name": "rsi"}
+
+    assert feature_registry.calls == ["rsi"]
+    assert miss_counter.count == 1
+    assert hit_counter.count == 1
+
+
+@pytest.mark.unit
+def test_registry_try_load_from_registry_populates_metadata(caplog) -> None:
+    manifest = SimpleNamespace(
+        model_id="model-1",
+        version="v1",
+        architecture="onnx",
+        role=SimpleNamespace(value="student"),
+        data_requirements=SimpleNamespace(value="l1"),
+        feature_schema={"f1": "float32", "f2": "float32"},
+        feature_schema_hash="hash",
+        parent_id=None,
+        performance_metrics={},
+        deployment_constraints={"max_latency_ms": 1.0},
+        decision_policy=None,
+        decision_config={},
+        output_schema=None,
+        calibration=None,
+        artifact_sha256_digest=None,
+    )
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=_ModelRegistry(manifest),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(
+        model_id="model-1",
+        model_path="/tmp/model.onnx",
+        use_manifest_features=True,
+        max_inference_latency_ms=10.0,
+    )
+    logger_name = "registry-test"
+    caplog.set_level("WARNING", logger=logger_name)
+    component = RegistryComponent(
+        config,
+        logger=logging.getLogger(logger_name),
+        services=services,
+    )
+
+    assert component._try_load_from_registry() is True
+    assert component._model_metadata["model_id"] == "model-1"
+    assert component._manifest_feature_names == ["f1", "f2"]
+    assert component._feature_names == ["f1", "f2"]
+    assert "exceeds model constraint" in caplog.text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("query_method", "registry_attr", "expected_message"),
+    [
+        ("_query_feature_registry", "feature_registry", "Failed to query feature registry"),
+        ("_query_model_registry", "model_registry", "Failed to query model registry"),
+        ("_query_strategy_registry", "strategy_registry", "Failed to query strategy registry"),
+        ("_query_data_registry", "data_registry", "Failed to query data registry"),
+    ],
+)
+def test_registry_query_logs_exceptions(
+    query_method: str,
+    registry_attr: str,
+    expected_message: str,
+    caplog,
+) -> None:
+    registry = _ExplodingRegistry()
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    setattr(services, registry_attr, registry)
+    config = SimpleNamespace(enable_registry_caching=True, registry_cache_ttl=300.0)
+    logger_name = f"registry-query-{registry_attr}"
+    caplog.set_level(logging.ERROR, logger=logger_name)
+    component = RegistryComponent(
+        config,
+        logger=logging.getLogger(logger_name),
+        services=services,
+    )
+
+    assert getattr(component, query_method)("item") is None
+    assert expected_message in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+
+
+@pytest.mark.unit
+def test_registry_cache_disabled_skips_storage() -> None:
+    feature_registry = _FeatureRegistry()
+    services = SimpleNamespace(
+        feature_registry=feature_registry,
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(enable_registry_caching=False, registry_cache_ttl=300.0)
+    component = RegistryComponent(config, services=services)
+
+    hit_counter = _Counter()
+    miss_counter = _Counter()
+    component._cache_hit_counter = hit_counter
+    component._cache_miss_counter = miss_counter
+
+    assert component._query_feature_registry("rsi") == {"name": "rsi"}
+    assert component._query_feature_registry("rsi") == {"name": "rsi"}
+
+    assert feature_registry.calls == ["rsi", "rsi"]
+    assert component._cache == {}
+    assert miss_counter.count == 2
+    assert hit_counter.count == 0
+
+
+@pytest.mark.unit
+def test_registry_cache_expiration_forces_refresh(monkeypatch) -> None:
+    feature_registry = _FeatureRegistry()
+    services = SimpleNamespace(
+        feature_registry=feature_registry,
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(enable_registry_caching=True, registry_cache_ttl=10.0)
+    component = RegistryComponent(config, services=services)
+
+    hit_counter = _Counter()
+    miss_counter = _Counter()
+    component._cache_hit_counter = hit_counter
+    component._cache_miss_counter = miss_counter
+
+    times = [0.0, 11.0, 11.0]
+
+    def _time() -> float:
+        return times.pop(0) if times else 11.0
+
+    monkeypatch.setattr("ml.actors.common.registry.time.time", _time)
+
+    assert component._query_feature_registry("rsi") == {"name": "rsi"}
+    assert component._query_feature_registry("rsi") == {"name": "rsi"}
+
+    assert feature_registry.calls == ["rsi", "rsi"]
+    assert miss_counter.count == 2
+    assert hit_counter.count == 0
+
+
+@pytest.mark.unit
+def test_registry_is_cache_expired_handles_missing_and_fresh(monkeypatch) -> None:
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(enable_registry_caching=True, registry_cache_ttl=10.0)
+    component = RegistryComponent(config, services=services)
+
+    assert component._is_cache_expired("missing") is True
+
+    component._cache["key"] = ("value", 100.0)
+    monkeypatch.setattr("ml.actors.common.registry.time.time", lambda: 105.0)
+    assert component._is_cache_expired("key") is False
+
+    monkeypatch.setattr("ml.actors.common.registry.time.time", lambda: 111.0)
+    assert component._is_cache_expired("key") is True
+
+
+@pytest.mark.unit
+def test_registry_fallback_init_failure_logs_and_raises(monkeypatch, caplog) -> None:
+    def _init_services(_config: object) -> object:
+        raise RuntimeError("primary failed")
+
+    monkeypatch.setattr("ml.actors.actor_services.init_actor_services", _init_services)
+
+    config = SimpleNamespace(allow_dummy_fallback=True)
+    logger_name = "registry-fallback-failure"
+    caplog.set_level(logging.ERROR, logger=logger_name)
+
+    with pytest.raises(RuntimeError):
+        RegistryComponent(config, logger=logging.getLogger(logger_name))
+
+    assert "Even fallback initialization failed" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+
+
+@pytest.mark.unit
+def test_try_load_from_registry_without_model_id_returns_false() -> None:
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace()
+    component = RegistryComponent(config, services=services)
+
+    assert component._try_load_from_registry() is False
+
+
+@pytest.mark.unit
+def test_try_load_from_registry_missing_model_uses_fallback_metric(caplog) -> None:
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=_NoneModelRegistry(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(model_id="missing", model_path="/tmp/model.onnx")
+    counter = _Counter()
+    logger_name = "registry-fallback-metric"
+    caplog.set_level(logging.WARNING, logger=logger_name)
+    component = RegistryComponent(
+        config,
+        logger=logging.getLogger(logger_name),
+        services=services,
+    )
+    component._fallback_counter = counter
+
+    assert component._try_load_from_registry() is False
+    assert counter.count == 1
+    assert counter.labels_history == [{"registry": "model", "stage": "file_path"}]
+    assert "falling back to direct path" in caplog.text.lower()
+
+
+@pytest.mark.unit
+def test_try_load_from_registry_missing_model_no_fallback_raises() -> None:
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=_NoneModelRegistry(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(model_id="missing")
+    component = RegistryComponent(config, services=services)
+
+    with pytest.raises(ValueError):
+        component._try_load_from_registry()
+
+
+@pytest.mark.unit
+def test_try_load_from_registry_raises_if_registry_uninitialized() -> None:
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=object(),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(model_id="model-1", model_path="/tmp/model.onnx")
+    component = RegistryComponent(config, services=services)
+    component._model_registry = None
+
+    with pytest.raises(RuntimeError):
+        component._try_load_from_registry()
+
+
+@pytest.mark.unit
+def test_try_load_from_registry_handles_manifest_feature_extraction_failure() -> None:
+    manifest = SimpleNamespace(
+        model_id="model-1",
+        version="v1",
+        architecture="onnx",
+        role=SimpleNamespace(value="student"),
+        data_requirements=SimpleNamespace(value="l1"),
+        feature_schema=None,
+        feature_schema_hash="hash",
+        parent_id=None,
+        performance_metrics={},
+        deployment_constraints={},
+        decision_policy=None,
+        decision_config={},
+        output_schema=None,
+        calibration=None,
+        artifact_sha256_digest=None,
+    )
+    services = SimpleNamespace(
+        feature_registry=object(),
+        model_registry=_ModelRegistry(manifest),
+        strategy_registry=object(),
+        data_registry=object(),
+    )
+    config = SimpleNamespace(model_id="model-1", model_path="/tmp/model.onnx")
+    component = RegistryComponent(config, services=services)
+
+    assert component._try_load_from_registry() is True
+    assert component._manifest_feature_names == []
+    assert component._manifest_feature_schema_hash is None
+    assert component._manifest_feature_dtypes == []

@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Any, cast
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl as pl_runtime
-from ml.common.symbol_utils import resolve_symbol_data_dir_candidates
-from ml.common.symbol_utils import resolve_symbol_data_dir_exact
+from ml.common import resolve_symbol_data_dir_candidates
+from ml.common import resolve_symbol_data_dir_exact
 
 
 if TYPE_CHECKING:  # Typed-only aliases

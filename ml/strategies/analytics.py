@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from ml.common import decision_from_probability
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
-from ml.common.prediction_surface import decision_from_probability
 
 
 if TYPE_CHECKING:

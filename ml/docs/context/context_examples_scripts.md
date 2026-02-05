@@ -279,7 +279,7 @@ trending_strategies = registry.get_strategies_for_regime(MarketRegime.TRENDING_U
 can_run = registry.validate_requirements(
     strategy_id="trend_follow_ma_cross",
     available_models=["lgb_directional_v1"],
-    available_features=["sma_20", "rsi_14"]
+    available_features=["price_sma_20", "rsi_14"]
 )
 
 # Update live performance metrics
@@ -317,7 +317,7 @@ registry.update_live_performance(
 feature_store.write_features(
     feature_set_id="sma_rsi_v1",
     instrument_id="EUR/USD",
-    features={"sma_20": 1.0850, "rsi_14": 65.3},
+    features={"price_sma_20": 1.0850, "rsi_14": 65.3},
     ts_event=bar.ts_event,
     ts_init=bar.ts_init
 )

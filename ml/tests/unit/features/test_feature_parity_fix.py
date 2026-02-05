@@ -244,7 +244,7 @@ class TestFeatureParityFix:
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
-            data_requirements=DataRequirements.L1_L2,
+            data_requirements=DataRequirements.L1_L2_L3,
         )
         batch_engineer = FeatureEngineer(config)
         online_engineer = FeatureEngineer(config)
@@ -419,7 +419,7 @@ class TestFeatureParityFix:
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
-            data_requirements=DataRequirements.L1_L2,
+            data_requirements=DataRequirements.L1_L2_L3,
         )
         engineer = FeatureEngineer(config)
         indicator_mgr = IndicatorManager(config)
@@ -604,7 +604,7 @@ class TestFeatureParityFix:
         config_full = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
-            data_requirements=DataRequirements.L1_L2,
+            data_requirements=DataRequirements.L1_L2_L3,
         )
         training_engineer = FeatureEngineer(config_full)
 

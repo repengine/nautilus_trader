@@ -5,7 +5,7 @@ Tests extracted dataset registration logic from DataScheduler:
 - ensure_dataset_registered() for new datasets
 - ensure_dataset_registered() for existing datasets
 - ensure_dataset_registered() with no registry
-- Dataset type mapping for all supported types (bars, trades, tbbo, mbp1)
+- Dataset type mapping for all supported types (bars, trades, tbbo, mbp1, mbp10, mbo)
 - Silent failure handling
 
 Test count: 8
@@ -24,6 +24,7 @@ import pytest
 
 from ml.data.common.dataset_registration import DatasetRegistrationComponent
 from ml.data.common.dataset_registration import DatasetRegistrationProtocol
+from ml.data.common.dataset_registration import build_dataset_id_for_schema
 from ml.registry.dataclasses import DatasetType
 
 
@@ -70,19 +71,19 @@ class TestEnsureDatasetRegistered:
 
             component.ensure_dataset_registered(
                 registry=mock_registry,
-                dataset_id="ohlcv_spy_xnas",
+                dataset_id="bars_spy_xnas",
                 dataset_type_label="bars",
                 location="/data/catalogs/bars",
                 retention_days=90,
             )
 
             # Verify get_manifest was called first
-            mock_registry.get_manifest.assert_called_once_with("ohlcv_spy_xnas")
+            mock_registry.get_manifest.assert_called_once_with("bars_spy_xnas")
 
             # Verify manifest was built
             mock_build.assert_called_once()
             call_kwargs = mock_build.call_args.kwargs
-            assert call_kwargs["dataset_id"] == "ohlcv_spy_xnas"
+            assert call_kwargs["dataset_id"] == "bars_spy_xnas"
             assert call_kwargs["dataset_type"] == DatasetType.BARS
             assert call_kwargs["retention_days"] == 90
 
@@ -100,14 +101,14 @@ class TestEnsureDatasetRegistered:
 
         component.ensure_dataset_registered(
             registry=mock_registry,
-            dataset_id="ohlcv_spy_xnas",
+            dataset_id="bars_spy_xnas",
             dataset_type_label="bars",
             location="/data/catalogs/bars",
             retention_days=90,
         )
 
         # Verify get_manifest was called
-        mock_registry.get_manifest.assert_called_once_with("ohlcv_spy_xnas")
+        mock_registry.get_manifest.assert_called_once_with("bars_spy_xnas")
 
         # Verify register_dataset was NOT called (dataset exists)
         mock_registry.register_dataset.assert_not_called()
@@ -120,7 +121,7 @@ class TestEnsureDatasetRegistered:
         # This should not raise any exception
         component.ensure_dataset_registered(
             registry=None,
-            dataset_id="ohlcv_spy_xnas",
+            dataset_id="bars_spy_xnas",
             dataset_type_label="bars",
             location="/data/catalogs/bars",
             retention_days=90,
@@ -146,7 +147,7 @@ class TestEnsureDatasetRegistered:
             # Should not raise - failures are handled silently
             component.ensure_dataset_registered(
                 registry=mock_registry,
-                dataset_id="ohlcv_spy_xnas",
+                dataset_id="bars_spy_xnas",
                 dataset_type_label="bars",
                 location="/data/catalogs/bars",
                 retention_days=90,
@@ -196,6 +197,44 @@ class TestDatasetTypeMapping:
         result = component.map_dataset_type("mbp1")
         assert result == DatasetType.MBP1
 
+    def test_dataset_type_mapping_mbp10(
+        self,
+        component: DatasetRegistrationComponent,
+    ) -> None:
+        """Test 'mbp10' label maps to DatasetType.MBP10."""
+        result = component.map_dataset_type("mbp10")
+        assert result == DatasetType.MBP10
+
+    def test_dataset_type_mapping_mbo(
+        self,
+        component: DatasetRegistrationComponent,
+    ) -> None:
+        """Test 'mbo' label maps to DatasetType.MBO."""
+        result = component.map_dataset_type("mbo")
+        assert result == DatasetType.MBO
+
+
+class TestDatasetIdBuilder:
+    """Tests for schema-driven dataset_id generation."""
+
+    def test_build_dataset_id_for_schema_when_mbp10_returns_explicit_id(self) -> None:
+        dataset_id = build_dataset_id_for_schema(
+            schema="mbp-10",
+            symbol_code="SPY",
+            venue="XNAS",
+        )
+
+        assert dataset_id == "mbp10_spy_xnas"
+
+    def test_build_dataset_id_for_schema_when_mbo_returns_explicit_id(self) -> None:
+        dataset_id = build_dataset_id_for_schema(
+            schema="mbo",
+            symbol_code="SPY",
+            venue="XNAS",
+        )
+
+        assert dataset_id == "mbo_spy_xnas"
+
 
 # -----------------------------------------------------------------------------
 # Protocol Compliance Test
@@ -227,17 +266,17 @@ class TestEdgeCases:
         self,
         component: DatasetRegistrationComponent,
     ) -> None:
-        """Test unknown dataset type label defaults to BARS."""
-        result = component.map_dataset_type("unknown_type")
-        assert result == DatasetType.BARS
+        """Test unknown dataset type label raises."""
+        with pytest.raises(ValueError, match="Unknown dataset type label"):
+            component.map_dataset_type("unknown_type")
 
     def test_empty_dataset_type_defaults_to_bars(
         self,
         component: DatasetRegistrationComponent,
     ) -> None:
-        """Test empty dataset type label defaults to BARS."""
-        result = component.map_dataset_type("")
-        assert result == DatasetType.BARS
+        """Test empty dataset type label raises."""
+        with pytest.raises(ValueError, match="dataset type label cannot be empty"):
+            component.map_dataset_type("")
 
     def test_location_path_expansion(
         self,

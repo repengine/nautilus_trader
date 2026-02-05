@@ -20,7 +20,7 @@ from sqlalchemy import text
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-from ml.registry.common.sql_utils import set_instrumentation_search_path
+from ml.registry.common import set_instrumentation_search_path
 
 
 if TYPE_CHECKING:

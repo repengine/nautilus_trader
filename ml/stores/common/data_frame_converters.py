@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from ml.common.decision_metadata import normalize_decision_metadata
+from ml.common import normalize_decision_metadata
 from ml.ml_types import DataFrameLike
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction

@@ -18,7 +18,8 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from ml.common.decision_metadata import normalize_decision_metadata
+from ml.common import normalize_decision_metadata
+from ml.common import resolve_decision_horizon_ms
 from ml.stores.protocols import StrategyStoreProtocol
 from ml.strategies.common.positions import PositionsMetadata
 
@@ -490,10 +491,18 @@ class DecisionPersistenceComponent:
             decision_metadata_payload,
             model_id=signal.model_id,
         )
+        horizon_ms = resolve_decision_horizon_ms(decision_metadata)
 
         # If no store is configured, publish event directly (best-effort)
         if self._strategy_store is None:
-            execution_params = self._merge_positions_metadata(execution_params)
+            execution_params = self._prepare_execution_params(
+                execution_params=execution_params,
+                signal=signal,
+                decision_type=decision_type,
+                position_size=position_size,
+                decision_metadata=decision_metadata,
+                horizon_ms=horizon_ms,
+            )
             return self._handle_no_store(
                 signal=signal,
                 decision_type=decision_type,
@@ -511,12 +520,14 @@ class DecisionPersistenceComponent:
         if risk_metrics is None:
             risk_metrics = self._build_risk_metrics(signal, position_size)
 
-        # Calculate default execution params if not provided
-        if execution_params is None:
-            execution_params = self._build_execution_params(signal, decision_type, position_size)
-        execution_params = self._merge_positions_metadata(execution_params)
-        if execution_params is None:
-            execution_params = {}
+        execution_params = self._prepare_execution_params(
+            execution_params=execution_params,
+            signal=signal,
+            decision_type=decision_type,
+            position_size=position_size,
+            decision_metadata=decision_metadata,
+            horizon_ms=horizon_ms,
+        )
 
         # Check circuit breaker before store write
         if self._check_circuit_breaker_open():
@@ -1127,6 +1138,52 @@ class DecisionPersistenceComponent:
         else:
             params["positions"] = dict(self._positions_metadata)
         return params
+
+    def _inject_horizon_metadata(
+        self,
+        execution_params: dict[str, Any],
+        *,
+        decision_metadata: dict[str, Any] | None,
+        horizon_ms: int | None,
+    ) -> dict[str, Any]:
+        """
+        Inject horizon metadata into execution params when available.
+        """
+        if decision_metadata is None:
+            return execution_params
+        horizon_payload = decision_metadata.get("horizon")
+        if horizon_payload is not None and "horizon" not in execution_params:
+            if isinstance(horizon_payload, dict):
+                execution_params["horizon"] = dict(horizon_payload)
+            else:
+                execution_params["horizon"] = horizon_payload
+        if horizon_ms is not None and "horizon_ms" not in execution_params:
+            execution_params["horizon_ms"] = int(horizon_ms)
+        return execution_params
+
+    def _prepare_execution_params(
+        self,
+        *,
+        execution_params: dict[str, Any] | None,
+        signal: MLSignal,
+        decision_type: str,
+        position_size: Quantity | None,
+        decision_metadata: dict[str, Any] | None,
+        horizon_ms: int | None,
+    ) -> dict[str, Any]:
+        """
+        Build and normalize execution params, including horizon metadata.
+        """
+        if execution_params is None:
+            execution_params = self._build_execution_params(signal, decision_type, position_size)
+        execution_params = self._merge_positions_metadata(execution_params)
+        if execution_params is None:
+            execution_params = {}
+        return self._inject_horizon_metadata(
+            execution_params,
+            decision_metadata=decision_metadata,
+            horizon_ms=horizon_ms,
+        )
 
     def _build_model_predictions(
         self,

@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class VintagePolicy:
+class VintageWindowPolicy:
     """
     Vintage policy for enforcing temporal boundaries in training data.
 
@@ -53,7 +53,7 @@ class VintagePolicy:
     --------
     >>> from datetime import datetime
     >>> import pandas as pd
-    >>> policy = VintagePolicy(max_age_days=30)
+        >>> policy = VintageWindowPolicy(max_age_days=30)
     >>> df = pd.DataFrame({
     ...     'timestamp': pd.date_range('2024-01-01', '2024-12-31', freq='D'),
     ...     'value': range(365)
@@ -115,7 +115,7 @@ class VintagePolicy:
 
         Examples
         --------
-        >>> policy = VintagePolicy(max_age_days=30)
+        >>> policy = VintageWindowPolicy(max_age_days=30)
         >>> df = pd.DataFrame({
         ...     'timestamp': pd.date_range('2024-01-01', '2024-12-31', freq='D'),
         ...     'close': range(365)
@@ -217,7 +217,7 @@ class VintagePolicy:
 
         Examples
         --------
-        >>> policy = VintagePolicy(max_age_days=30)
+        >>> policy = VintageWindowPolicy(max_age_days=30)
         >>> metadata = policy.compute_vintage_metadata(
         ...     current_date=datetime(2024, 12, 15),
         ...     original_count=365,
@@ -249,4 +249,8 @@ class VintagePolicy:
 
 __all__ = [
     "VintagePolicy",
+    "VintageWindowPolicy",
 ]
+
+# Backwards-compatible alias (deprecated: use VintageWindowPolicy)
+VintagePolicy = VintageWindowPolicy

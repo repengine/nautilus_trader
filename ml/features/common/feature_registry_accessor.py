@@ -39,7 +39,7 @@ class FeatureRegistryAccessor:
     >>>
     >>> # Access registries
     >>> if accessor.feature_registry is not None:
-    ...     feature_manifest = accessor.feature_registry.get("sma_20")
+    ...     feature_manifest = accessor.feature_registry.get("price_sma_20")
     >>>
     >>> if accessor.model_registry is not None:
     ...     model_manifest = accessor.model_registry.get("xgb_classifier_v1")
@@ -84,7 +84,7 @@ class FeatureRegistryAccessor:
         >>> accessor = FeatureRegistryAccessor(stores=stores)
         >>> registry = accessor.feature_registry
         >>> if registry is not None:
-        ...     manifest = registry.get("sma_20")
+        ...     manifest = registry.get("price_sma_20")
 
         """
         if self._stores is not None and hasattr(self._stores, "feature_registry"):

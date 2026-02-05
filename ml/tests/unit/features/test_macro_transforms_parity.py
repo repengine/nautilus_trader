@@ -588,3 +588,29 @@ class TestMacroTransformParity:
             transform.compute_batch(
                 pl.DataFrame({"timestamp": timestamps}),
             )
+
+
+def test_macro_transform_parity_when_fixture_matches_realtime(
+    macro_vintage_artifacts,
+) -> None:
+    """Macro batch output should match real-time cache values with deterministic vintages."""
+    artifacts = macro_vintage_artifacts
+    transform = MacroFeatureTransform(
+        macro_series_ids=[artifacts.series_id],
+        vintage_base_dir=artifacts.vintage_dir,
+        fred_path=artifacts.fred_path,
+        include_revisions=True,
+        revision_mode="core",
+        lag_days=0,
+    )
+
+    ts_event = artifacts.release_ts[-1] + timedelta(days=1)
+    market = pl.DataFrame({"timestamp": [ts_event]})
+    batch_df = transform.compute_batch(market)
+    feature_names = transform.get_feature_names()
+    batch_row = batch_df.select(feature_names).row(0, named=True)
+    realtime_features = transform.compute_realtime()
+
+    for name in feature_names:
+        assert name in realtime_features
+        assert batch_row[name] == pytest.approx(realtime_features[name])

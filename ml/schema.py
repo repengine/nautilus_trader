@@ -4,11 +4,14 @@ Centralized schema registry for schema→dataset/dataclass/template lookups.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import OrderBookDepth10
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 
@@ -17,6 +20,7 @@ from ml.registry.dataclasses import DatasetType
 
 __all__ = [
     "DATASET_TYPE_IDENTIFIER_DEFAULTS",
+    "DATASET_TYPE_REQUIRES_INSTRUMENT_ID",
     "DECISION_METADATA_V1",
     "DEFAULT_BAR_IDENTIFIER_TEMPLATE",
     "PREDICTION_SURFACE_V1",
@@ -25,7 +29,9 @@ __all__ = [
     "SchemaSpec",
     "dataset_type_to_dataclass",
     "default_identifier_template_for_dataset_type",
+    "list_registered_schemas",
     "map_schema_to_dataset_type",
+    "schema_registry_snapshot",
     "schema_spec_for",
     "schema_to_dataclass",
     "schema_to_identifier_template",
@@ -42,14 +48,19 @@ class SchemaSpec:
     """
 
     dataset_type: DatasetType
-    data_class: type[Any]
+    data_class: type[Any] | Callable[[], type[Any]]
     identifier_template: str
+    requires_instrument_id: bool = True
 
     def __post_init__(self) -> None:
         """
         Validate spec configuration.
         """
-        validate_identifier_template(self.identifier_template, label="schema identifier template")
+        validate_identifier_template(
+            self.identifier_template,
+            label="schema identifier template",
+            require_instrument_id=self.requires_instrument_id,
+        )
 
 
 @dataclass(frozen=True)
@@ -192,22 +203,31 @@ PREDICTION_SURFACE_V1 = PredictionSurfaceSpec(
 DECISION_METADATA_V1 = DecisionMetadataV1()
 
 
-def validate_identifier_template(template: str, *, label: str) -> str:
+def validate_identifier_template(
+    template: str,
+    *,
+    label: str,
+    require_instrument_id: bool = True,
+) -> str:
     """
     Ensure identifier templates include instrument context.
 
     Args:
         template: Template string used to build catalog identifiers.
         label: Human-friendly label for error messages.
+        require_instrument_id: Whether the template must include ``{instrument_id}``.
 
     Returns:
         The validated template.
 
     Raises:
-        ValueError: If the template is empty or missing ``{instrument_id}``.
+        ValueError: If the template is empty or missing ``{instrument_id}`` when required.
 
     """
-    if not template or "{instrument_id}" not in template:
+    if not template:
+        msg = f"{label} must be non-empty"
+        raise ValueError(msg)
+    if require_instrument_id and "{instrument_id}" not in template:
         msg = f"{label} must include '{{instrument_id}}'"
         raise ValueError(msg)
     return template
@@ -230,10 +250,37 @@ def _register(
         registry[_normalize_schema(key)] = spec
 
 
+def _resolve_data_class(
+    data_class: type[Any] | Callable[[], type[Any]],
+) -> type[Any]:
+    if isinstance(data_class, type):
+        return data_class
+    return data_class()
+
+
+def _strategy_order_event_class() -> type[Any]:
+    from ml.stores.base import StrategyOrderEvent
+
+    return StrategyOrderEvent
+
+
+def _strategy_risk_halt_event_class() -> type[Any]:
+    from ml.stores.base import StrategyRiskHaltEvent
+
+    return StrategyRiskHaltEvent
+
+
+def _strategy_replay_summary_class() -> type[Any]:
+    from ml.stores.base import StrategyReplaySummary
+
+    return StrategyReplaySummary
+
+
 _SCHEMA_REGISTRY: dict[str, SchemaSpec] = {}
 
 DEFAULT_BAR_IDENTIFIER_TEMPLATE = "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
 _QUOTE_IDENTIFIER_TEMPLATE = "{instrument_id}"
+_REPLAY_SUMMARY_IDENTIFIER_TEMPLATE = "{schema}"
 
 _register(
     _SCHEMA_REGISTRY,
@@ -291,10 +338,28 @@ _register(
 )
 _register(
     _SCHEMA_REGISTRY,
-    ("mbp-1", "mbp-10", "mbp", "mbo"),
+    ("mbp-1", "mbp1"),
     SchemaSpec(
         dataset_type=DatasetType.MBP1,
         data_class=QuoteTick,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("mbp-10", "mbp10"),
+    SchemaSpec(
+        dataset_type=DatasetType.MBP10,
+        data_class=OrderBookDepth10,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("mbo",),
+    SchemaSpec(
+        dataset_type=DatasetType.MBO,
+        data_class=OrderBookDelta,
         identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
     ),
 )
@@ -393,6 +458,34 @@ _register(
         identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
     ),
 )
+_register(
+    _SCHEMA_REGISTRY,
+    ("order_events", "order-events"),
+    SchemaSpec(
+        dataset_type=DatasetType.ORDER_EVENTS,
+        data_class=_strategy_order_event_class,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("risk_halt_events", "risk-halt-events"),
+    SchemaSpec(
+        dataset_type=DatasetType.RISK_HALT_EVENTS,
+        data_class=_strategy_risk_halt_event_class,
+        identifier_template=_QUOTE_IDENTIFIER_TEMPLATE,
+    ),
+)
+_register(
+    _SCHEMA_REGISTRY,
+    ("replay_summary", "replay-summary"),
+    SchemaSpec(
+        dataset_type=DatasetType.REPLAY_SUMMARY,
+        data_class=_strategy_replay_summary_class,
+        identifier_template=_REPLAY_SUMMARY_IDENTIFIER_TEMPLATE,
+        requires_instrument_id=False,
+    ),
+)
 
 
 def schema_spec_for(schema: str) -> SchemaSpec:
@@ -440,7 +533,7 @@ def schema_to_dataclass(schema: str) -> type[Any]:
         If the schema is not registered.
 
     """
-    return schema_spec_for(schema).data_class
+    return _resolve_data_class(schema_spec_for(schema).data_class)
 
 
 def schema_to_identifier_template(schema: str) -> str:
@@ -456,6 +549,32 @@ def schema_to_identifier_template(schema: str) -> str:
     return schema_spec_for(schema).identifier_template
 
 
+def list_registered_schemas() -> tuple[str, ...]:
+    """
+    Return all registered schema tokens (including aliases).
+    """
+    return tuple(sorted(_SCHEMA_REGISTRY.keys()))
+
+
+def schema_registry_snapshot() -> dict[str, dict[str, Any]]:
+    """
+    Return a JSON-serializable snapshot of the schema registry.
+
+    Each entry contains dataset type, data class name, identifier template,
+    and whether an instrument id is required.
+    """
+    snapshot: dict[str, dict[str, Any]] = {}
+    for schema, spec in _SCHEMA_REGISTRY.items():
+        resolved = _resolve_data_class(spec.data_class)
+        snapshot[schema] = {
+            "dataset_type": spec.dataset_type.value,
+            "data_class": getattr(resolved, "__name__", str(resolved)),
+            "identifier_template": spec.identifier_template,
+            "requires_instrument_id": spec.requires_instrument_id,
+        }
+    return snapshot
+
+
 def _build_dataset_defaults(registry: Mapping[str, SchemaSpec]) -> dict[DatasetType, str]:
     defaults: dict[DatasetType, str] = {}
     for spec in registry.values():
@@ -463,8 +582,17 @@ def _build_dataset_defaults(registry: Mapping[str, SchemaSpec]) -> dict[DatasetT
     return defaults
 
 
+def _build_dataset_requirements(registry: Mapping[str, SchemaSpec]) -> dict[DatasetType, bool]:
+    requirements: dict[DatasetType, bool] = {}
+    for spec in registry.values():
+        current = requirements.get(spec.dataset_type, True)
+        requirements[spec.dataset_type] = current and spec.requires_instrument_id
+    return requirements
+
+
 DATASET_TYPE_IDENTIFIER_DEFAULTS = _build_dataset_defaults(_SCHEMA_REGISTRY)
 DATASET_TYPE_IDENTIFIER_DEFAULTS.setdefault(DatasetType.QUOTES, _QUOTE_IDENTIFIER_TEMPLATE)
+DATASET_TYPE_REQUIRES_INSTRUMENT_ID = _build_dataset_requirements(_SCHEMA_REGISTRY)
 
 
 def default_identifier_template_for_dataset_type(dataset_type: DatasetType) -> str:
@@ -492,7 +620,7 @@ _DATA_CLASS_BY_DATASET: dict[DatasetType, type[Any]] = {
     DatasetType.QUOTES: QuoteTick,
 }
 for spec in _SCHEMA_REGISTRY.values():
-    _DATA_CLASS_BY_DATASET.setdefault(spec.dataset_type, spec.data_class)
+    _DATA_CLASS_BY_DATASET.setdefault(spec.dataset_type, _resolve_data_class(spec.data_class))
 
 
 def dataset_type_to_dataclass(dataset_type: DatasetType) -> type[Any]:
@@ -526,11 +654,12 @@ def validate_schema_identifier_templates(
         return {}
     normalized: dict[str, str] = {}
     for key, template in templates.items():
-        schema_spec_for(key)
+        spec = schema_spec_for(key)
         normalized_key = _normalize_schema(key)
         normalized[normalized_key] = validate_identifier_template(
             template,
             label=f"schema template for {normalized_key}",
+            require_instrument_id=spec.requires_instrument_id,
         )
     return normalized
 
@@ -563,5 +692,6 @@ def validate_dataset_type_templates(
         normalized[dataset_type] = validate_identifier_template(
             template,
             label=f"dataset type template for {dataset_type.value}",
+            require_instrument_id=DATASET_TYPE_REQUIRES_INSTRUMENT_ID.get(dataset_type, True),
         )
     return normalized

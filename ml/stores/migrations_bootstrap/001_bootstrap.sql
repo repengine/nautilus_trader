@@ -371,6 +371,42 @@ CREATE TABLE IF NOT EXISTS market_data_mbp1 (
 CREATE TABLE IF NOT EXISTS market_data_mbp1_default
     PARTITION OF market_data_mbp1 DEFAULT;
 
+CREATE TABLE IF NOT EXISTS market_data_mbp10 (
+    instrument_id VARCHAR(100) NOT NULL,
+    ts_event BIGINT NOT NULL,
+    ts_init BIGINT NOT NULL,
+    bids JSONB,
+    asks JSONB,
+    bid_counts JSONB,
+    ask_counts JSONB,
+    flags INTEGER DEFAULT 0,
+    sequence BIGINT NOT NULL DEFAULT 0,
+    source VARCHAR(50),
+    quality_flags INTEGER DEFAULT 0,
+    source_dataset VARCHAR(100),
+    PRIMARY KEY (instrument_id, ts_event, sequence)
+) PARTITION BY RANGE (ts_event);
+
+CREATE TABLE IF NOT EXISTS market_data_mbp10_default
+    PARTITION OF market_data_mbp10 DEFAULT;
+
+CREATE TABLE IF NOT EXISTS market_data_mbo (
+    instrument_id VARCHAR(100) NOT NULL,
+    ts_event BIGINT NOT NULL,
+    ts_init BIGINT NOT NULL,
+    action VARCHAR(16),
+    order_payload JSONB,
+    flags INTEGER DEFAULT 0,
+    sequence BIGINT NOT NULL DEFAULT 0,
+    source VARCHAR(50),
+    quality_flags INTEGER DEFAULT 0,
+    source_dataset VARCHAR(100),
+    PRIMARY KEY (instrument_id, ts_event, sequence)
+) PARTITION BY RANGE (ts_event);
+
+CREATE TABLE IF NOT EXISTS market_data_mbo_default
+    PARTITION OF market_data_mbo DEFAULT;
+
 CREATE TABLE IF NOT EXISTS market_data_trade_tick (
     instrument_id VARCHAR(100) NOT NULL,
     ts_event BIGINT NOT NULL,
@@ -533,6 +569,8 @@ CREATE TABLE IF NOT EXISTS ml_dataset_registry (
             'TRADES',
             'QUOTES',
             'MBP1',
+            'MBP10',
+            'MBO',
             'TBBO',
             'FEATURES',
             'PREDICTIONS',
@@ -869,6 +907,9 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 DROP VIEW IF EXISTS market_data CASCADE;
+-- MBP-10/MBO are excluded from this view because they store depth/order payloads
+-- as JSON (lossy to coerce into L1 fields). Query market_data_mbp10 or
+-- market_data_mbo directly when depth/order book detail is required.
 CREATE VIEW market_data AS
 SELECT
     instrument_id,
@@ -1353,6 +1394,20 @@ CREATE INDEX IF NOT EXISTS idx_market_data_mbp1_instrument
 CREATE INDEX IF NOT EXISTS idx_market_data_mbp1_quality
     ON market_data_mbp1 (quality_flags) WHERE quality_flags > 0;
 
+CREATE INDEX IF NOT EXISTS idx_market_data_mbp10_time
+    ON market_data_mbp10 USING BRIN (ts_event);
+CREATE INDEX IF NOT EXISTS idx_market_data_mbp10_instrument
+    ON market_data_mbp10 (instrument_id, ts_event DESC);
+CREATE INDEX IF NOT EXISTS idx_market_data_mbp10_quality
+    ON market_data_mbp10 (quality_flags) WHERE quality_flags > 0;
+
+CREATE INDEX IF NOT EXISTS idx_market_data_mbo_time
+    ON market_data_mbo USING BRIN (ts_event);
+CREATE INDEX IF NOT EXISTS idx_market_data_mbo_instrument
+    ON market_data_mbo (instrument_id, ts_event DESC);
+CREATE INDEX IF NOT EXISTS idx_market_data_mbo_quality
+    ON market_data_mbo (quality_flags) WHERE quality_flags > 0;
+
 CREATE INDEX IF NOT EXISTS idx_market_data_trade_tick_time
     ON market_data_trade_tick USING BRIN (ts_event);
 CREATE INDEX IF NOT EXISTS idx_market_data_trade_tick_instrument
@@ -1449,5 +1504,7 @@ SELECT create_monthly_partitions('market_data_bar', '2023-01-01'::DATE, 60);
 SELECT create_monthly_partitions('market_data_quote_tick', '2023-01-01'::DATE, 60);
 SELECT create_monthly_partitions('market_data_tbbo', '2023-01-01'::DATE, 60);
 SELECT create_monthly_partitions('market_data_mbp1', '2023-01-01'::DATE, 60);
+SELECT create_monthly_partitions('market_data_mbp10', '2023-01-01'::DATE, 60);
+SELECT create_monthly_partitions('market_data_mbo', '2023-01-01'::DATE, 60);
 SELECT create_monthly_partitions('market_data_trade_tick', '2023-01-01'::DATE, 60);
 SELECT create_event_partitions('ml_data_events', '2023-01-01'::DATE, 60);

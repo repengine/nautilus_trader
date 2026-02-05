@@ -263,7 +263,7 @@ class FeatureComputationComponent:
     ...     feature_writer=writer,
     ...     feature_reader=reader,
     ...     get_feature_set_id=lambda: "fs_001",
-    ...     get_feature_names=lambda: ["close_return", "volume_ratio"],
+    ...     get_feature_names=lambda: ["close_return", "volume_ratio_20"],
     ...     get_feature_names_online=lambda: ["close_return"],
     ... )
     >>> features = computation.compute_realtime(bar, store=True)

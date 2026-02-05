@@ -30,9 +30,13 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING, Final
 
-from ml.config.ingestion_windows import WatermarkWindowConfig
-from ml.config.ingestion_windows import earnings_window_defaults
-from ml.config.ingestion_windows import macro_window_defaults
+from ml.common.validation_strategies import DEFAULT_HOLDOUT_STRATEGY
+from ml.common.validation_strategies import require_holdout_strategy
+from ml.config import WatermarkWindowConfig
+from ml.config import earnings_window_defaults
+from ml.config import macro_window_defaults
+from ml.config.feature_cache import FeatureCachePolicy
+from ml.config.feature_cache import normalize_feature_cache_policy
 from ml.config.market_data import MarketDatasetInput
 from ml.data import DatasetValidationConfig
 from ml.data.vintage import VintagePolicy
@@ -76,6 +80,8 @@ class DatasetBuildConfig:
     macro_lag_days: int = 1
     include_micro: bool = False
     include_l2: bool = False
+    micro_cache_policy: FeatureCachePolicy = "cache_first"
+    l2_cache_policy: FeatureCachePolicy = "cache_first"
     include_events: bool = False
     include_calendar: bool = False
     include_earnings: bool = False
@@ -112,6 +118,27 @@ class DatasetBuildConfig:
     macro_revision_mode: str = "core"
     macro_revision_windows: tuple[int, ...] | None = None
     convert_vintage_to_age: bool = False
+
+    def __post_init__(self) -> None:
+        """
+        Normalize cache policy tokens.
+        """
+        object.__setattr__(
+            self,
+            "micro_cache_policy",
+            normalize_feature_cache_policy(
+                self.micro_cache_policy,
+                label="micro_cache_policy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "l2_cache_policy",
+            normalize_feature_cache_policy(
+                self.l2_cache_policy,
+                label="l2_cache_policy",
+            ),
+        )
 
 
 @dataclass(slots=True, frozen=True)
@@ -228,12 +255,13 @@ class AutoFillUniverseConfig:
     enabled: bool = False
     dataset_id: str = "EQUS.MINI"
     include_bars: bool = True
+    # L1 quotes are canonicalized as the "quotes" schema (provider schema is tbbo).
     include_tbbo: bool = True
     include_trades: bool = True
     include_l2: bool = False
     include_l3: bool = False
     l2_dataset_id: str = "DBEQ.BASIC"
-    l2_schema: str = "mbp-10"
+    l2_schema: str = "mbp-1"
     l2_days: int | None = None
     l2_progress_file: str | None = None
     disable_dataset_l2_ingest: bool = True
@@ -241,6 +269,17 @@ class AutoFillUniverseConfig:
     l3_dataset_id: str | None = None
     l3_schema: str | None = None
     l3_days: int | None = None
+
+    def __post_init__(self) -> None:
+        """
+        Validate schema overrides for auto-fill ingestion.
+        """
+        from ml.schema import schema_spec_for
+
+        if self.include_l2:
+            schema_spec_for(self.l2_schema)
+        if self.include_l3 and self.l3_schema is not None:
+            schema_spec_for(self.l3_schema)
 
 
 @dataclass(slots=True, frozen=True)
@@ -317,8 +356,12 @@ class TeacherTrainConfig:
         Top-N group cap by row count (0 disables).
     val_days
         Validation window size in days (0 disables time-window validation).
+    validation_strategy
+        Validation strategy ("time_window" or "purged").
     embargo_hours
         Embargo window in hours for purged splits.
+    embargo_pct
+        Optional embargo percentage override for purged splits.
     purge_gap
         Purge gap (rows) between train/validation folds.
     cv_splits
@@ -326,7 +369,7 @@ class TeacherTrainConfig:
     test_fraction
         Hold-out fraction used for train/validation split.
     target_col
-        Target column name in the training dataset.
+        Target column name in the training dataset (must be declared in target_semantics).
     time_index_col
         Time index column name.
     timestamp_col
@@ -380,7 +423,9 @@ class TeacherTrainConfig:
     tail_rows: int = 0
     limit_groups: int = 0
     val_days: int = 0
+    validation_strategy: str = DEFAULT_HOLDOUT_STRATEGY
     embargo_hours: float = 24.0
+    embargo_pct: float | None = None
     purge_gap: int = 0
     cv_splits: int = 5
     test_fraction: float = 0.2
@@ -432,12 +477,20 @@ class TeacherTrainConfig:
             raise ValueError("limit_groups must be >= 0")
         if self.val_days < 0:
             raise ValueError("val_days must be >= 0")
+        normalized_strategy = require_holdout_strategy(str(self.validation_strategy))
+        object.__setattr__(self, "validation_strategy", normalized_strategy)
+        if normalized_strategy == "time_window" and self.val_days <= 0:
+            raise ValueError("validation_strategy=time_window requires val_days > 0")
         if self.embargo_hours < 0.0:
             raise ValueError("embargo_hours must be >= 0.0")
+        if self.embargo_pct is not None and not 0.0 <= float(self.embargo_pct) < 1.0:
+            raise ValueError("embargo_pct must be in [0.0, 1.0) when provided")
         if self.purge_gap < 0:
             raise ValueError("purge_gap must be >= 0")
         if self.cv_splits < 0:
             raise ValueError("cv_splits must be >= 0")
+        if normalized_strategy == "purged" and self.cv_splits < 2:
+            raise ValueError("validation_strategy=purged requires cv_splits >= 2")
         if self.test_fraction < 0.0 or self.test_fraction >= 1.0:
             raise ValueError("test_fraction must be in [0.0, 1.0)")
         if not str(self.target_col).strip():
@@ -514,6 +567,8 @@ class PreIngestionOptions:
             DatasetType.TBBO: self.dual_write_tbbo,
             DatasetType.TRADES: self.dual_write_trades,
             DatasetType.MBP1: self.dual_write_mbp,
+            DatasetType.MBP10: self.dual_write_mbp,
+            DatasetType.MBO: self.dual_write_mbp,
         }
 
 

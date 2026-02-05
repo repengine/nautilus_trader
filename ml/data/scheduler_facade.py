@@ -51,7 +51,8 @@ def create_data_scheduler(
         use_orchestrator: Whether to use orchestrator-based collection.
         dual_write: Whether to dual-write to both SQL and catalog.
         dual_write_dataset_types: Optional dataset-type toggles for mirroring.
-        dataset_type_identifier_templates: Optional identifier templates keyed by DatasetType.
+        dataset_type_identifier_templates: Deprecated and ignored; schema registry defaults
+            are enforced for catalog identifiers.
 
     Returns:
         DataScheduler instance.

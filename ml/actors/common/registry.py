@@ -549,6 +549,8 @@ class RegistryComponent:
             "deployment_constraints": manifest.deployment_constraints,
             "decision_policy": getattr(manifest, "decision_policy", None),
             "decision_config": getattr(manifest, "decision_config", {}),
+            "output_schema": getattr(manifest, "output_schema", None),
+            "calibration": getattr(manifest, "calibration", None),
             "artifact_sha256_digest": getattr(manifest, "artifact_sha256_digest", None),
         }
 

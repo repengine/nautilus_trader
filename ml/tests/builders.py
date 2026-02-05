@@ -284,7 +284,7 @@ class MockBuilder:
         mock_registry = MagicMock()
 
         if feature_names is None:
-            feature_names = ["sma_20", "rsi_14", "volume_ratio"]
+            feature_names = ["price_sma_20", "rsi_14", "volume_ratio_20"]
 
         from ml.registry.feature_registry import FeatureRole
         from ml.registry.base import DataRequirements
@@ -412,7 +412,7 @@ class MockBuilder:
 
         if store_type == "feature":
             if data is None:
-                data = {"sma_20": 1.09, "rsi": 55.5, "volume": 12345}
+                data = {"price_sma_20": 1.09, "rsi": 55.5, "volume": 12345}
             mock_store.read_features = MagicMock(return_value=data)
             mock_store.write_features = MagicMock(return_value=True)
             mock_store.get_latest_features = MagicMock(return_value=data)
@@ -639,7 +639,7 @@ class DataBuilder:
                 "signal": int(rng.choice([-1, 0, 1])),
                 "confidence": float(rng.uniform(0.5, 1.0)),
                 "features": {
-                    "sma_20": float(rng.normal(1.09, 0.01)),
+                    "price_sma_20": float(rng.normal(1.09, 0.01)),
                     "rsi": float(rng.uniform(30, 70)),
                 },
             }
@@ -693,7 +693,7 @@ class RegistryBuilder:
             "version": "1.0.0",
             "role": FeatureRole.INFERENCE_SUPPORT,
             "data_requirements": DataRequirements.L1_ONLY,
-            "feature_names": ["sma_20", "rsi_14"],
+            "feature_names": ["price_sma_20", "rsi_14"],
             "feature_dtypes": ["float32", "float32"],
             "schema_hash": "def456",
             "pipeline_signature": "pipeline_sig_123",

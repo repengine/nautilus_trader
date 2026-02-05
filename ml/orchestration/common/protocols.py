@@ -522,7 +522,8 @@ class DiscoveryClientProtocol(Protocol):
         symbol_map : Mapping[str, tuple[str, ...]]
             Symbol to instrument IDs mapping
         schema : str
-            Data schema (e.g. 'ohlcv-1m', 'tbbo')
+            Data schema (e.g. 'ohlcv-1m', 'quotes'); provider schemas like 'tbbo'
+            are normalized to quotes.
         start_ns : int
             Start timestamp in nanoseconds
         end_ns : int

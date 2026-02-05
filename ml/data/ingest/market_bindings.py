@@ -13,6 +13,7 @@ from dataclasses import field
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import MarketFeedDescriptor
 from ml.registry.dataclasses import StorageKind
+from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 @dataclass(frozen=True)
@@ -263,6 +264,87 @@ def _resolve_instruments(
         for suffix in ("XNAS", "XNYS", "ARCX", "NASDAQ", "NYSE"):
             instruments.add(f"{base}.{suffix}")
     return tuple(sorted(instruments))
+
+
+def build_binding_index(
+    bindings: Iterable[ResolvedMarketBinding],
+) -> dict[str, ResolvedMarketBinding]:
+    """
+    Build a lookup index for bindings keyed by instrument or symbol.
+
+    Args:
+        bindings: Resolved market bindings.
+
+    Returns:
+        Mapping keyed by instrument_id, symbol, and base symbol.
+
+    Example:
+        >>> binding = ResolvedMarketBinding(
+        ...     binding_id="b",
+        ...     symbol="SPY",
+        ...     instrument_ids=("SPY.XNAS",),
+        ...     dataset_id="EQUS.MINI",
+        ...     descriptor_id=None,
+        ...     schema=None,
+        ...     storage_kind=None,
+        ...     license_start=None,
+        ...     license_end=None,
+        ...     start=None,
+        ...     end=None,
+        ...     source="legacy",
+        ... )
+        >>> index = build_binding_index([binding])
+        >>> assert index["SPY.XNAS"] == binding
+    """
+    index: dict[str, ResolvedMarketBinding] = {}
+    for binding in bindings:
+        for inst in binding.instrument_ids:
+            index[inst.upper()] = binding
+        index.setdefault(binding.symbol.upper(), binding)
+        base_symbol = binding.symbol.split(".")[0]
+        index.setdefault(base_symbol.upper(), binding)
+    return index
+
+
+def resolve_binding(
+    binding_index: Mapping[str, ResolvedMarketBinding],
+    instrument_id: str,
+) -> ResolvedMarketBinding | None:
+    """
+    Resolve a binding for a given instrument identifier.
+
+    Args:
+        binding_index: Lookup index from build_binding_index.
+        instrument_id: Instrument identifier to resolve.
+
+    Returns:
+        Matching binding or ``None`` if no match is found.
+    """
+    key = instrument_id.upper()
+    binding = binding_index.get(key)
+    if binding is not None:
+        return binding
+    base = key.split(".")[0]
+    return binding_index.get(base)
+
+
+def store_enabled(
+    data_store: DataStoreFacadeProtocol | None,
+    market_dataset_id: str | None,
+    binding_index: Mapping[str, ResolvedMarketBinding],
+) -> bool:
+    """
+    Determine whether the DataStore is configured for market data reads.
+
+    Args:
+        data_store: DataStore facade instance or None.
+        market_dataset_id: Default dataset identifier.
+        binding_index: Binding index for per-symbol dataset overrides.
+
+    Returns:
+        True when the store is available and at least one dataset id is configured.
+    """
+    return data_store is not None and (bool(market_dataset_id) or bool(binding_index))
 
 
 def resolve_instrument_ids_for_symbols(

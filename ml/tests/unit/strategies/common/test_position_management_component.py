@@ -913,6 +913,68 @@ class TestPortfolioAllocation:
         assert result == 500.0
         assert len(mock_logger.debug_calls) > 0
 
+    def test_apply_portfolio_allocation_batches_signals_when_enabled(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify multi-signal batching feeds portfolio allocation."""
+        from ml.strategies.common.portfolio_signal_batching import get_portfolio_signal_batcher
+        from ml.strategies.common.position_management import PositionManagementComponent
+        from ml.strategies.portfolio import PortfolioBatchingConfig
+
+        batcher = get_portfolio_signal_batcher()
+        batcher.clear()
+
+        other_instrument_id = InstrumentId(Symbol("GBPUSD"), Venue("SIM"))
+        signal_one = MockMLSignal(instrument_id=instrument_id, ts_event=1)
+        signal_two = MockMLSignal(instrument_id=other_instrument_id, ts_event=2)
+
+        portfolio_manager = MockPortfolioManager(
+            allocations={
+                instrument_id: 100.0,
+                other_instrument_id: 200.0,
+            },
+        )
+
+        batching_config = PortfolioBatchingConfig(
+            enabled=True,
+            window_ms=1000,
+            min_batch_size=2,
+            max_batch_size=10,
+        )
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            portfolio_manager=portfolio_manager,
+            portfolio=object(),
+            portfolio_batching_config=batching_config,
+            log=mock_logger,
+        )
+
+        component.apply_portfolio_allocation(
+            signal=signal_one,
+            proposed_value=500.0,
+            account=MockAccount(),
+        )
+        component.apply_portfolio_allocation(
+            signal=signal_two,
+            proposed_value=500.0,
+            account=MockAccount(),
+        )
+
+        assert len(portfolio_manager.allocate_calls) == 2
+        first_batch = portfolio_manager.allocate_calls[0][0]
+        second_batch = portfolio_manager.allocate_calls[1][0]
+
+        assert len(first_batch) == 1
+        assert {s.instrument_id for s in second_batch} == {
+            instrument_id,
+            other_instrument_id,
+        }
+
+        batcher.clear()
+
 
 # ---------------------------------------------------------------------------
 # Test: Market Price Resolution

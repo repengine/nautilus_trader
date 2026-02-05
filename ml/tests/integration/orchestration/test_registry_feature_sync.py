@@ -52,7 +52,7 @@ def test_export_feature_manifest_to_feature_registry(tmp_path) -> None:
         target_semantics=build_default_target_semantics_payload(),
     )
     result = Mock()
-    result.feature_names = ["sma_20", "ema_50", "rsi_14"]
+    result.feature_names = ["price_sma_20", "ema_50", "rsi_14"]
 
     # Execute
     synchronizer._export_feature_manifest(cfg, result)
@@ -60,7 +60,7 @@ def test_export_feature_manifest_to_feature_registry(tmp_path) -> None:
     # Verify (Phase 2.2.8 - currently placeholder)
     # manifest = feature_registry.get_feature_manifest("spy_2024_ohlcv")
     # assert manifest is not None
-    # assert manifest["features"] == ["sma_20", "ema_50", "rsi_14"]
+    # assert manifest["features"] == ["price_sma_20", "ema_50", "rsi_14"]
     # assert "schema_hash" in manifest
 
 
@@ -97,7 +97,7 @@ def test_feature_schema_hash_computed_correctly(tmp_path) -> None:
         target_semantics=build_default_target_semantics_payload(),
     )
     result = Mock()
-    result.feature_names = ["sma_20", "ema_50", "rsi_14"]
+    result.feature_names = ["price_sma_20", "ema_50", "rsi_14"]
 
     # Execute (Phase 2.2.8)
     # Export feature manifest twice
@@ -145,7 +145,7 @@ def test_feature_manifest_queryable_from_registry(tmp_path) -> None:
         target_semantics=build_default_target_semantics_payload(),
     )
     result = Mock()
-    result.feature_names = ["sma_20", "ema_50", "rsi_14"]
+    result.feature_names = ["price_sma_20", "ema_50", "rsi_14"]
 
     # Execute
     synchronizer._export_feature_manifest(cfg, result)

@@ -45,6 +45,7 @@ catalog_backup_dir = "ml_out/catalog_archives"
 enabled = true
 dataset_id = "EQUS.MINI"
 include_bars = true
+# include_tbbo drives L1 quotes (schema "quotes", provider schema "tbbo")
 include_tbbo = true
 include_trades = true
 include_l2 = true

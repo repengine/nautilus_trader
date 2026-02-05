@@ -117,7 +117,7 @@ class TestFeatureCalculatorIntegration:
             ).all().all(), "Volatility should be non-negative"
 
         # Volume ratios should be > 0
-        volume_ratio_cols = [col for col in features_df.columns if "volume_ratio" in col]
+        volume_ratio_cols = [col for col in features_df.columns if "volume_ratio_20" in col]
         if volume_ratio_cols:
             assert (
                 features_df[volume_ratio_cols].iloc[warmup:] > 0

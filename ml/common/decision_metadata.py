@@ -4,6 +4,7 @@ Decision metadata normalization helpers.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from collections.abc import Mapping
 from typing import Any
@@ -14,6 +15,7 @@ from ml.schema import DecisionMetadataV1
 __all__ = [
     "decision_metadata_from_model_metadata",
     "normalize_decision_metadata",
+    "resolve_decision_horizon_ms",
 ]
 
 
@@ -50,6 +52,30 @@ for _key, _unit in _HORIZON_KEYS:
         _LEGACY_DECISION_KEYS.add(_key)
 
 
+_HORIZON_UNIT_TO_MS: dict[str, int] = {
+    "ms": 1,
+    "millisecond": 1,
+    "milliseconds": 1,
+    "s": 1_000,
+    "sec": 1_000,
+    "secs": 1_000,
+    "second": 1_000,
+    "seconds": 1_000,
+    "min": 60_000,
+    "mins": 60_000,
+    "minute": 60_000,
+    "minutes": 60_000,
+    "h": 3_600_000,
+    "hr": 3_600_000,
+    "hrs": 3_600_000,
+    "hour": 3_600_000,
+    "hours": 3_600_000,
+    "d": 86_400_000,
+    "day": 86_400_000,
+    "days": 86_400_000,
+}
+
+
 def _as_mapping(value: Any) -> Mapping[str, Any] | None:
     if isinstance(value, Mapping):
         return value
@@ -63,6 +89,16 @@ def _coerce_str(value: Any) -> str | None:
     if isinstance(value_attr, str):
         return value_attr
     return str(value)
+
+
+def _coerce_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 
 def _first_value(stack: Iterable[Mapping[str, Any]], keys: Iterable[str]) -> Any | None:
@@ -108,6 +144,33 @@ def _extract_horizon(stack: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | 
                 if mapped is not None:
                     return dict(mapped)
                 return {"value": raw, "unit": unit}
+    return None
+
+
+def _resolve_horizon_ms(value: float, unit: str) -> int | None:
+    unit_key = unit.strip().lower()
+    factor = _HORIZON_UNIT_TO_MS.get(unit_key)
+    if factor is None:
+        return None
+    if value < 0:
+        return None
+    return int(value * factor)
+
+
+def _resolve_horizon_ms_from_mapping(horizon: Mapping[str, Any]) -> int | None:
+    value = _coerce_number(horizon.get("value"))
+    unit = _coerce_str(horizon.get("unit"))
+    if value is not None and unit is not None:
+        resolved = _resolve_horizon_ms(value, unit)
+        if resolved is not None:
+            return resolved
+
+    for unit_key, factor in _HORIZON_UNIT_TO_MS.items():
+        if unit_key in horizon:
+            numeric = _coerce_number(horizon.get(unit_key))
+            if numeric is None or numeric < 0:
+                return None
+            return int(numeric * factor)
     return None
 
 
@@ -244,3 +307,31 @@ def decision_metadata_from_model_metadata(
         model_id=model_id,
         model_version=model_version,
     )
+
+
+def resolve_decision_horizon_ms(
+    decision_metadata: Mapping[str, Any] | None,
+) -> int | None:
+    """
+    Resolve horizon in milliseconds from decision metadata.
+
+    Parameters
+    ----------
+    decision_metadata : Mapping[str, Any] | None
+        Normalized decision metadata payload (v1).
+
+    Returns
+    -------
+    int | None
+        Horizon in milliseconds when resolvable, otherwise None.
+
+    """
+    if decision_metadata is None:
+        return None
+    horizon = decision_metadata.get("horizon")
+    if horizon is None:
+        return None
+    mapped = _as_mapping(horizon)
+    if mapped is None:
+        return None
+    return _resolve_horizon_ms_from_mapping(mapped)

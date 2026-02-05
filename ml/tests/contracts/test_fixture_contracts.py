@@ -130,7 +130,7 @@ class TestSampleFeaturesFixtureContracts:
         ), "All values must be numeric"
 
         # Contains expected keys (canonical fixture from common.py)
-        expected_keys = {"sma_20", "rsi", "volume_ratio", "price_change", "volatility"}
+        expected_keys = {"price_sma_20", "rsi", "volume_ratio_20", "price_change", "volatility"}
         assert set(sample_features.keys()) == expected_keys, (
             f"Expected keys {expected_keys}, got {set(sample_features.keys())}"
         )

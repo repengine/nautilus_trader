@@ -73,9 +73,14 @@ from ml.orchestration.pipeline_orchestrator import parse_args
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind
 from ml.data.vintage import VintagePolicy
 from ml.stores.providers import DAY_NS
+from ml.tests.utils.targets import build_default_target_semantics
 from ml.tests.utils.targets import build_default_target_semantics_payload
+from ml.training.datasets.target_generator import build_target_semantics_metadata
 
 TARGET_SEMANTICS = build_default_target_semantics_payload()
+TARGET_SEMANTICS_METADATA = build_target_semantics_metadata(
+    build_default_target_semantics(legacy_aliases=True),
+)
 
 
 @dataclass(slots=True)
@@ -321,6 +326,7 @@ def _write_dataset_metadata_file(out_dir: Path) -> None:
         "validation_window": None,
         "test_window": None,
         "macro_observation_counts": {},
+        "target_semantics": TARGET_SEMANTICS_METADATA,
     }
     (out_dir / "dataset_metadata.json").write_text(
         json.dumps(metadata, indent=2),
@@ -787,7 +793,7 @@ def test_auto_fill_universe_backfills_expected_schemas(
     assert rc == 0
     schemas = {(schema, lookback) for _, schema, _, lookback in backfill_calls}
     assert ("ohlcv-1m", 14) in schemas
-    assert ("tbbo", 7) in schemas
+    assert ("quotes", 7) in schemas
     assert ("trades", 7) in schemas
     assert {instrument for _, _, instrument, _ in backfill_calls} == {
         "SPY.NYSE",

@@ -48,7 +48,7 @@ def create_mock_feature_row(
 ) -> MockRow:
     """Create a mock feature row."""
     if values is None:
-        values = {"close_return": 0.01, "volume_ratio": 1.5}
+        values = {"close_return": 0.01, "volume_ratio_20": 1.5}
     return MockRow((ts_event, values))
 
 
@@ -57,7 +57,7 @@ def create_mock_values_row(
 ) -> MockRow:
     """Create a mock row with just values column."""
     if values is None:
-        values = {"close_return": 0.01, "volume_ratio": 1.5}
+        values = {"close_return": 0.01, "volume_ratio_20": 1.5}
     return MockRow((values,))
 
 
@@ -102,7 +102,7 @@ def feature_reader(mock_engine: MagicMock, mock_table: MagicMock) -> FeatureRead
         engine=mock_engine,
         table=mock_table,
         get_feature_set_id=lambda: "default_fs",
-        get_feature_names=lambda: ["close_return", "volume_ratio"],
+        get_feature_names=lambda: ["close_return", "volume_ratio_20"],
     )
 
 
@@ -118,7 +118,7 @@ def feature_reader_with_persistence(
         engine=mock_engine,
         table=mock_table,
         get_feature_set_id=lambda: "default_fs",
-        get_feature_names=lambda: ["close_return", "volume_ratio"],
+        get_feature_names=lambda: ["close_return", "volume_ratio_20"],
         persistence=persistence,
     )
 
@@ -175,11 +175,11 @@ class TestGetTrainingData:
         mock_rows = [
             create_mock_feature_row(
                 ts_event=1700000000000000000,
-                values={"close_return": 0.01, "volume_ratio": 1.5},
+                values={"close_return": 0.01, "volume_ratio_20": 1.5},
             ),
             create_mock_feature_row(
                 ts_event=1700000001000000000,
-                values={"close_return": 0.02, "volume_ratio": 1.6},
+                values={"close_return": 0.02, "volume_ratio_20": 1.6},
             ),
         ]
 
@@ -236,7 +236,7 @@ class TestGetTrainingData:
         mock_rows = [
             create_mock_feature_row(
                 ts_event=1700000000000000000,
-                values='{"close_return": 0.01, "volume_ratio": 1.5}',
+                values='{"close_return": 0.01, "volume_ratio_20": 1.5}',
             ),
         ]
 
@@ -250,7 +250,7 @@ class TestGetTrainingData:
 
         assert features.shape == (1, 2)
         assert features[0, 0] == 0.01  # close_return
-        assert features[0, 1] == 1.5  # volume_ratio
+        assert features[0, 1] == 1.5  # volume_ratio_20
 
     def test_get_training_data_handles_malformed_json(
         self,
@@ -285,7 +285,7 @@ class TestGetTrainingData:
         mock_rows = [
             create_mock_feature_row(
                 ts_event=1700000000000000000,
-                values={"close_return": 0.01},  # Missing volume_ratio
+                values={"close_return": 0.01},  # Missing volume_ratio_20
             ),
         ]
 
@@ -299,7 +299,7 @@ class TestGetTrainingData:
 
         assert features.shape == (1, 2)
         assert features[0, 0] == 0.01  # close_return present
-        assert features[0, 1] == 0.0  # volume_ratio missing
+        assert features[0, 1] == 0.0  # volume_ratio_20 missing
 
     def test_get_training_data_include_bars_is_consumed(
         self,
@@ -333,7 +333,7 @@ class TestGetLatestAtOrBefore:
     ) -> None:
         """Verify most recent feature row is returned."""
         mock_row = create_mock_values_row(
-            values={"close_return": 0.01, "volume_ratio": 1.5},
+            values={"close_return": 0.01, "volume_ratio_20": 1.5},
         )
 
         feature_reader._execute_latest_query = MagicMock(return_value=mock_row)
@@ -345,7 +345,7 @@ class TestGetLatestAtOrBefore:
 
         assert result is not None
         assert result["close_return"] == 0.01
-        assert result["volume_ratio"] == 1.5
+        assert result["volume_ratio_20"] == 1.5
 
     def test_get_latest_at_or_before_returns_none_when_empty(
         self,
@@ -367,7 +367,7 @@ class TestGetLatestAtOrBefore:
     ) -> None:
         """Verify JSON string values are parsed correctly."""
         mock_row = create_mock_values_row(
-            values='{"close_return": 0.01, "volume_ratio": 1.5}',
+            values='{"close_return": 0.01, "volume_ratio_20": 1.5}',
         )
 
         feature_reader._execute_latest_query = MagicMock(return_value=mock_row)
@@ -380,7 +380,7 @@ class TestGetLatestAtOrBefore:
         assert result is not None
         assert isinstance(result, dict)
         assert result["close_return"] == 0.01
-        assert result["volume_ratio"] == 1.5
+        assert result["volume_ratio_20"] == 1.5
 
     def test_get_latest_at_or_before_handles_malformed_json(
         self,
@@ -422,7 +422,7 @@ class TestGetLatestAtOrBefore:
         """Verify values are converted to float."""
         # Values with int type
         mock_row = create_mock_values_row(
-            values={"close_return": 1, "volume_ratio": 2},
+            values={"close_return": 1, "volume_ratio_20": 2},
         )
 
         feature_reader._execute_latest_query = MagicMock(return_value=mock_row)
@@ -435,7 +435,7 @@ class TestGetLatestAtOrBefore:
         assert result is not None
         assert all(isinstance(v, float) for v in result.values())
         assert result["close_return"] == 1.0
-        assert result["volume_ratio"] == 2.0
+        assert result["volume_ratio_20"] == 2.0
 
 
 # =========================================================================
@@ -733,7 +733,7 @@ class TestEdgeCases:
         """Verify handling of values that cannot be converted to float."""
         # Values with non-convertible types
         mock_row = create_mock_values_row(
-            values={"close_return": "not_a_number", "volume_ratio": None},
+            values={"close_return": "not_a_number", "volume_ratio_20": None},
         )
 
         feature_reader._execute_latest_query = MagicMock(return_value=mock_row)

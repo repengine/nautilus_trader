@@ -171,6 +171,8 @@ class MarketDataTableConfig:
         quote_tick_table: Per-class table for quote ticks.
         tbbo_table: Per-class table for TBBO data.
         mbp1_table: Per-class table for MBP-1 data.
+        mbp10_table: Per-class table for MBP-10 data.
+        mbo_table: Per-class table for MBO data.
         trade_tick_table: Per-class table for trade ticks.
         quote_sentinel_price: Price sentinel to treat as null (e.g., vendor missing-price marker).
     """
@@ -181,6 +183,8 @@ class MarketDataTableConfig:
     quote_tick_table: str = "market_data_quote_tick"
     tbbo_table: str = "market_data_tbbo"
     mbp1_table: str = "market_data_mbp1"
+    mbp10_table: str = "market_data_mbp10"
+    mbo_table: str = "market_data_mbo"
     trade_tick_table: str = "market_data_trade_tick"
     write_batch_size: int = 10000
     quote_sentinel_price: float | None = 9_223_372_036.85
@@ -192,6 +196,8 @@ class MarketDataTableConfig:
             ("quote_tick_table", self.quote_tick_table),
             ("tbbo_table", self.tbbo_table),
             ("mbp1_table", self.mbp1_table),
+            ("mbp10_table", self.mbp10_table),
+            ("mbo_table", self.mbo_table),
             ("trade_tick_table", self.trade_tick_table),
         ):
             if not value or not value.strip():
@@ -219,6 +225,10 @@ class MarketDataTableConfig:
             return self.tbbo_table
         if dataset_type is DatasetType.MBP1:
             return self.mbp1_table
+        if dataset_type is DatasetType.MBP10:
+            return self.mbp10_table
+        if dataset_type is DatasetType.MBO:
+            return self.mbo_table
         return self.legacy_table
 
     def table_for_schema(self, schema: str) -> str:
@@ -234,19 +244,17 @@ class MarketDataTableConfig:
         normalized = schema.strip().lower()
         if not normalized:
             return self.legacy_table
-        if "tbbo" in normalized or "bbo" in normalized:
-            return self.tbbo_table
-        if "quote" in normalized:
-            return self.quote_tick_table
-        if "trade" in normalized:
-            return self.trade_tick_table
-        if "mbp" in normalized or "mbo" in normalized or normalized.startswith("l2"):
-            return self.mbp1_table
-        if "ohlcv" in normalized or "bar" in normalized:
-            return self.bar_table
         try:
             dataset_type = map_schema_to_dataset_type(schema)
         except ValueError:
+            if "ohlcv" in normalized or "bar" in normalized:
+                return self.bar_table
+            if "tbbo" in normalized or "bbo" in normalized:
+                return self.tbbo_table
+            if "quote" in normalized:
+                return self.quote_tick_table
+            if "trade" in normalized:
+                return self.trade_tick_table
             return self.legacy_table
         return self.table_for_dataset_type(dataset_type)
 
@@ -267,6 +275,8 @@ class MarketDataTableConfig:
             ML_MARKET_DATA_TABLE_QUOTES
             ML_MARKET_DATA_TABLE_TBBO
             ML_MARKET_DATA_TABLE_MBP1
+            ML_MARKET_DATA_TABLE_MBP10
+            ML_MARKET_DATA_TABLE_MBO
             ML_MARKET_DATA_TABLE_TRADES
             ML_MARKET_DATA_WRITE_BATCH_SIZE
             ML_MARKET_DATA_QUOTE_SENTINEL_PRICE
@@ -312,6 +322,8 @@ class MarketDataTableConfig:
             quote_tick_table=source.get("ML_MARKET_DATA_TABLE_QUOTES") or defaults.quote_tick_table,
             tbbo_table=source.get("ML_MARKET_DATA_TABLE_TBBO") or defaults.tbbo_table,
             mbp1_table=source.get("ML_MARKET_DATA_TABLE_MBP1") or defaults.mbp1_table,
+            mbp10_table=source.get("ML_MARKET_DATA_TABLE_MBP10") or defaults.mbp10_table,
+            mbo_table=source.get("ML_MARKET_DATA_TABLE_MBO") or defaults.mbo_table,
             trade_tick_table=source.get("ML_MARKET_DATA_TABLE_TRADES") or defaults.trade_tick_table,
             write_batch_size=write_batch_size,
             quote_sentinel_price=quote_sentinel_price,

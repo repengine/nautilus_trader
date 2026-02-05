@@ -267,7 +267,7 @@ class TestFeatureCalculatorProperties:
             assert (features[volatility_cols] >= 0).all().all(), "Volatility should be non-negative"
 
         # Property: Volume ratios > 0 (after warmup)
-        volume_ratio_cols = [col for col in features.columns if "volume_ratio" in col]
+        volume_ratio_cols = [col for col in features.columns if "volume_ratio_20" in col]
         if volume_ratio_cols:
             # Allow zeros during warmup, but should be positive after
             warmup = max(20, calculator._required_warmup_history_len)

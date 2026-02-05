@@ -43,6 +43,9 @@ from ml.config.streaming_pipeline import parse_curriculum_guard_spec
 from ml.config.streaming_pipeline import parse_curriculum_stage_spec
 from ml.config.streaming_pipeline import parse_ensemble_member_spec
 from ml.consumers.streaming_training_service import StreamingTrainingPersistenceService
+from ml.data import load_dataset_metadata
+from ml.data import require_target_column_in_semantics
+from ml.data import require_target_semantics_metadata
 from ml.evaluation.metrics import binary_logloss
 from ml.evaluation.metrics import expected_calibration_error
 from ml.evaluation.metrics import pr_auc
@@ -656,6 +659,7 @@ def _resolve_dataset_spec(
 
     metadata = _load_json(metadata_path, description="dataset metadata")
     report = _load_json(report_path, description="dataset report")
+    dataset_metadata = load_dataset_metadata(metadata_path)
     layout = _build_feature_layout(metadata)
     streaming_config = _build_streaming_config(
         metadata,
@@ -679,6 +683,12 @@ def _resolve_dataset_spec(
         include_context_features=include_context_features,
         dataset_seed=dataset_seed,
         layout=layout,
+    )
+    require_target_semantics_metadata(dataset_metadata, context="streaming_runner")
+    require_target_column_in_semantics(
+        dataset_metadata,
+        streaming_config.target_col,
+        context="streaming_runner",
     )
     dataset_id = str(metadata.get("dataset_id", dataset_dir.name))
     return DatasetSpecification(
@@ -1436,7 +1446,10 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         "--dataset-dir",
         type=Path,
         required=True,
-        help="Directory containing dataset_with_vintage_age.parquet and dataset_metadata.json.",
+        help=(
+            "Directory containing dataset_with_vintage_age.parquet and dataset_metadata.json "
+            "(target_col must be declared in target_semantics)."
+        ),
     )
     parser.add_argument(
         "--output-dir",

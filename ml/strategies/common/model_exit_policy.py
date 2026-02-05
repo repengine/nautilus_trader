@@ -8,7 +8,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
-from ml.common.prediction_surface import neutral_band_bounds
+from ml.common import neutral_band_bounds
 from ml.config.base import ModelExitConfig
 
 

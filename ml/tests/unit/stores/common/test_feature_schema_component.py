@@ -58,7 +58,7 @@ class MockFeatureEngineer:
 
     def get_feature_names(self) -> list[str]:
         """Return mock feature names."""
-        return ["close_return", "volume_ratio", "volatility"]
+        return ["close_return", "volume_ratio_20", "volatility"]
 
     def build_pipeline_spec_from_config(self) -> MagicMock:
         """Return mock pipeline spec."""
@@ -351,7 +351,7 @@ class TestGetFeatureNames:
 
         names = schema.get_feature_names()
 
-        assert names == ["close_return", "volume_ratio", "volatility"]
+        assert names == ["close_return", "volume_ratio_20", "volatility"]
 
     def test_get_feature_names_returns_empty_list_when_no_source(
         self,

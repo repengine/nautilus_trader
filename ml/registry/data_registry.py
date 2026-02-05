@@ -28,8 +28,8 @@ from ml.common.protocols import MLComponentMixin
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
-from ml.registry.common.manifest_defaults import resolve_primary_keys
-from ml.registry.common.sql_utils import set_instrumentation_search_path
+from ml.registry.common import resolve_primary_keys
+from ml.registry.common import set_instrumentation_search_path
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
@@ -42,6 +42,15 @@ from ml.registry.watermark import Watermark
 
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_DATASET_ID_PREFIXES: tuple[str, ...] = ("ohlcv_", "mbp_")
+
+
+def _is_legacy_dataset_id(dataset_id: str | None) -> bool:
+    if not dataset_id:
+        return False
+    token = dataset_id.strip().lower()
+    return any(token.startswith(prefix) for prefix in _LEGACY_DATASET_ID_PREFIXES)
 
 
 class DataRegistry(MLComponentMixin):
@@ -896,6 +905,131 @@ class DataRegistry(MLComponentMixin):
                 manifests.append(manifest)
 
             return manifests
+
+    def list_legacy_dataset_ids(self) -> dict[str, tuple[str, ...]]:
+        """
+        Return legacy dataset_id references that use deprecated prefixes.
+
+        This preflight helper identifies dataset_id strings that still use
+        legacy prefixes (for example, ``ohlcv_*`` or ``mbp_*``) across registry,
+        event, watermark, and lineage records.
+
+        Returns:
+            Mapping of record source to a sorted tuple of legacy dataset_ids.
+
+        Example:
+            >>> registry = DataRegistry(...)
+            >>> report = registry.list_legacy_dataset_ids()
+            >>> report["registry"]
+            ('ohlcv_spy_xnas',)
+
+        """
+        def _collect(values: list[str | None]) -> tuple[str, ...]:
+            legacy = {
+                value
+                for value in values
+                if value is not None and _is_legacy_dataset_id(value)
+            }
+            return tuple(sorted(legacy))
+
+        with self._lock:
+            if self.backend == BackendType.JSON:
+                return {
+                    "registry": _collect(list(self._manifests.keys())),
+                    "events": _collect([event.get("dataset_id") for event in self._events]),
+                    "watermarks": _collect(
+                        [watermark.dataset_id for watermark in self._watermarks.values()],
+                    ),
+                    "lineage_children": _collect(
+                        [entry.get("child_dataset_id") for entry in self._lineage],
+                    ),
+                    "lineage_parents": _collect(
+                        [entry.get("parent_dataset_id") for entry in self._lineage],
+                    ),
+                }
+
+            session = self.persistence.get_session()
+            if session is None:
+                return {
+                    "registry": (),
+                    "events": (),
+                    "watermarks": (),
+                    "lineage_children": (),
+                    "lineage_parents": (),
+                }
+
+            try:
+                patterns = {"ohlcv": "ohlcv\\_%", "mbp": "mbp\\_%"}
+                registry_rows = session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT dataset_id
+                        FROM ml_dataset_registry
+                        WHERE dataset_id ILIKE :ohlcv ESCAPE '\\'
+                           OR dataset_id ILIKE :mbp ESCAPE '\\'
+                        ORDER BY dataset_id
+                        """,
+                    ),
+                    patterns,
+                ).fetchall()
+                event_rows = session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT dataset_id
+                        FROM ml_data_events
+                        WHERE dataset_id ILIKE :ohlcv ESCAPE '\\'
+                           OR dataset_id ILIKE :mbp ESCAPE '\\'
+                        ORDER BY dataset_id
+                        """,
+                    ),
+                    patterns,
+                ).fetchall()
+                watermark_rows = session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT dataset_id
+                        FROM ml_data_watermarks
+                        WHERE dataset_id ILIKE :ohlcv ESCAPE '\\'
+                           OR dataset_id ILIKE :mbp ESCAPE '\\'
+                        ORDER BY dataset_id
+                        """,
+                    ),
+                    patterns,
+                ).fetchall()
+                lineage_child_rows = session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT child_dataset_id
+                        FROM ml_data_lineage
+                        WHERE child_dataset_id ILIKE :ohlcv ESCAPE '\\'
+                           OR child_dataset_id ILIKE :mbp ESCAPE '\\'
+                        ORDER BY child_dataset_id
+                        """,
+                    ),
+                    patterns,
+                ).fetchall()
+                lineage_parent_rows = session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT parent_dataset_id
+                        FROM ml_data_lineage
+                        WHERE parent_dataset_id ILIKE :ohlcv ESCAPE '\\'
+                           OR parent_dataset_id ILIKE :mbp ESCAPE '\\'
+                        ORDER BY parent_dataset_id
+                        """,
+                    ),
+                    patterns,
+                ).fetchall()
+            finally:
+                session.close()
+
+            return {
+                "registry": tuple(row[0] for row in registry_rows),
+                "events": tuple(row[0] for row in event_rows),
+                "watermarks": tuple(row[0] for row in watermark_rows),
+                "lineage_children": tuple(row[0] for row in lineage_child_rows),
+                "lineage_parents": tuple(row[0] for row in lineage_parent_rows),
+            }
 
     def get_manifest(self, dataset_id: str) -> DatasetManifest:
         """

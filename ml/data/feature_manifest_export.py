@@ -15,6 +15,7 @@ from typing import Any
 
 from ml._imports import pd
 from ml._imports import pl
+from ml.features.canonical import assert_no_legacy_feature_aliases
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
@@ -73,6 +74,7 @@ def export_feature_manifest(
     """
     if not feature_names:
         raise ValueError("feature_names cannot be empty")
+    assert_no_legacy_feature_aliases(feature_names)
     dtypes = feature_dtypes or ["float32"] * len(feature_names)
     if len(dtypes) != len(feature_names):
         raise ValueError("feature_dtypes length must match feature_names length")

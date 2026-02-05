@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from ml.common.validation_strategies import DEFAULT_CV_STRATEGY
+from ml.common.validation_strategies import normalize_strategy
+
 
 if TYPE_CHECKING:
     from ml.config.base import MLTrainingConfig
@@ -177,6 +180,11 @@ class CrossValidationComponent:
             Cross-validation results for each fold. Each dict contains
             evaluation metrics for that fold.
 
+        Raises
+        ------
+        ValueError
+            If the configured ``cv_strategy`` is unknown.
+
         Example
         -------
         >>> results = cv_component._cross_validate(X, y)
@@ -185,7 +193,11 @@ class CrossValidationComponent:
 
         """
         n_folds: int = getattr(self._trainer._config, "cv_folds", 5)
-        cv_strategy = getattr(self._trainer._config, "cv_strategy", "time_series")
+        cv_strategy_raw = (
+            getattr(self._trainer._config, "cv_strategy", DEFAULT_CV_STRATEGY)
+            or DEFAULT_CV_STRATEGY
+        )
+        cv_strategy = normalize_strategy(str(cv_strategy_raw))
         n_samples: int = len(X)
 
         # Guard against too few samples for requested folds
@@ -215,11 +227,7 @@ class CrossValidationComponent:
         if cv_strategy == "purged":
             return self._purged_cv(X, y, n_folds, **kwargs)
 
-        # Unknown strategies default to time-series safe behavior
-        self._trainer._log_warning(
-            f"Unknown cv_strategy '{cv_strategy}'; using time_series CV",
-        )
-        return self._time_series_cv(X, y, n_folds, **kwargs)
+        raise ValueError(f"Unknown cv_strategy '{cv_strategy}'")
 
     def _time_series_cv(
         self,
@@ -377,8 +385,9 @@ class CrossValidationComponent:
 
         Notes
         -----
-        If PurgedCrossValidator is unavailable (import error), falls back
-        to time_series CV with a warning logged.
+        If PurgedCrossValidator is unavailable (import error), this method
+        raises ``RuntimeError`` to avoid silently falling back to another
+        strategy.
 
         Example
         -------
@@ -391,9 +400,12 @@ class CrossValidationComponent:
             from ml.preprocessing.stationarity import PurgedCrossValidator
         except Exception as exc:  # pragma: no cover - defensive
             self._trainer._log_warning(
-                f"PurgedCrossValidator unavailable ({exc}); falling back to time_series CV",
+                "PurgedCrossValidator unavailable; cannot run purged CV",
+                exc_info=True,
             )
-            return self._time_series_cv(X, y, n_folds, **kwargs)
+            raise RuntimeError(
+                "Purged CV requested but PurgedCrossValidator is unavailable",
+            ) from exc
 
         n_samples: int = len(X)
         if n_folds > n_samples:

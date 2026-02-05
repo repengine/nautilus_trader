@@ -149,7 +149,7 @@ def enforce_positive_class_mapping(
         )
 
     if classes is not None:
-        from ml.common.prediction_surface import resolve_positive_class_index
+        from ml.common import resolve_positive_class_index
 
         idx = resolve_positive_class_index(
             {"decision_config": decision_cfg},

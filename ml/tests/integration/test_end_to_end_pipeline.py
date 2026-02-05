@@ -468,7 +468,7 @@ class TestEndToEndPipeline:
         feature_store.store_features(
             instrument_id=str(PIPELINE_INSTRUMENT),
             ts_event=int(time.time_ns()),
-            features={"rsi": 50.0, "volume_ratio": 1.2},
+            features={"rsi": 50.0, "volume_ratio_20": 1.2},
         )
 
         # 2. Store model predictions
@@ -630,8 +630,8 @@ class TestEndToEndPipeline:
             "y",  # Core
             "return_1",
             "return_5",  # Features
-            "tod_sin",
-            "tod_cos",  # Known-future cyclical time-of-day
+            "hour_sin",
+            "hour_cos",  # Known-future cyclical time-of-day
         ]
 
         for col in expected_columns:

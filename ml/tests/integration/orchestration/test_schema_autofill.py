@@ -90,7 +90,7 @@ def test_auto_fill_universe_populates_all_schemas(
     Phase 2.2.8 Expected Behavior:
     - Resolves instruments: ["SPY.NASDAQ"]
     - For bars schema: calls _auto_fill_schema with schema="ohlcv-1m"
-    - For tbbo schema: calls _auto_fill_schema with schema="tbbo"
+    - For quotes schema: calls _auto_fill_schema with schema="quotes"
     - For trades schema: calls _auto_fill_schema with schema="trades"
     - All schemas populated for SPY.NASDAQ
     """
@@ -106,7 +106,7 @@ def test_auto_fill_universe_populates_all_schemas(
         # Phase 2.2.8 assertions
         schemas_filled = [call.kwargs["schema"] for call in calls]
         assert "ohlcv-1m" in schemas_filled, "Bars schema should be auto-filled"
-        assert "tbbo" in schemas_filled, "TBBO schema should be auto-filled"
+        assert "quotes" in schemas_filled, "Quotes schema should be auto-filled"
         assert "trades" in schemas_filled, "Trades schema should be auto-filled"
 
 
@@ -164,7 +164,7 @@ def test_auto_fill_l2_populates_depth_and_mbp_schemas(
     Phase 2.2.8 Expected Behavior:
     - Determines L2 lookback from policy
     - For each instrument (SPY, QQQ):
-      - Calls _auto_fill_schema with schema="mbp-10"
+      - Calls _auto_fill_schema with schema="mbp-1"
       - Calls _auto_fill_schema with schema="depth"
     - Total calls: 4 (2 instruments × 2 schemas)
     """
@@ -186,7 +186,7 @@ def test_auto_fill_l2_populates_depth_and_mbp_schemas(
             mock_autofill.call_count == 4
         ), "Should call for each instrument x schema"
 
-        # Verify schemas are depth and mbp-10
+        # Verify schemas are depth and mbp-1
         schemas = [call.kwargs["schema"] for call in mock_autofill.call_args_list]
-        assert schemas.count("mbp-10") == 2, "MBP schema for both instruments"
+        assert schemas.count("mbp-1") == 2, "MBP schema for both instruments"
         assert schemas.count("depth") == 2, "Depth schema for both instruments"

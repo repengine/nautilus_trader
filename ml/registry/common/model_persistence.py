@@ -445,6 +445,8 @@ class ModelPersistenceComponent:
             "training_config": model_info.manifest.training_config,
             "performance_metrics": model_info.manifest.performance_metrics,
             "deployment_constraints": model_info.manifest.deployment_constraints,
+            "output_schema": getattr(model_info.manifest, "output_schema", None),
+            "calibration": getattr(model_info.manifest, "calibration", None),
             "version": model_info.manifest.version,
             "created_at": model_info.manifest.created_at,
             "last_modified": model_info.manifest.last_modified,
@@ -507,6 +509,8 @@ class ModelPersistenceComponent:
                 training_config=manifest_data.get("training_config", {}),
                 performance_metrics=manifest_data.get("performance_metrics", {}),
                 deployment_constraints=manifest_data.get("deployment_constraints", {}),
+                output_schema=manifest_data.get("output_schema"),
+                calibration=manifest_data.get("calibration"),
                 version=manifest_data["version"],
                 created_at=manifest_data["created_at"],
                 last_modified=manifest_data["last_modified"],
@@ -584,6 +588,8 @@ class ModelPersistenceComponent:
             training_config=cast(dict[str, Any], db_model.training_config) or {},
             performance_metrics=cast(dict[str, float], db_model.performance_metrics) or {},
             deployment_constraints=cast(dict[str, Any], db_model.deployment_constraints) or {},
+            output_schema=cast(dict[str, Any] | None, db_model.output_schema),
+            calibration=cast(dict[str, Any] | None, db_model.calibration),
             version=version,
             created_at=(
                 db_model.created_at.timestamp() if db_model.created_at else time.time()
@@ -658,6 +664,8 @@ class ModelPersistenceComponent:
                 existing.training_config = model_info.manifest.training_config  # type: ignore[assignment]
                 existing.performance_metrics = model_info.manifest.performance_metrics  # type: ignore[assignment]
                 existing.deployment_constraints = model_info.manifest.deployment_constraints  # type: ignore[assignment]
+                existing.output_schema = model_info.manifest.output_schema  # type: ignore[assignment]
+                existing.calibration = model_info.manifest.calibration  # type: ignore[assignment]
                 existing.deployment_status = model_info.deployment_status.value  # type: ignore[assignment]
                 existing.deployed_to = model_info.deployed_to  # type: ignore[assignment]
                 existing.version = model_info.manifest.version
@@ -684,6 +692,8 @@ class ModelPersistenceComponent:
                     training_config=cast(Any, model_info.manifest.training_config),
                     performance_metrics=cast(Any, model_info.manifest.performance_metrics),
                     deployment_constraints=cast(Any, model_info.manifest.deployment_constraints),
+                    output_schema=cast(Any, model_info.manifest.output_schema),
+                    calibration=cast(Any, model_info.manifest.calibration),
                     deployment_status=model_info.deployment_status.value,  # type: ignore[arg-type]
                     deployed_to=cast(Any, model_info.deployed_to),
                     version=model_info.manifest.version,

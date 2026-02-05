@@ -31,7 +31,9 @@ __all__ = [
     "EARNINGS_ACTUALS_DATASET_ID",
     "EARNINGS_ESTIMATES_DATASET_ID",
     "EQUS_MINI_DATASET_ID",
+    "EQUS_MINI_MBO_DATASET_ID",
     "EQUS_MINI_MBP1_DATASET_ID",
+    "EQUS_MINI_MBP10_DATASET_ID",
     "EQUS_MINI_QUOTES_DATASET_ID",
     "EQUS_MINI_TBBO_DATASET_ID",
     "EQUS_MINI_TRADES_DATASET_ID",
@@ -79,6 +81,12 @@ EQUS_MINI_TBBO_DATASET_ID: Final[str] = "EQUS.MINI_TBBO"
 
 EQUS_MINI_MBP1_DATASET_ID: Final[str] = "EQUS.MINI_MBP1"
 """Dataset identifier for Databento EQUS MBP-1 data."""
+
+EQUS_MINI_MBP10_DATASET_ID: Final[str] = "EQUS.MINI_MBP10"
+"""Dataset identifier for Databento EQUS MBP-10 data."""
+
+EQUS_MINI_MBO_DATASET_ID: Final[str] = "EQUS.MINI_MBO"
+"""Dataset identifier for Databento EQUS MBO data."""
 
 EQUS_MINI_QUOTES_DATASET_ID: Final[str] = "EQUS.MINI_QUOTES"
 """Dataset identifier for Databento EQUS quote ticks."""

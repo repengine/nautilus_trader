@@ -422,6 +422,25 @@ class TargetSemanticsConfig:
             return labels[0]
         return None
 
+    def resolved_primary_horizon_minutes(self, target_column: str | None = None) -> int | None:
+        """
+        Resolve horizon minutes for the primary target column.
+
+        Args:
+            target_column: Optional override for the target column name.
+
+        Returns:
+            Horizon minutes if the target column matches a known horizon label.
+        """
+        column = target_column or self.resolved_primary_target()
+        if not column:
+            return None
+        for spec in self.horizons:
+            label = spec.label or f"{spec.minutes}m"
+            if column.endswith(label):
+                return spec.minutes
+        return None
+
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> TargetSemanticsConfig:
         """

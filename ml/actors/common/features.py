@@ -28,6 +28,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Callable
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
@@ -137,11 +138,50 @@ class FeaturesProtocol(Protocol):
         """
         ...
 
+    def update_dependencies(
+        self,
+        *,
+        health_monitor: HealthMonitor | None = None,
+        persistence_worker: MLPersistenceWorker | None = None,
+    ) -> None:
+        """
+        Update optional dependencies after initialization.
+
+        Args:
+            health_monitor: Optional health monitor to attach.
+            persistence_worker: Optional async persistence worker to attach.
+
+        """
+
+
+def build_feature_dict(
+    features: npt.NDArray[np.float32],
+    *,
+    feature_names: Sequence[str] | None = None,
+) -> dict[str, float]:
+    """
+    Build a feature dictionary from a feature array.
+
+    Args:
+        features: Feature array of shape (n_features,).
+        feature_names: Optional list of names aligned with the feature array.
+
+    Returns:
+        Mapping of feature name to float value.
+
+    Example:
+        >>> feats = np.array([0.1, 0.2], dtype=np.float32)
+        >>> build_feature_dict(feats, feature_names=["rsi", "sma"])
+        {'rsi': 0.1, 'sma': 0.2}
+    """
+    if feature_names is not None and len(feature_names) == int(features.shape[0]):
+        return {feature_names[i]: float(features[i]) for i in range(len(feature_names))}
+    return {f"feature_{i}": float(v) for i, v in enumerate(features)}
+
     def cleanup(self) -> None:
         """
         Release feature computation resources.
         """
-        ...
 
 
 class FeaturesComponent:
@@ -264,6 +304,7 @@ class FeaturesComponent:
             "warmup_bars",
             20,  # Default 20 bars for indicator initialization
         )
+        self._sync_fallback_disabled_logged = False
 
         # Performance tracking
         self._total_feature_time = 0.0
@@ -295,6 +336,25 @@ class FeaturesComponent:
             f"FeaturesComponent initialized: lookback_window={self._feature_config.lookback_window}, "
             f"warmup_bars={self._warmup_bars_required}",
         )
+
+    def update_dependencies(
+        self,
+        *,
+        health_monitor: HealthMonitor | None = None,
+        persistence_worker: MLPersistenceWorker | None = None,
+    ) -> None:
+        """
+        Update optional dependencies after initialization.
+
+        Args:
+            health_monitor: Optional health monitor to attach.
+            persistence_worker: Optional async persistence worker to attach.
+
+        Example:
+            >>> component.update_dependencies(health_monitor=monitor, persistence_worker=worker)
+        """
+        self._health_monitor = health_monitor
+        self._persistence_worker = persistence_worker
 
     def compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
@@ -562,7 +622,7 @@ class FeaturesComponent:
 
         Example:
             >>> component = FeaturesComponent(...)
-            >>> feature_dict = {"rsi_14": 0.5, "sma_20": 1.1050}
+            >>> feature_dict = {"rsi_14": 0.5, "price_sma_20": 1.1050}
             >>> success = component.persist_features_async(
             ...     feature_set_id="default",
             ...     instrument_id="EUR/USD.SIM",
@@ -574,6 +634,9 @@ class FeaturesComponent:
 
         """
         try:
+            allow_sync_fallback = bool(
+                getattr(self._config, "allow_sync_persistence_fallback", True),
+            )
             # Async path: enqueue to persistence worker
             if self._persistence_worker is not None:
                 enqueued = self._persistence_worker.enqueue_features(
@@ -604,6 +667,18 @@ class FeaturesComponent:
 
             # Sync fallback: write directly to store
             else:
+                if not allow_sync_fallback:
+                    self._persistence_counter.labels(
+                        component="features",
+                        mode="sync",
+                        result="disabled",
+                    ).inc()
+                    if not self._sync_fallback_disabled_logged:
+                        self._logger.warning(
+                            "Sync feature persistence disabled; dropping feature writes",
+                        )
+                        self._sync_fallback_disabled_logged = True
+                    return False
                 self._feature_store.write_features(
                     feature_set_id=feature_set_id,
                     instrument_id=instrument_id,

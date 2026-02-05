@@ -325,8 +325,8 @@ class TestErrorConditions:
     ) -> None:
         """Verify inline migration fallback path.
 
-        Input: CLI helpers raise ImportError.
-        Expected Behavior: Warning logged about CLI unavailable.
+        Input: task helpers raise ImportError.
+        Expected Behavior: Warning logged about task helpers unavailable.
         """
         # Create mock engine
         mock_conn = MagicMock()
@@ -338,14 +338,14 @@ class TestErrorConditions:
             EngineManager, "get_engine", lambda conn, **kwargs: mock_engine
         )
 
-        # Force ImportError for CLI helpers by patching the import
+        # Force ImportError for task helpers by patching the import
         import builtins
 
         original_import = builtins.__import__
 
         def mock_import(name: str, *args: object, **kwargs: object) -> object:
-            if "ml.cli.apply_migrations" in name:
-                raise ImportError("No module named 'ml.cli.apply_migrations'")
+            if "ml.tasks.db" in name:
+                raise ImportError("No module named 'ml.tasks.db'")
             return original_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
@@ -354,7 +354,7 @@ class TestErrorConditions:
             mock_database_lifecycle.run_migrations()
 
         assert any(
-            "CLI migration helpers unavailable" in record.message
+            "Migration helpers unavailable" in record.message
             for record in caplog.records
         )
 
@@ -424,13 +424,13 @@ class TestEdgeCases:
             EngineManager, "get_engine", lambda conn, **kwargs: mock_engine
         )
 
-        # Force fallback path by raising ImportError for CLI helpers
+        # Force fallback path by raising ImportError for task helpers
         import builtins
 
         original_import = builtins.__import__
 
         def mock_import(name: str, *args: object, **kwargs: object) -> object:
-            if "ml.cli.apply_migrations" in name:
+            if "ml.tasks.db" in name:
                 raise ImportError("No module")
             return original_import(name, *args, **kwargs)
 

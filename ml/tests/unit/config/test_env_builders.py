@@ -84,6 +84,7 @@ def test_ml_actor_config_from_env_resolves_core_fields() -> None:
             "ML_DB_CONNECTION": db_connection,
             "ML_PUBLISH_SIGNALS": "false",
             "ML_ENABLE_ASYNC_PERSISTENCE": "false",
+            "ML_ALLOW_SYNC_PERSISTENCE_FALLBACK": "false",
             "ML_PERSISTENCE_BATCH_SIZE": "64",
             "ML_SIGNAL_DATA_TYPE": "TestSignal",
             "COMPONENT_ID": "Component-001",
@@ -98,6 +99,7 @@ def test_ml_actor_config_from_env_resolves_core_fields() -> None:
     assert cfg.db_connection == db_connection
     assert cfg.publish_signals is False
     assert cfg.enable_async_persistence is False
+    assert cfg.allow_sync_persistence_fallback is False
     assert cfg.persistence_batch_size == 64
     assert cfg.signal_data_type == "TestSignal"
     assert cfg.component_id is not None
@@ -231,6 +233,7 @@ def test_lightgbm_training_config_from_env() -> None:
             "ML_OPTUNA_ENABLED": "true",
             "ML_OPTUNA_TRIALS": "5",
             "ML_TRAIN_TRACK_FEATURE_DECAY": "false",
+            "ML_TRAIN_EMBARGO_PCT": "0.15",
         },
     )
 
@@ -246,6 +249,7 @@ def test_lightgbm_training_config_from_env() -> None:
     assert cfg.optuna_config is not None and cfg.optuna_config.enabled is True
     assert cfg.advanced_config is not None and isinstance(cfg.advanced_config, AdvancedTrainingConfig)
     assert cfg.advanced_config.track_feature_decay is False
+    assert cfg.advanced_config.embargo_pct == pytest.approx(0.15)
 
 
 def test_xgboost_training_config_from_env() -> None:
@@ -259,6 +263,7 @@ def test_xgboost_training_config_from_env() -> None:
             "ML_XGB_GPU_ENABLED": "true",
             "ML_XGB_GPU_DEVICE_ID": "0",
             "ML_TRAIN_ONNX_OUTPUT_PATH": "/tmp/model.onnx",
+            "ML_TRAIN_EMBARGO_PCT": "0.2",
         },
     )
 
@@ -270,3 +275,4 @@ def test_xgboost_training_config_from_env() -> None:
     assert cfg.gpu_config is not None and cfg.gpu_config.enabled is True
     assert cfg.advanced_config is not None
     assert cfg.advanced_config.onnx_output_path == "/tmp/model.onnx"
+    assert cfg.advanced_config.embargo_pct == pytest.approx(0.2)

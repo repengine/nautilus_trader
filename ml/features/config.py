@@ -4,6 +4,7 @@ Feature configuration module.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, TypeAlias
 
 import msgspec
@@ -98,6 +99,7 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     include_macro_revisions: bool = False
     macro_revision_mode: str = "core"  # "minimal", "core", "full"
     include_macro_composites: bool = False
+    include_macro_deltas: bool = False
     macro_min_coverage: float | None = None
 
     # Calendar features (known-future for TFT)
@@ -168,6 +170,9 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
                 "include_macro_composites requires macro_series_ids to be configured",
             )
 
+        if self.include_macro_deltas and not self.include_macro:
+            raise ValueError("include_macro_deltas requires include_macro to be True")
+
         if self.macro_min_coverage is not None and not 0.0 < float(self.macro_min_coverage) <= 1.0:
             msg = "macro_min_coverage must be within (0, 1], received " f"{self.macro_min_coverage}"
             raise ValueError(msg)
@@ -176,13 +181,17 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         # handling for `ma_periods` occurs in pipeline spec construction.
         if self.include_microstructure or self.include_trade_flow:
             requirements = self.resolved_data_requirements()
-            allowed_requirements = {
+            if self.include_trade_flow and requirements != DataRequirements.L1_L2_L3:
+                raise ValueError(
+                    "Trade flow features require data_requirements >= L1_L2_L3; "
+                    f"received {requirements.value}.",
+                )
+            if self.include_microstructure and requirements not in {
                 DataRequirements.L1_L2,
                 DataRequirements.L1_L2_L3,
-            }
-            if requirements not in allowed_requirements:
+            }:
                 raise ValueError(
-                    "Microstructure or trade flow features require data_requirements >= L1_L2; "
+                    "Microstructure features require data_requirements >= L1_L2; "
                     f"received {requirements.value}.",
                 )
 
@@ -191,10 +200,11 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         Return effective data requirements after applying feature constraints.
         """
         requirements = getattr(self, "data_requirements", DataRequirements.L1_ONLY)
-        if requirements == DataRequirements.L1_ONLY and (
-            self.include_microstructure or self.include_trade_flow
-        ):
-            return DataRequirements.L1_L2
+        if requirements == DataRequirements.L1_ONLY:
+            if self.include_trade_flow:
+                return DataRequirements.L1_L2_L3
+            if self.include_microstructure:
+                return DataRequirements.L1_L2
         return requirements
 
     def get_feature_names(self) -> list[str]:
@@ -318,6 +328,13 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfigLike) -> PipelineS
 
         if getattr(cfg, "include_macro_composites", False):
             transforms.append(TransformSpec(name="macro_composites", params={}))
+        if getattr(cfg, "include_macro_deltas", False):
+            transforms.append(
+                TransformSpec(
+                    name="macro_deltas",
+                    params={"series_ids": list(getattr(cfg, "macro_series_ids", []))},
+                ),
+            )
     elif getattr(cfg, "include_macro_composites", False):
         msg = "include_macro_composites requires include_macro to be True"
         raise ValueError(msg)
@@ -333,3 +350,66 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfigLike) -> PipelineS
         transforms.append(TransformSpec(name="event_schedule", params={}))
 
     return PipelineSpec(transforms=transforms)
+
+
+def derive_ohlcv_feature_config(
+    base: FeatureConfig,
+    transforms: Sequence[TransformSpec],
+    *,
+    allowable: DataRequirements,
+) -> FeatureConfig:
+    """
+    Derive a FeatureConfig for OHLCV-oriented transforms.
+
+    This helper mirrors the canonical pipeline spec and enables only the
+    transforms that are supported by the online FeatureCalculator.
+
+    Args:
+        base: Baseline FeatureConfig to copy defaults from.
+        transforms: Pipeline transforms to project into FeatureConfig flags.
+        allowable: DataRequirements gate to satisfy microstructure/trade flow needs.
+
+    Returns:
+        FeatureConfig with OHLCV transform flags and periods aligned to the spec.
+    """
+    names = {ts.name for ts in transforms}
+    return_periods: list[int] | None = None
+    momentum_periods: list[int] | None = None
+    volume_periods: list[int] | None = None
+
+    for ts in transforms:
+        if ts.name == "returns":
+            return_periods = list(ts.params.get("periods", [1, 5, 10, 20]))
+        elif ts.name == "momentum":
+            momentum_periods = list(ts.params.get("periods", [5, 10, 20]))
+        elif ts.name == "volume_ratio":
+            volume_periods = list(ts.params.get("periods", [5, 10, 20]))
+
+    include_microstructure = "microstructure" in names
+    include_trade_flow = "trade_flow" in names
+    data_requirements = allowable
+    if include_trade_flow and data_requirements != DataRequirements.L1_L2_L3:
+        data_requirements = DataRequirements.L1_L2_L3
+    elif include_microstructure and data_requirements == DataRequirements.L1_ONLY:
+        data_requirements = DataRequirements.L1_L2
+
+    return msgspec.structs.replace(
+        base,
+        enable_returns=True if "returns" in names else False,
+        enable_momentum=True if "momentum" in names else False,
+        enable_volatility=True if "volatility" in names else False,
+        enable_technical=True if "core_indicators" in names else False,
+        include_microstructure=include_microstructure,
+        include_trade_flow=include_trade_flow,
+        include_macro=False,
+        include_macro_composites=False,
+        include_macro_deltas=False,
+        include_calendar=False,
+        include_event_schedule=False,
+        return_periods=return_periods if return_periods is not None else base.return_periods,
+        momentum_periods=(
+            momentum_periods if momentum_periods is not None else base.momentum_periods
+        ),
+        ma_periods=volume_periods if volume_periods is not None else [],
+        data_requirements=data_requirements,
+    )

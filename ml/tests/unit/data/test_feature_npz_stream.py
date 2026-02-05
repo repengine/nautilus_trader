@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from ml.data import _compute_dataset_metadata
-from ml.data import _write_feature_npz_from_polars
 from ml.data import DatasetMetadata
+from ml.data.build import _write_feature_npz_from_polars
+from ml.data.metadata import _compute_dataset_metadata
 from ml.data.vintage import VintagePolicy
 
 

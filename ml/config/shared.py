@@ -13,6 +13,8 @@ from collections.abc import Mapping
 
 import msgspec
 
+from ml.common.validation_strategies import CV_STRATEGIES
+from ml.common.validation_strategies import DEFAULT_CV_STRATEGY
 from ml.config._env_utils import ensure_env as _ensure_env
 from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
 from ml.config._env_utils import env_positive_float as _env_positive_float
@@ -313,11 +315,14 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
     feature_history_window : int, default 10
         Number of training runs to keep in feature importance history.
     cv_strategy : str, default "time_series"
-        Cross-validation strategy. Options: "time_series", "blocked", "purged", "standard".
+        Cross-validation strategy. Options: "time_series", "purged".
+        Deprecated options ("blocked", "standard") are mapped to "time_series".
     cv_folds : int, default 5
         Number of cross-validation folds.
     purge_gap : int, default 10
         Gap between train/test in purged cross-validation (in time steps).
+    embargo_pct : float, default 0.0
+        Percentage of samples to embargo after each validation fold (0.0-1.0).
     export_onnx : bool, default False
         Export trained model to ONNX format for inference.
     onnx_output_path : str | None, default None
@@ -330,9 +335,10 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
     track_feature_decay: bool = True
     feature_decay_threshold: float = 0.3
     feature_history_window: int = 10
-    cv_strategy: str = "time_series"
+    cv_strategy: str = DEFAULT_CV_STRATEGY
     cv_folds: int = 5
     purge_gap: int = 10
+    embargo_pct: float = 0.0
     export_onnx: bool = False
     onnx_output_path: str | None = None
     enable_monitoring: bool = True
@@ -360,11 +366,10 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
             f"{prefix}_FEATURE_HISTORY_WINDOW",
             10,
         )
-        cv_strategy = (
-            source.get(f"{prefix}_CV_STRATEGY", "time_series").strip().lower()
-        )
+        cv_strategy = source.get(f"{prefix}_CV_STRATEGY", DEFAULT_CV_STRATEGY).strip().lower()
         cv_folds = _env_positive_int(source, f"{prefix}_CV_FOLDS", 5)
         purge_gap = _env_non_negative_int(source, f"{prefix}_PURGE_GAP", 10)
+        embargo_pct = _env_positive_float(source, f"{prefix}_EMBARGO_PCT", 0.0)
         export_onnx = _env_truthy(source, f"{prefix}_EXPORT_ONNX", False)
 
         onnx_output_path = source.get(f"{prefix}_ONNX_OUTPUT_PATH")
@@ -380,6 +385,7 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
             cv_strategy=cv_strategy,
             cv_folds=cv_folds,
             purge_gap=purge_gap,
+            embargo_pct=embargo_pct,
             export_onnx=export_onnx,
             onnx_output_path=onnx_output_path,
             enable_monitoring=enable_monitoring,
@@ -399,9 +405,9 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
             msg = f"feature_history_window must be positive, got {self.feature_history_window}"
             raise ValueError(msg)
 
-        valid_strategies = ["time_series", "blocked", "purged", "standard"]
+        valid_strategies = set(CV_STRATEGIES) | {"blocked", "standard"}
         if self.cv_strategy not in valid_strategies:
-            msg = f"cv_strategy must be one of {valid_strategies}, got {self.cv_strategy}"
+            msg = f"cv_strategy must be one of {sorted(valid_strategies)}, got {self.cv_strategy}"
             raise ValueError(msg)
 
         if self.cv_folds <= 1:
@@ -410,6 +416,10 @@ class AdvancedTrainingConfig(msgspec.Struct, kw_only=True, frozen=True):
 
         if self.purge_gap < 0:
             msg = f"purge_gap must be non-negative, got {self.purge_gap}"
+            raise ValueError(msg)
+
+        if not 0.0 <= float(self.embargo_pct) < 1.0:
+            msg = f"embargo_pct must be in [0.0, 1.0), got {self.embargo_pct}"
             raise ValueError(msg)
 
 

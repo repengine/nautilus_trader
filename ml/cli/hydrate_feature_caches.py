@@ -14,16 +14,16 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
+from ml.common import WatermarkRegistryProtocol
+from ml.common import resolve_watermark_start_date
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
-from ml.common.watermark_window import WatermarkRegistryProtocol
-from ml.common.watermark_window import resolve_watermark_start_date
+from ml.config import WatermarkWindowConfig
+from ml.config import l2_window_defaults
+from ml.config import micro_window_defaults
 from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
-from ml.config.ingestion_windows import l2_window_defaults
-from ml.config.ingestion_windows import micro_window_defaults
 from ml.config.universes import TIER1_SYMBOL_SETS
 from ml.stores.data_store import DataStore
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter

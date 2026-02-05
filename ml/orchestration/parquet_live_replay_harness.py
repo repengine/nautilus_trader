@@ -121,6 +121,7 @@ def run_parquet_live_replay_harness(
     run_id = config.run_id or f"replay_{time.time_ns()}"
     output_path = _resolve_output_path(config, run_id)
     _configure_environment(config, output_path)
+    db_connection = _resolve_replay_db_connection(config)
 
     if config.strategy.serialize_order_intents and not config.strategy.execute_trades:
         logger.warning(
@@ -171,7 +172,7 @@ def run_parquet_live_replay_harness(
 
     engine.add_data(bars, sort=True)
 
-    _attach_components(engine, config, instrument_ids, bar_types)
+    _attach_components(engine, config, instrument_ids, bar_types, db_connection=db_connection)
 
     try:
         engine.run(start=config.start_time, end=config.end_time)
@@ -182,6 +183,7 @@ def run_parquet_live_replay_harness(
             run_id=run_id,
             instrument_ids=instrument_ids,
             backtest_result=backtest_result,
+            db_connection=db_connection,
         )
     finally:
         try:
@@ -281,24 +283,27 @@ def _persist_backtest_result(
     )
 
 
-def _resolve_replay_summary_connection(
+def _resolve_replay_db_connection(
     config: ParquetLiveReplayHarnessConfig,
 ) -> str | None:
     """
-    Resolve a working PostgreSQL connection string for replay summary persistence.
+    Resolve the database connection for replay harness stores and registry usage.
     """
     if bool(getattr(config.actor, "use_dummy_stores", False)):
         return None
-    explicit = getattr(config.actor, "db_connection", None)
+    explicit_raw = getattr(config.actor, "db_connection", None)
+    explicit = explicit_raw.strip() if isinstance(explicit_raw, str) else None
+    if explicit:
+        return explicit
+
     try:
-        candidates = collect_postgres_candidates(
-            ConnectionRole.PRIMARY,
-            explicit=explicit,
-        ).urls
-        return select_first_working_connection(candidates)
+        candidates = collect_postgres_candidates(ConnectionRole.PRIMARY).urls
+        if not candidates:
+            return None
+        return str(select_first_working_connection(candidates))
     except Exception as exc:
         logger.debug(
-            "replay_summary_db_unavailable",
+            "replay_db_connection_unavailable",
             exc_info=True,
             extra={"error": str(exc)},
         )
@@ -352,17 +357,17 @@ def _persist_replay_summary(
     run_id: str,
     instrument_ids: Iterable[InstrumentId],
     backtest_result: BacktestResult,
+    db_connection: str | None,
 ) -> None:
     """
     Persist a replay summary row to Postgres when available.
     """
     if not getattr(config.strategy, "use_strategy_store", True):
         return
-    connection = _resolve_replay_summary_connection(config)
-    if connection is None:
+    if db_connection is None:
         return
     try:
-        engine = EngineManager.get_engine(connection)
+        engine = EngineManager.get_engine(db_connection)
     except Exception as exc:
         logger.debug(
             "replay_summary_engine_unavailable",
@@ -391,7 +396,7 @@ def _persist_replay_summary(
     )
 
     try:
-        store = StrategyStore(connection_string=connection, run_id=run_id)
+        store = StrategyStore(connection_string=db_connection, run_id=run_id)
         store.write_replay_summary(summary, publish_bus=False)
         store.flush()
     except Exception as exc:
@@ -777,6 +782,7 @@ def _build_actor_config(
     bar_type: BarType,
     instrument_id: InstrumentId,
     actor_id: str,
+    db_connection: str | None,
 ) -> MLSignalActorConfig:
     """
     Build MLSignalActorConfig for the replay harness.
@@ -800,7 +806,7 @@ def _build_actor_config(
         feature_set_id=actor_config.feature_set_id,
         registry_path=actor_config.registry_path,
         use_registry_features=actor_config.use_registry_features,
-        db_connection=actor_config.db_connection,
+        db_connection=db_connection,
         use_dummy_stores=actor_config.use_dummy_stores,
     )
 
@@ -824,6 +830,8 @@ def _attach_components(
     config: ParquetLiveReplayHarnessConfig,
     instrument_ids: Iterable[InstrumentId],
     bar_types: dict[InstrumentId, BarType],
+    *,
+    db_connection: str | None,
 ) -> None:
     """
     Attach ML actors and strategies for each instrument.
@@ -840,6 +848,7 @@ def _attach_components(
             bar_type=bar_type,
             instrument_id=inst,
             actor_id=actor_id,
+            db_connection=db_connection,
         )
 
         strategy_config = _build_strategy_config(

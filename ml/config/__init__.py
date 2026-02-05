@@ -23,6 +23,9 @@ All configuration classes are designed to be:
 
 from __future__ import annotations
 
+import importlib
+from typing import TYPE_CHECKING
+
 # Actor configurations
 from ml.config.actors import MLSignalActorConfig
 from ml.config.actors import OptimizationConfig
@@ -62,7 +65,9 @@ from ml.config.constants import TimeConstants
 from ml.config.dataset_ids import EARNINGS_ACTUALS_DATASET_ID
 from ml.config.dataset_ids import EARNINGS_ESTIMATES_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_MBO_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_MBP1_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_MBP10_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_QUOTES_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_TBBO_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_TRADES_DATASET_ID
@@ -78,6 +83,8 @@ from ml.config.edgar_smoke import EdgarSmokeTestConfig
 from ml.config.events import EventStatus
 from ml.config.events import Source as EventSource
 from ml.config.events import Stage as EventStage
+from ml.config.feature_cache import FeatureCachePolicy
+from ml.config.feature_cache import normalize_feature_cache_policy
 
 # =============================================================================
 # SPECIALIZED CONFIGURATIONS
@@ -85,6 +92,12 @@ from ml.config.events import Stage as EventStage
 # Registry and storage
 from ml.config.feature_store_mirror import FeatureStoreMirrorBackfillConfig
 from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
+from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config.ingestion_windows import earnings_window_defaults
+from ml.config.ingestion_windows import events_window_defaults
+from ml.config.ingestion_windows import l2_window_defaults
+from ml.config.ingestion_windows import macro_window_defaults
+from ml.config.ingestion_windows import micro_window_defaults
 
 # Framework-specific training
 from ml.config.lightgbm import LightGBMTrainingConfig
@@ -97,10 +110,6 @@ from ml.config.lightgbm import UnifiedLightGBMConfig
 # =============================================================================
 from ml.config.loader import load_from_file
 from ml.config.loader import merge_env
-from ml.config.market_data import MarketDatasetInput
-from ml.config.market_data import MarketFeedDescriptor
-from ml.config.market_data import MarketFeedDescriptorSet
-from ml.config.market_data import load_market_feed_descriptors
 from ml.config.observability import ObservabilityConfig
 from ml.config.playground import LiquidityScalingDefaults
 from ml.config.playground import ThreeDRiskBacktestDefaults
@@ -115,9 +124,6 @@ from ml.config.replay_harness import StrategyReplayConfig
 from ml.config.runtime import OnnxRuntimeConfig
 
 # Data collection and scheduling
-from ml.config.scheduler_config import DatabentoConfig
-from ml.config.scheduler_config import SchedulerConfig
-from ml.config.scheduler_config import UniverseConfig
 from ml.config.sec_identity import SecIdentityConfig
 
 # =============================================================================
@@ -218,6 +224,34 @@ def get_config_defaults() -> dict[str, object]:
     }
 
 
+if TYPE_CHECKING:
+    from ml.config.feature_dataset_mirror import FeatureDatasetMirrorConfig
+
+
+_LAZY_CONFIG_EXPORTS: dict[str, tuple[str, str]] = {
+    "FeatureDatasetMirrorConfig": (
+        "ml.config.feature_dataset_mirror",
+        "FeatureDatasetMirrorConfig",
+    ),
+    "MarketDatasetInput": ("ml.config.market_data", "MarketDatasetInput"),
+    "MarketFeedDescriptor": ("ml.config.market_data", "MarketFeedDescriptor"),
+    "MarketFeedDescriptorSet": ("ml.config.market_data", "MarketFeedDescriptorSet"),
+    "load_market_feed_descriptors": ("ml.config.market_data", "load_market_feed_descriptors"),
+    "DatabentoConfig": ("ml.config.scheduler_config", "DatabentoConfig"),
+    "SchedulerConfig": ("ml.config.scheduler_config", "SchedulerConfig"),
+    "UniverseConfig": ("ml.config.scheduler_config", "UniverseConfig"),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_CONFIG_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attr_name = target
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)
+
+
 # =============================================================================
 # PUBLIC API
 # =============================================================================
@@ -226,7 +260,9 @@ __all__ = [
     "EARNINGS_ACTUALS_DATASET_ID",
     "EARNINGS_ESTIMATES_DATASET_ID",
     "EQUS_MINI_DATASET_ID",
+    "EQUS_MINI_MBO_DATASET_ID",
     "EQUS_MINI_MBP1_DATASET_ID",
+    "EQUS_MINI_MBP10_DATASET_ID",
     "EQUS_MINI_QUOTES_DATASET_ID",
     "EQUS_MINI_TBBO_DATASET_ID",
     "EQUS_MINI_TRADES_DATASET_ID",
@@ -248,7 +284,9 @@ __all__ = [
     "EventSource",
     "EventStage",
     "EventStatus",
+    "FeatureCachePolicy",
     "FeatureColumns",
+    "FeatureDatasetMirrorConfig",
     "FeatureStoreMirrorBackfillConfig",
     "FeatureStoreMirrorConfig",
     "IndicatorNames",
@@ -296,11 +334,18 @@ __all__ = [
     "UnifiedLightGBMConfig",
     "UnifiedXGBoostConfig",
     "UniverseConfig",
+    "WatermarkWindowConfig",
     "XGBoostGPUConfig",
     "XGBoostTrainingConfig",
+    "earnings_window_defaults",
+    "events_window_defaults",
     "get_config_defaults",
+    "l2_window_defaults",
     "load_from_file",
     "load_market_feed_descriptors",
+    "macro_window_defaults",
     "merge_env",
+    "micro_window_defaults",
+    "normalize_feature_cache_policy",
     "validate_ml_config",
 ]

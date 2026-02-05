@@ -193,6 +193,7 @@ from ml.strategies.execution import ExecutionConfig
 from ml.strategies.execution import OrderExecutor
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.ml_strategy import MultiModelMLStrategy
+from ml.strategies.portfolio import PortfolioBatchingConfig
 from ml.strategies.portfolio import PortfolioConfig
 from ml.strategies.portfolio import PortfolioManager
 from ml.strategies.protocols import OrderExecutorProtocol
@@ -220,6 +221,7 @@ __all__ = [
     "OrderExecutorProtocol",
     "PerformanceTracker",
     "PerformanceTrackerProtocol",
+    "PortfolioBatchingConfig",
     "PortfolioConfig",
     "PortfolioManager",
     "PortfolioManagerProtocol",

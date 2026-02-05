@@ -597,6 +597,33 @@ class TestExecutionParamsBuilding:
 
         assert exec_params["positions"] == positions_metadata
 
+    def test_execution_params_include_horizon_metadata_when_available(
+        self,
+        decision_persistence_component: DecisionPersistenceComponent,
+        mock_strategy_store: MagicMock,
+    ) -> None:
+        """Verify horizon metadata is appended to execution params."""
+        signal = create_mock_signal(
+            metadata={
+                "decision_metadata": {
+                    "version": "v1",
+                    "horizon": {"value": 2, "unit": "minutes"},
+                }
+            }
+        )
+
+        decision_persistence_component.persist_decision(
+            signal=signal,
+            decision_type="BUY",
+            execution_params=None,
+        )
+
+        call_args = mock_strategy_store.write_signal.call_args
+        exec_params = call_args.kwargs["execution_params"]
+
+        assert exec_params["horizon"] == {"value": 2, "unit": "minutes"}
+        assert exec_params["horizon_ms"] == 120_000
+
 
 # ---------------------------------------------------------------------------
 # Test Class: Decision Publisher

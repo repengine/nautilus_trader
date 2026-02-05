@@ -1007,7 +1007,7 @@ $$ LANGUAGE plpgsql;
                     'EURUSD.SIM',
                     :ts_event,
                     :ts_init,
-                    '{"sma_20": 1.0900, "rsi": 55.5, "volume": 12345}'::text,
+                    '{"price_sma_20": 1.0900, "rsi": 55.5, "volume": 12345}'::text,
                     false
                 )
                 ON CONFLICT DO NOTHING
@@ -1078,7 +1078,7 @@ $$ LANGUAGE plpgsql;
                         "inst_id": inst_id,
                         "ts_event": ts,
                         "ts_init": ts + 1000,
-                        "values": f'{{"sma_20": {1.09 + i * 0.0001}, "rsi": {50 + i % 30}, "volume": {10000 + i * 100}}}',
+                        "values": f'{{"price_sma_20": {1.09 + i * 0.0001}, "rsi": {50 + i % 30}, "volume": {10000 + i * 100}}}',
                     },
                 )
 

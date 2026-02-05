@@ -51,16 +51,26 @@ logger = logging.getLogger(__name__)
 
 
 _TIME_BASED_KNOWN_FEATURES = {
-    "hour",
-    "minute",
-    "tod_sin",
-    "tod_cos",
-    "dow",
+    "hour_sin",
+    "hour_cos",
+    "minute_sin",
+    "minute_cos",
     "dow_sin",
     "dow_cos",
-    "is_market_open",
-    "is_premarket",
-    "is_aftermarket",
+    "month_sin",
+    "month_cos",
+    "is_weekend",
+    "is_month_start",
+    "is_month_end",
+    "is_quarter_start",
+    "is_quarter_end",
+    "days_to_month_end",
+    "days_from_month_start",
+    "is_trading_day",
+    "is_market_hours",
+    "is_pre_market",
+    "is_after_hours",
+    "minutes_to_close",
 }
 
 
@@ -161,25 +171,18 @@ def _build_future_covariates(
         known_covariates=known_covariates,
     )
     if missing_covariates:
-        if "time_index" not in history_df.columns:
-            raise ValueError(
-                "Missing time_index column required to compute future known covariates "
-                f"({missing_covariates})"
-            )
-        last_time_index = int(history_df["time_index"].iloc[-1])
-        future_covariates = future_covariates.copy()
-        future_covariates["time_index"] = np.arange(
-            last_time_index + 1,
-            last_time_index + 1 + len(future_covariates),
-        )
         include_calendar = any(
             covariate not in _TIME_BASED_KNOWN_FEATURES for covariate in missing_covariates
         )
         component = KnownFutureFeatureComponent(include_calendar=include_calendar)
         component_frame = future_covariates.copy()
+        if missing_covariates:
+            component_frame = component_frame.drop(
+                columns=[cov for cov in missing_covariates if cov in component_frame.columns],
+            )
         if "instrument_id" not in component_frame.columns:
             component_frame["instrument_id"] = component_frame["item_id"]
-        enriched = component.add_known_future_features_pandas(component_frame)
+        enriched = component.add_known_future_features_canonical_pandas(component_frame)
         for covariate in missing_covariates:
             if covariate in enriched.columns:
                 future_covariates[covariate] = enriched[covariate]

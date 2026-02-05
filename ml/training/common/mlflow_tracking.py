@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ml._imports import HAS_MLFLOW
+from ml.config.targets import TargetSemanticsConfig
 
 
 if TYPE_CHECKING:
@@ -28,6 +29,39 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_prediction_length_minutes(prediction_length: Any, freq: Any) -> int | None:
+    if prediction_length is None or freq is None:
+        return None
+    try:
+        length = int(prediction_length)
+    except (TypeError, ValueError):
+        return None
+    if length <= 0:
+        return None
+    freq_key = str(freq).strip().lower()
+    if freq_key in {"min", "minute", "minutes"}:
+        return length
+    if freq_key in {"h", "hour", "hours"}:
+        return length * 60
+    if freq_key in {"d", "day", "days"}:
+        return length * 1_440
+    return None
+
+
+def _resolve_target_horizon_minutes(config: object) -> int | None:
+    target_semantics = getattr(config, "target_semantics", None)
+    if isinstance(target_semantics, TargetSemanticsConfig):
+        horizon_minutes = target_semantics.resolved_primary_horizon_minutes(
+            getattr(config, "target_column", None),
+        )
+        if horizon_minutes is not None:
+            return int(horizon_minutes)
+    return _resolve_prediction_length_minutes(
+        getattr(config, "prediction_length", None),
+        getattr(config, "freq", None),
+    )
 
 
 class MLflowTrainerProtocol(Protocol):
@@ -313,6 +347,11 @@ class MLflowTrackingComponent:
         for key, value in config_attrs.items():
             if isinstance(value, str | int | float | bool):
                 config_dict[key] = value
+
+        if "target_horizon_minutes" not in config_dict:
+            horizon_minutes = _resolve_target_horizon_minutes(config)
+            if horizon_minutes is not None:
+                config_dict["target_horizon_minutes"] = horizon_minutes
 
         return config_dict
 

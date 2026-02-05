@@ -39,7 +39,7 @@ def main() -> None:
             version=Versions.DEFAULT_MANIFEST_VERSION,
             # Requirements
             required_models=["lgb_directional_v1"],
-            required_features=["sma_20", "sma_50", "rsi_14", "volume_ratio"],
+            required_features=["price_sma_20", "sma_50", "rsi_14", "volume_ratio_20"],
             # Market conditions
             suitable_regimes=[MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN],
             instrument_types=["FX", "EQUITY"],
@@ -149,7 +149,7 @@ def main() -> None:
             strategy_type=StrategyType.TREND_FOLLOWING,
             version="2.0.0",
             required_models=["lgb_directional_v2", "xgb_momentum_v1"],  # Uses ensemble
-            required_features=["sma_20", "sma_50", "ema_12", "rsi_14", "volume_ratio", "atr_14"],
+            required_features=["price_sma_20", "sma_50", "ema_12", "rsi_14", "volume_ratio_20", "atr_14"],
             suitable_regimes=[
                 MarketRegime.TRENDING_UP,
                 MarketRegime.TRENDING_DOWN,
@@ -272,10 +272,10 @@ def main() -> None:
         # Simulate available models and features
         available_models = ["lgb_directional_v1", "xgb_range_predictor_v2"]
         available_features = [
-            "sma_20",
+            "price_sma_20",
             "sma_50",
             "rsi_14",
-            "volume_ratio",
+            "volume_ratio_20",
             "bollinger_upper",
             "bollinger_lower",
             "atr_14",

@@ -141,6 +141,40 @@ _DATASET_TYPE_DEFAULTS: dict[DatasetType, DatasetManifestSpec] = {
         retention_days=90,
         metadata={"schema_kind": "mbp1"},
     ),
+    DatasetType.MBP10: _DEFAULT_SPEC.copy_with(
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "bids": "json",
+            "asks": "json",
+            "bid_counts": "json",
+            "ask_counts": "json",
+            "flags": "int32",
+            "sequence": "int64",
+        },
+        primary_keys=("instrument_id", "ts_event", "sequence"),
+        partitioning={"by": "ts_event", "interval": "hourly"},
+        retention_days=90,
+        metadata={"schema_kind": "mbp10"},
+        seq_field="sequence",
+    ),
+    DatasetType.MBO: _DEFAULT_SPEC.copy_with(
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "action": "str",
+            "order_payload": "json",
+            "flags": "int32",
+            "sequence": "int64",
+        },
+        primary_keys=("instrument_id", "ts_event", "sequence"),
+        partitioning={"by": "ts_event", "interval": "hourly"},
+        retention_days=90,
+        metadata={"schema_kind": "mbo"},
+        seq_field="sequence",
+    ),
     DatasetType.QUOTES: _DEFAULT_SPEC.copy_with(
         schema={
             "instrument_id": "str",
@@ -397,6 +431,30 @@ _DATASET_ID_OVERRIDES: dict[str, DatasetManifestOverrides] = {
             retention_days=365,
             metadata={
                 "schema_kind": "mbp1",
+                "source": "databento",
+                "dataset_family": "equities_mini",
+            },
+        ),
+    ),
+    "EQUS.MINI_MBP10": DatasetManifestOverrides(
+        dataset_type=DatasetType.MBP10,
+        spec=_DATASET_TYPE_DEFAULTS[DatasetType.MBP10].copy_with(
+            partitioning={"by": "ts_event", "interval": "monthly"},
+            retention_days=365,
+            metadata={
+                "schema_kind": "mbp10",
+                "source": "databento",
+                "dataset_family": "equities_mini",
+            },
+        ),
+    ),
+    "EQUS.MINI_MBO": DatasetManifestOverrides(
+        dataset_type=DatasetType.MBO,
+        spec=_DATASET_TYPE_DEFAULTS[DatasetType.MBO].copy_with(
+            partitioning={"by": "ts_event", "interval": "monthly"},
+            retention_days=365,
+            metadata={
+                "schema_kind": "mbo",
                 "source": "databento",
                 "dataset_family": "equities_mini",
             },

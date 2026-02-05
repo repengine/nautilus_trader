@@ -22,6 +22,7 @@ from ml._imports import HAS_AUTOGLUON
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common.validation_strategies import require_holdout_strategy
 from ml.config.autogluon import ChronosBaselineStrategy
 from ml.config.autogluon import ChronosEvaluationConfig
 from ml.config.autogluon import ChronosTrainingConfig
@@ -328,42 +329,14 @@ def _filter_market_hours_frame(
     )
 
 
-def split_time_series_frame(
+def _split_time_window_frame(
     df: PolarsDF,
     config: ChronosEvaluationConfig,
 ) -> ChronosSplitResult:
-    """
-    Split a dataset into train/val/test partitions by timestamp.
-
-    Parameters
-    ----------
-    df : pl.DataFrame
-        Input dataset containing timestamp, item id, and target columns.
-    config : ChronosEvaluationConfig
-        Evaluation configuration.
-
-    Returns
-    -------
-    ChronosSplitResult
-        Train/val/test splits with boundary metadata.
-
-    Raises
-    ------
-    ValueError
-        If required columns are missing or the split is infeasible.
-
-    """
-    _require_polars()
     if pl is None:
         raise RuntimeError("Polars dependency unavailable")
-
     timestamp_col = config.timestamp_column
     item_id_col = config.item_id_column
-
-    if timestamp_col not in df.columns:
-        raise ValueError(f"Missing timestamp column: {timestamp_col}")
-    if item_id_col not in df.columns:
-        raise ValueError(f"Missing item id column: {item_id_col}")
 
     ts_series = df.select(pl.col(timestamp_col).cast(pl.Int64).unique().sort()).to_series()
     if ts_series.len() < 3:
@@ -419,6 +392,138 @@ def split_time_series_frame(
         boundaries=boundaries,
         row_counts=row_counts,
     )
+
+
+def _split_purged_frame(
+    df: PolarsDF,
+    config: ChronosEvaluationConfig,
+) -> ChronosSplitResult:
+    from ml.preprocessing.stationarity import PurgedCrossValidator
+
+    if pl is None:
+        raise RuntimeError("Polars dependency unavailable")
+    timestamp_col = config.timestamp_column
+    item_id_col = config.item_id_column
+
+    ts_series = df.select(pl.col(timestamp_col).cast(pl.Int64).unique().sort()).to_series()
+    if ts_series.len() < 3:
+        raise ValueError("Need at least 3 unique timestamps to split train/val/test")
+
+    timestamps = ts_series.to_numpy().astype(np.int64)
+    n_timestamps = int(timestamps.shape[0])
+    test_count = max(1, int(n_timestamps * float(config.test_fraction)))
+    if test_count >= n_timestamps:
+        raise ValueError("test_fraction leaves no timestamps for training")
+
+    train_ts_len = n_timestamps - test_count
+    if train_ts_len < 2:
+        raise ValueError("Not enough timestamps for purged validation")
+    if int(config.cv_splits) < 2:
+        raise ValueError("cv_splits must be >= 2 for purged validation")
+    if train_ts_len // int(config.cv_splits) < 1:
+        raise ValueError("Not enough timestamps for requested purged splits")
+
+    cv = PurgedCrossValidator(
+        n_splits=int(config.cv_splits),
+        purge_gap=int(config.purge_gap),
+        embargo_pct=float(config.embargo_pct),
+    )
+    splits = cv.split(np.arange(train_ts_len).reshape(-1, 1))
+    if not splits:
+        raise ValueError("Purged CV produced no splits for Chronos evaluation")
+
+    train_idx, val_idx = splits[-1]
+    train_ts = timestamps[train_idx]
+    val_ts = timestamps[val_idx]
+    test_ts = timestamps[train_ts_len:]
+    if train_ts.size == 0 or val_ts.size == 0 or test_ts.size == 0:
+        raise ValueError("Purged split produced empty train/val/test timestamps")
+
+    ts_expr = pl.col(timestamp_col).cast(pl.Int64)
+    train_df = df.filter(ts_expr.is_in(train_ts))
+    val_df = df.filter(ts_expr.is_in(val_ts))
+    test_df = df.filter(ts_expr.is_in(test_ts))
+
+    sort_cols = [item_id_col, timestamp_col]
+    train_df = train_df.sort(sort_cols)
+    val_df = val_df.sort(sort_cols)
+    test_df = test_df.sort(sort_cols)
+
+    row_counts = {
+        "train": int(train_df.height),
+        "val": int(val_df.height),
+        "test": int(test_df.height),
+    }
+    for split_name, split_df in (("train", train_df), ("val", val_df), ("test", test_df)):
+        if split_df.height < int(config.min_rows_per_split):
+            raise ValueError(
+                f"{split_name} split too small: {split_df.height} rows < "
+                f"{int(config.min_rows_per_split)}",
+            )
+
+    train_end_ts = int(train_ts.max())
+    val_end_ts = int(val_ts.max())
+    boundaries = ChronosSplitBoundaries(
+        train_end_ts=train_end_ts,
+        val_end_ts=val_end_ts,
+    )
+
+    return ChronosSplitResult(
+        train=train_df,
+        val=val_df,
+        test=test_df,
+        boundaries=boundaries,
+        row_counts=row_counts,
+    )
+
+
+def split_time_series_frame(
+    df: PolarsDF,
+    config: ChronosEvaluationConfig,
+) -> ChronosSplitResult:
+    """
+    Split a dataset into train/val/test partitions by timestamp.
+
+    Uses ``ChronosEvaluationConfig.validation_strategy`` to select either
+    time-window splits or purged validation splits.
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        Input dataset containing timestamp, item id, and target columns.
+    config : ChronosEvaluationConfig
+        Evaluation configuration.
+
+    Returns
+    -------
+    ChronosSplitResult
+        Train/val/test splits with boundary metadata.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing or the split is infeasible.
+
+    """
+    _require_polars()
+    if pl is None:
+        raise RuntimeError("Polars dependency unavailable")
+
+    timestamp_col = config.timestamp_column
+    item_id_col = config.item_id_column
+
+    if timestamp_col not in df.columns:
+        raise ValueError(f"Missing timestamp column: {timestamp_col}")
+    if item_id_col not in df.columns:
+        raise ValueError(f"Missing item id column: {item_id_col}")
+
+    strategy = require_holdout_strategy(str(config.validation_strategy))
+    if strategy == "time_window":
+        return _split_time_window_frame(df, config)
+    if strategy == "purged":
+        return _split_purged_frame(df, config)
+
+    raise ValueError(f"Unsupported validation_strategy '{strategy}'")
 
 
 def _filter_split_by_series_coverage(

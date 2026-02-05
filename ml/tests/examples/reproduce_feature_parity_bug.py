@@ -10,6 +10,7 @@ sys.path.insert(0, "/home/nate/projects/nautilus_trader")
 import numpy as np
 import polars as pl
 from ml.features.engineering import FeatureConfig, FeatureEngineer
+from ml.registry.base import DataRequirements
 
 
 def reproduce_feature_parity_bug():
@@ -53,7 +54,11 @@ def reproduce_feature_parity_bug():
 
     print("\n=== Testing with Both Microstructure and Trade Flow Enabled (L1+L2+L3) ===")
     # Config with both microstructure and trade flow enabled
-    full_config = FeatureConfig(include_microstructure=True, include_trade_flow=True)
+    full_config = FeatureConfig(
+        include_microstructure=True,
+        include_trade_flow=True,
+        data_requirements=DataRequirements.L1_L2_L3,
+    )
     test_config_features(full_config, bars_df, bars_data, "Full Config")
 
 

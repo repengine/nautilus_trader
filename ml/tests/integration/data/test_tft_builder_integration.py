@@ -175,23 +175,23 @@ class TestFacadeIntegration:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
+        # Create a realistic result with all required columns
+        mock_result = sample_ohlcv_polars_df.with_columns(
+            [
+                pl.lit(0).alias("y"),
+                pl.lit(0.001).alias("forward_return"),
+                pl.lit(0).alias("time_index"),
+                pl.lit("ETF").alias("asset_class"),
+                pl.lit(0.01).alias("tick_size"),
+                pl.lit("ARCA").alias("exchange"),
+            ]
+        )
 
-            # Create a realistic result with all required columns
-            mock_result = sample_ohlcv_polars_df.with_columns(
-                [
-                    pl.lit(0).alias("y"),
-                    pl.lit(0.001).alias("forward_return"),
-                    pl.lit(0).alias("time_index"),
-                    pl.lit("ETF").alias("asset_class"),
-                    pl.lit(0.01).alias("tick_size"),
-                    pl.lit("ARCA").alias("exchange"),
-                ]
-            )
-            mock_builder.build_training_dataset.return_value = mock_result
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=mock_result,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog_with_data,
                 symbols=["SPY"],
@@ -208,6 +208,7 @@ class TestFacadeIntegration:
             required_cols = ["timestamp", "instrument_id", "y", "forward_return"]
             for col in required_cols:
                 assert col in result.columns, f"Missing column: {col}"
+            mock_build.assert_called_once()
 
     @pytest.mark.integration
     def test_e25_integration_with_data_store(
@@ -225,18 +226,18 @@ class TestFacadeIntegration:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
+        mock_result = sample_ohlcv_polars_df.with_columns(
+            [
+                pl.lit(0).alias("y"),
+                pl.lit(0.001).alias("forward_return"),
+            ]
+        )
 
-            mock_result = sample_ohlcv_polars_df.with_columns(
-                [
-                    pl.lit(0).alias("y"),
-                    pl.lit(0.001).alias("forward_return"),
-                ]
-            )
-            mock_builder.build_training_dataset.return_value = mock_result
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=mock_result,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog_with_data,
                 symbols=["SPY"],
@@ -249,6 +250,7 @@ class TestFacadeIntegration:
             # Verify result produced
             assert result is not None
             assert len(result) > 0
+            mock_build.assert_called_once()
 
     @pytest.mark.integration
     def test_e26_integration_market_bindings(
@@ -266,19 +268,18 @@ class TestFacadeIntegration:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
+        mock_result = sample_ohlcv_polars_df.with_columns(
+            [
+                pl.lit(0).alias("y"),
+                pl.lit(0.001).alias("forward_return"),
+            ]
+        )
 
-            mock_result = sample_ohlcv_polars_df.with_columns(
-                [
-                    pl.lit(0).alias("y"),
-                    pl.lit(0.001).alias("forward_return"),
-                ]
-            )
-            mock_builder.build_training_dataset.return_value = mock_result
-            mock_builder.get_binding_stats.return_value = ()
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=mock_result,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog_with_data,
                 symbols=["SPY"],
@@ -293,6 +294,7 @@ class TestFacadeIntegration:
             # Verify binding stats accessible
             stats = facade.get_binding_stats()
             assert stats is not None
+            mock_build.assert_called_once()
 
 
 # =============================================================================
@@ -319,17 +321,16 @@ class TestComponentIntegration:
             TimeSeriesWindowingComponent,
         )
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog_with_data,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog_with_data,
+            symbols=["SPY"],
+        )
 
-            # All components should be initialized
-            assert isinstance(facade.windowing_component, TimeSeriesWindowingComponent)
-            assert isinstance(facade.feature_alignment_component, FeatureAlignmentComponent)
-            assert isinstance(facade.target_generation_component, TargetGenerationComponent)
-            assert isinstance(facade.schema_validator_component, TFTSchemaValidatorComponent)
+        # All components should be initialized
+        assert isinstance(facade.windowing_component, TimeSeriesWindowingComponent)
+        assert isinstance(facade.feature_alignment_component, FeatureAlignmentComponent)
+        assert isinstance(facade.target_generation_component, TargetGenerationComponent)
+        assert isinstance(facade.schema_validator_component, TFTSchemaValidatorComponent)
 
     def test_windowing_component_usable(
         self,
@@ -339,18 +340,17 @@ class TestComponentIntegration:
         """
         Verify windowing component can be used directly.
         """
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog_with_data,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog_with_data,
+            symbols=["SPY"],
+        )
 
-            # Use windowing component directly
-            bounds = facade.windowing_component.frame_time_bounds(sample_ohlcv_polars_df)
+        # Use windowing component directly
+        bounds = facade.windowing_component.frame_time_bounds(sample_ohlcv_polars_df)
 
-            assert bounds[0] is not None  # min timestamp
-            assert bounds[1] is not None  # max timestamp
-            assert bounds[0] <= bounds[1]
+        assert bounds[0] is not None  # min timestamp
+        assert bounds[1] is not None  # max timestamp
+        assert bounds[0] <= bounds[1]
 
     def test_feature_alignment_component_usable(
         self,
@@ -362,22 +362,21 @@ class TestComponentIntegration:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog_with_data,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog_with_data,
+            symbols=["SPY"],
+        )
 
-            # Use feature alignment component directly
-            features = facade.feature_alignment_component.compute_features_polars(
-                sample_ohlcv_polars_df,
-            )
+        # Use feature alignment component directly
+        features = facade.feature_alignment_component.compute_features_polars(
+            sample_ohlcv_polars_df,
+        )
 
-            # Verify features computed
-            assert isinstance(features, pl.DataFrame)
-            assert "return_1" in features.columns
-            assert "volatility_20" in features.columns
-            assert len(features) == len(sample_ohlcv_polars_df)
+        # Verify features computed
+        assert isinstance(features, pl.DataFrame)
+        assert "return_1" in features.columns
+        assert "volatility_20" in features.columns
+        assert len(features) == len(sample_ohlcv_polars_df)
 
     def test_target_generation_component_usable(
         self,
@@ -389,32 +388,31 @@ class TestComponentIntegration:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog_with_data,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog_with_data,
+            symbols=["SPY"],
+        )
 
-            # Use target generation component directly
-            target_semantics = build_default_target_semantics(
-                horizon_minutes=15,
-                threshold=0.001,
-                legacy_aliases=True,
-            )
-            targets = facade.target_generation_component.generate_targets_polars(
-                sample_ohlcv_polars_df,
-                target_semantics,
-            )
+        # Use target generation component directly
+        target_semantics = build_default_target_semantics(
+            horizon_minutes=15,
+            threshold=0.001,
+            legacy_aliases=True,
+        )
+        targets = facade.target_generation_component.generate_targets_polars(
+            sample_ohlcv_polars_df,
+            target_semantics,
+        )
 
-            # Verify targets generated
-            assert isinstance(targets, pl.DataFrame)
-            assert "y" in targets.columns
-            assert "forward_return" in targets.columns
-            assert len(targets) == len(sample_ohlcv_polars_df)
+        # Verify targets generated
+        assert isinstance(targets, pl.DataFrame)
+        assert "y" in targets.columns
+        assert "forward_return" in targets.columns
+        assert len(targets) == len(sample_ohlcv_polars_df)
 
-            # Verify y is binary
-            unique_y = set(targets["y"].unique().to_list())
-            assert unique_y <= {0, 1}
+        # Verify y is binary
+        unique_y = set(targets["y"].unique().to_list())
+        assert unique_y <= {0, 1}
 
     def test_schema_validator_component_usable(
         self,
@@ -424,18 +422,17 @@ class TestComponentIntegration:
         """
         Verify schema validator component can be used directly.
         """
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog_with_data,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog_with_data,
+            symbols=["SPY"],
+        )
 
-            # Use schema validator component directly
-            # Should not raise for valid data
-            facade.schema_validator_component.validate(sample_ohlcv_polars_df)
+        # Use schema validator component directly
+        # Should not raise for valid data
+        facade.schema_validator_component.validate(sample_ohlcv_polars_df)
 
-            # Verify row count validation
-            facade.schema_validator_component.validate_row_count(
-                sample_ohlcv_polars_df,
-                minimum=50,
-            )
+        # Verify row count validation
+        facade.schema_validator_component.validate_row_count(
+            sample_ohlcv_polars_df,
+            minimum=50,
+        )

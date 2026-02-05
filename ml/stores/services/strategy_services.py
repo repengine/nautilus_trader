@@ -1380,8 +1380,10 @@ class StrategyReplaySummaryEventService:
             if registry is None:
                 return
 
+            manifest_ready = False
             try:
                 registry.get_manifest("replay_summary")
+                manifest_ready = True
             except Exception:
                 self.logger.debug(
                     "Manifest lookup for 'replay_summary' failed; attempting auto-registration",
@@ -1440,6 +1442,43 @@ class StrategyReplaySummaryEventService:
                                 "Suppressed logging failure during auto-registration",
                                 exc_info=log_exc,
                             )
+
+            if not manifest_ready:
+                try:
+                    registry.get_manifest("replay_summary")
+                    manifest_ready = True
+                except Exception:
+                    try:
+                        self.logger.warning(
+                            "Replay summary dataset missing; skipping event emission",
+                            extra={
+                                "component": "strategy_services",
+                                "dataset_id": "replay_summary",
+                            },
+                            exc_info=True,
+                        )
+                        from ml.common.metrics_bootstrap import get_counter
+
+                        get_counter(
+                            "ml_fallback_activations_total",
+                            "Fallback activations",
+                            labelnames=("component", "level"),
+                        ).labels(
+                            component="replay_summary_events",
+                            level="missing_dataset",
+                        ).inc()
+                    except Exception:
+                        try:
+                            self.logger.debug(
+                                "Replay summary fallback metric/logging failed (ignored)",
+                                exc_info=True,
+                            )
+                        except Exception as log_exc:
+                            self.logger.debug(
+                                "Suppressed logging failure during replay summary skip",
+                                exc_info=log_exc,
+                            )
+                    return
 
             from collections import defaultdict
 

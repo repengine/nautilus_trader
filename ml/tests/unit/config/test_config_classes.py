@@ -10,6 +10,7 @@ from ml.config.base import CorrelationDataConfig
 from ml.config.base import ExposurePriceConfig
 from ml.config.base import ExposurePriceSource
 from ml.config.base import MLActorConfig
+from ml.config.base import MLTrainingConfig
 from ml.config.base import ModelDeploymentConfig
 from ml.config.base import ModelRegistryConfig
 from ml.config.base import MultiModelStrategyConfig
@@ -75,6 +76,22 @@ class TestMLActorConfig:
 
         assert config.model_id == "test_model_v1"
         assert config.model_path == "/path/to/model.onnx"
+
+
+class TestMLTrainingConfig:
+    """
+    Tests for MLTrainingConfig.
+    """
+
+    def test_target_semantics_required(self) -> None:
+        """
+        Test that target_semantics is required for training configs.
+        """
+        with pytest.raises(ValidationError, match="target_semantics must be provided"):
+            MLTrainingConfig(
+                data_source="unit-test",
+                target_semantics=None,  # type: ignore[arg-type]
+            )
 
 
 class TestMultiModelStrategyConfig:

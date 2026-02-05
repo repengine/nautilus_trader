@@ -18,7 +18,7 @@ from typing import cast as _cast
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
-from ml.common.symbol_utils import resolve_symbol_data_dir
+from ml.common import resolve_symbol_data_dir
 from ml.ml_types import PolarsDF
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.persistence.funcs import urisafe_identifier

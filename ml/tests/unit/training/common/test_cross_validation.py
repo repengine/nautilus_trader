@@ -289,24 +289,18 @@ class TestCrossValidate:
         # Should still return results via time_series fallback
         assert len(results) == 5
 
-    def test_cross_validate_unknown_strategy_warning(
+    def test_cross_validate_unknown_strategy_raises(
         self,
         sample_feature_array: npt.NDArray[np.float64],
         sample_labels: npt.NDArray[np.float64],
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Handle unknown CV strategy with warning and fallback."""
+        """Reject unknown CV strategies explicitly."""
         config = MockConfig(cv_folds=5, cv_strategy="unknown_strategy")
         trainer = TestableTrainer(config)
         cv_component = CrossValidationComponent(trainer)
 
-        with caplog.at_level(logging.WARNING):
-            results = cv_component._cross_validate(sample_feature_array, sample_labels)
-
-        # Check warning about unknown strategy
-        assert any("unknown" in record.message.lower() for record in caplog.records)
-        # Should fall back to time_series
-        assert len(results) == 5
+        with pytest.raises(ValueError, match="Unknown cv_strategy"):
+            cv_component._cross_validate(sample_feature_array, sample_labels)
 
 
 class TestTimeSeriesCv:
@@ -384,14 +378,40 @@ class TestPurgedCv:
 
         assert len(results) == 5
 
-    def test_purged_cv_fallback_on_import_error(
+    def test_purged_cv_passes_configured_gap_and_embargo(
+        self,
+        sample_feature_array: npt.NDArray[np.float64],
+        sample_labels: npt.NDArray[np.float64],
+    ) -> None:
+        """Verify configured purge_gap/embargo_pct are passed to the CV splitter."""
+        config = MockConfig(
+            cv_folds=3,
+            cv_strategy="purged",
+            purge_gap=7,
+            embargo_pct=0.12,
+        )
+        trainer = TestableTrainer(config)
+        cv_component = CrossValidationComponent(trainer)
+
+        with patch("ml.preprocessing.stationarity.PurgedCrossValidator") as mock_cv:
+            instance = mock_cv.return_value
+            instance.split.return_value = [
+                (np.array([0, 1], dtype=np.int64), np.array([2, 3], dtype=np.int64)),
+            ]
+
+            results = cv_component._purged_cv(sample_feature_array, sample_labels, n_folds=3)
+
+        mock_cv.assert_called_once_with(n_splits=3, purge_gap=7, embargo_pct=0.12)
+        assert len(results) == 1
+
+    def test_purged_cv_import_error_raises(
         self,
         trainer_with_purged_cv_fixture: TestableTrainer,
         sample_feature_array: npt.NDArray[np.float64],
         sample_labels: npt.NDArray[np.float64],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Fallback when PurgedCrossValidator unavailable."""
+        """Raise when PurgedCrossValidator unavailable."""
         cv_component = CrossValidationComponent(trainer_with_purged_cv_fixture)
 
         # Mock the import to raise an exception
@@ -400,14 +420,14 @@ class TestPurgedCv:
             {"ml.preprocessing.stationarity": None},
         ):
             with caplog.at_level(logging.WARNING):
-                results = cv_component._purged_cv(
-                    sample_feature_array,
-                    sample_labels,
-                    n_folds=5,
-                )
+                with pytest.raises(RuntimeError, match="Purged CV requested"):
+                    cv_component._purged_cv(
+                        sample_feature_array,
+                        sample_labels,
+                        n_folds=5,
+                    )
 
-        # Should fall back to time_series and still return results
-        assert len(results) == 5
+        assert any("PurgedCrossValidator unavailable" in record.message for record in caplog.records)
 
 
 class TestStandardCv:

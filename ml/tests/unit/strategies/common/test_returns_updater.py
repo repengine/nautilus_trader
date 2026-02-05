@@ -8,8 +8,8 @@ from ml.actors.base import MLSignal
 from ml.config.base import ReturnsConfig
 from ml.config.base import ReturnsPriceSource
 from ml.config.base import ReturnsUpdateMode
-from ml.strategies.common.returns_updater import ReturnUpdateResult
-from ml.strategies.common.returns_updater import ReturnsUpdater
+from ml.strategies.common import ReturnUpdateResult
+from ml.strategies.common import ReturnsUpdater
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId

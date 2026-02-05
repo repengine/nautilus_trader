@@ -503,7 +503,7 @@ class ActorIntegrationService(BaseIntegrationService):
 
     def _create_signal_actor(self, config_mapping: Mapping[str, Any]) -> BaseMLInferenceActor:
         """Instantiate an :class:`MLSignalActor` from a configuration mapping."""
-        from ml.actors.signal import MLSignalActor
+        from ml.actors.signal import create_signal_actor
         from ml.config.actors import MLSignalActorConfig
 
         model_id = config_mapping.get("model_id")
@@ -525,7 +525,7 @@ class ActorIntegrationService(BaseIntegrationService):
                 raise ValueError(f"Model {model_id} unavailable") from exc
 
         actor_config = MLSignalActorConfig(**dict(config_mapping))
-        return MLSignalActor(actor_config)
+        return create_signal_actor(actor_config)
 
     async def hot_reload_model(self, actor_id: str, new_model_id: str) -> ActorHotReloadResult:
         """Hot reload a model for a running actor."""

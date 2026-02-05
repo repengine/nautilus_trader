@@ -81,6 +81,20 @@ for alias, target in _ALIAS_SYNONYMS.items():
         _UNIVERSE_ALIAS_MAP[alias.lower()] = target_resolved
 
 
+_FORCE_MICRO_CACHE_ENV = "ML_TFT_FORCE_MICRO_CACHE"
+
+
+def _env_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    token = value.strip().lower()
+    return token in ("1", "true", "yes", "y", "on")
+
+
+def _force_micro_cache_policy() -> bool:
+    return _env_truthy(os.getenv(_FORCE_MICRO_CACHE_ENV))
+
+
 class Stage(StrEnum):
     """
     Valid pipeline execution stages.
@@ -104,8 +118,8 @@ class IngestionStageConfig:
     dataset_id
         Market dataset identifier to ingest (e.g. ``"EQUS.MINI"``).
     schema
-        Schema to request from the ingestion orchestrator (``"bars"``, ``"tbbo"`` or
-        ``"trades"``).
+        Schema to request from the ingestion orchestrator (``"bars"``, ``"quotes"`` or
+        ``"trades"``). Provider schemas (e.g., ``"tbbo"``) are normalized to quotes.
     instruments
         Nautilus instrument identifiers to ingest.  Defaults to ``("SPY.NYSE",)`` to
         mirror the legacy CLI default.
@@ -420,6 +434,9 @@ def _coerce_dataset(payload: Any) -> DatasetBuildConfig:
             kwargs["target_semantics"] = json.loads(kwargs["target_semantics"])
         except Exception as exc:  # pragma: no cover - defensive
             raise ValueError("dataset.target_semantics must be JSON or mapping payload") from exc
+    if _force_micro_cache_policy():
+        kwargs["micro_cache_policy"] = "cache_first"
+        kwargs["l2_cache_policy"] = "cache_first"
     return DatasetBuildConfig(**kwargs)
 
 
@@ -660,7 +677,10 @@ def to_pipeline_args(
         args += ["--tail_rows", str(cfg.teacher.tail_rows)]
         args += ["--limit_groups", str(cfg.teacher.limit_groups)]
         args += ["--val_days", str(cfg.teacher.val_days)]
+        args += ["--validation_strategy", str(cfg.teacher.validation_strategy)]
         args += ["--embargo_hours", str(cfg.teacher.embargo_hours)]
+        if cfg.teacher.embargo_pct is not None:
+            args += ["--embargo_pct", str(cfg.teacher.embargo_pct)]
         args += ["--purge_gap", str(cfg.teacher.purge_gap)]
         args += ["--cv_splits", str(cfg.teacher.cv_splits)]
         args += ["--test_fraction", str(cfg.teacher.test_fraction)]

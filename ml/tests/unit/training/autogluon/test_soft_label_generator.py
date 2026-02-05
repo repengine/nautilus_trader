@@ -73,12 +73,14 @@ class DummyPredictor:
 def _build_sample_df() -> pd.DataFrame:
     base_ts = 1704067200_000_000_000
     timestamps = [base_ts + i * 60_000_000_000 for i in range(6)]
+    hours = np.arange(9, 15)
+    hour_sin = np.sin(2.0 * np.pi * hours / 24.0)
     return pd.DataFrame(
         {
             "instrument_id": ["SPY"] * 6,
             "ts_event": timestamps,
             "forward_return": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
-            "hour": [9, 10, 11, 12, 13, 14],
+            "hour_sin": hour_sin,
         }
     )
 
@@ -94,7 +96,7 @@ def test_generate_rolling_soft_labels_basic(monkeypatch: pytest.MonkeyPatch) -> 
     teacher_config = ChronosTrainingConfig(
         prediction_length=2,
         data_config=AutoGluonDataConfig(
-            known_covariates=("hour",),
+            known_covariates=("hour_sin",),
         ),
     )
     distill_config = ChronosDistillationConfig(
@@ -130,7 +132,7 @@ def test_build_distillation_dataset_blend(monkeypatch: pytest.MonkeyPatch) -> No
     df = _build_sample_df()
     teacher_config = ChronosTrainingConfig(
         prediction_length=2,
-        data_config=AutoGluonDataConfig(known_covariates=("hour",)),
+        data_config=AutoGluonDataConfig(known_covariates=("hour_sin",)),
     )
     distill_config = ChronosDistillationConfig(
         teacher_config=teacher_config,
@@ -170,7 +172,7 @@ def test_generate_rolling_soft_labels_temperature(monkeypatch: pytest.MonkeyPatc
     teacher_config = ChronosTrainingConfig(
         prediction_length=2,
         data_config=AutoGluonDataConfig(
-            known_covariates=("hour",),
+            known_covariates=("hour_sin",),
         ),
     )
     distill_config = ChronosDistillationConfig(
@@ -210,13 +212,12 @@ def test_generate_rolling_soft_labels_fills_future_covariates(
             "instrument_id": ["SPY"] * len(minutes),
             "ts_event": [base_ts + m * 60_000_000_000 for m in minutes],
             "forward_return": np.linspace(0.0, 0.5, len(minutes)),
-            "hour": [9] * len(minutes),
-            "time_index": list(range(len(minutes))),
+            "hour_sin": [float(np.sin(2.0 * np.pi * 9 / 24.0))] * len(minutes),
         }
     )
     teacher_config = ChronosTrainingConfig(
         prediction_length=3,
-        data_config=AutoGluonDataConfig(known_covariates=("hour",)),
+        data_config=AutoGluonDataConfig(known_covariates=("hour_sin",)),
     )
     distill_config = ChronosDistillationConfig(
         teacher_config=teacher_config,

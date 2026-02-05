@@ -6,14 +6,14 @@ from pathlib import Path
 
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
+from ml.data import MarketBindingMetadata
 from ml.data import DatasetMetadata
+from ml.data import VintagePolicy
+from ml.data import load_dataset_metadata
 from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.ingest.market_bindings import resolve_market_dataset_bindings
-from ml.data import MarketBindingMetadata
-from ml.data import VintagePolicy
-from ml.data import _binding_stats_to_metadata
-from ml.data import _metadata_to_dict
-from ml.data import load_dataset_metadata
+from ml.data.metadata import _binding_stats_to_metadata
+from ml.data.metadata import metadata_to_dict
 
 
 def test_resolve_market_bindings_prefers_descriptor_and_fallback() -> None:
@@ -164,6 +164,27 @@ def test_resolve_market_bindings_sets_provider_schema_from_descriptor() -> None:
     assert binding.provider_schema == "tbbo"
 
 
+def test_resolve_market_bindings_supports_mbo_descriptor() -> None:
+    descriptors = load_market_feed_descriptors().as_mapping()
+    assert "XNAS.ITCH_MBO" in descriptors
+
+    bindings = resolve_market_dataset_bindings(
+        symbols=["AAPL"],
+        instrument_ids=("AAPL.XNAS",),
+        market_dataset_id=None,
+        market_inputs=(MarketDatasetInput(descriptor_id="XNAS.ITCH_MBO"),),
+        descriptors=descriptors,
+    )
+
+    assert len(bindings) == 1
+    binding = bindings[0]
+    assert binding.descriptor_id == "XNAS.ITCH_MBO"
+    assert binding.dataset_id == "XNAS.ITCH"
+    assert binding.schema == "mbo"
+    assert binding.provider_schema == "mbo"
+    assert binding.provider_dataset_id == "XNAS.ITCH"
+
+
 def test_metadata_round_trip_preserves_provider_dataset_id(tmp_path: Path) -> None:
     metadata = DatasetMetadata(
         dataset_id="demo",
@@ -199,7 +220,7 @@ def test_metadata_round_trip_preserves_provider_dataset_id(tmp_path: Path) -> No
         ),
     )
 
-    payload = _metadata_to_dict(metadata)
+    payload = metadata_to_dict(metadata)
     metadata_path = tmp_path / "dataset_metadata.json"
     metadata_path.write_text(json.dumps(payload), encoding="utf-8")
 

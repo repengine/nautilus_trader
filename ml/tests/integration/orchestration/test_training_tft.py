@@ -26,7 +26,7 @@ def test_train_tft_model() -> None:
       * prediction_horizon: 10
       * static_features: ["instrument_id", "day_of_week"]
       * time_varying_known: ["hour", "minute"]
-      * time_varying_unknown: ["close", "volume", "sma_20"]
+      * time_varying_unknown: ["close", "volume", "price_sma_20"]
     - Training metrics logged: MSE, MAE, MAPE
 
     Assertions (Phase 2.2.8):

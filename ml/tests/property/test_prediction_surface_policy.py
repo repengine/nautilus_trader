@@ -9,8 +9,8 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.common.prediction_surface import decision_from_probability
-from ml.common.prediction_surface import neutral_band_bounds
+from ml.common import decision_from_probability
+from ml.common import neutral_band_bounds
 
 
 @pytest.mark.property

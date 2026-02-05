@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, cast
 
 from ml.actors.base import MLSignal
+from ml.config.base import ExitHorizonConfig
 from ml.config.base import ExitPolicyConfig
 from ml.config.base import ModelExitConfig
 from ml.config.base import ShortEntryPolicy
@@ -329,3 +330,48 @@ def test_model_exit_precedes_reversal_when_configured() -> None:
     assert exec_params["action"] == "exit"
     exit_payload = cast(dict[str, object], exec_params["exit"])
     assert exit_payload["reason"] == "model_flip"
+
+
+def test_exit_policy_derives_max_holding_from_horizon_when_enabled() -> None:
+    strat = build_ml_trading_strategy_stub(execute_trades=False, decision_recorder=None)
+    strat._config.exit_policy_config = ExitPolicyConfig(
+        stop_loss_pct=0.0,
+        take_profit_pct=0.0,
+        max_holding_ms=None,
+    )
+    strat._config.exit_horizon_config = ExitHorizonConfig(
+        enabled=True,
+        max_holding_multiplier=1.0,
+        min_hold_multiplier=0.25,
+        min_hold_min_ms=5_000,
+        min_hold_max_ms=300_000,
+        apply_to_exit_policy=True,
+        apply_to_model_exit=True,
+    )
+
+    stop_loss, take_profit, max_holding = strat._resolve_exit_policy_config(
+        horizon_ms=60_000,
+    )
+
+    assert stop_loss == 0.0
+    assert take_profit == 0.0
+    assert max_holding == 60_000
+
+
+def test_model_exit_derives_min_hold_from_horizon_when_enabled() -> None:
+    strat = build_ml_trading_strategy_stub(execute_trades=False, decision_recorder=None)
+    strat._config.model_exit_config = ModelExitConfig(exit_on_flip=True, reverse_on_flip=False)
+    strat._config.exit_horizon_config = ExitHorizonConfig(
+        enabled=True,
+        max_holding_multiplier=1.0,
+        min_hold_multiplier=0.25,
+        min_hold_min_ms=5_000,
+        min_hold_max_ms=300_000,
+        apply_to_exit_policy=True,
+        apply_to_model_exit=True,
+    )
+
+    resolved = strat._resolve_model_exit_config(horizon_ms=60_000)
+
+    assert resolved is not None
+    assert resolved.min_hold_ms == 15_000

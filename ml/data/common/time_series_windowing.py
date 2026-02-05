@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC
 from datetime import datetime
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -236,6 +237,60 @@ class TimeSeriesWindowingComponent:
             result = result.filter(pl.col(ts_col) < end_utc)
 
         return result
+
+    def restrict_df_to_window(
+        self,
+        df: _pl.DataFrame,
+        *,
+        start: datetime | None,
+        end: datetime | None,
+        lookback_periods: int,
+        horizon_minutes: int,
+    ) -> _pl.DataFrame:
+        """
+        Restrict a DataFrame to a requested [start, end) window with context.
+
+        The returned frame includes a lookback buffer (for feature computation)
+        and a horizon buffer (for target computation).
+
+        Args:
+            df: Polars DataFrame with a timestamp column.
+            start: Start datetime (inclusive) for the requested window.
+            end: End datetime (exclusive) for the requested window.
+            lookback_periods: Number of lookback periods to include.
+            horizon_minutes: Target horizon in minutes to include.
+
+        Returns:
+            Filtered DataFrame including lookback and horizon buffers.
+
+        Example:
+            >>> component = TimeSeriesWindowingComponent()
+            >>> windowed = component.restrict_df_to_window(
+            ...     df,
+            ...     start=datetime(2024, 1, 1, tzinfo=UTC),
+            ...     end=datetime(2024, 1, 2, tzinfo=UTC),
+            ...     lookback_periods=30,
+            ...     horizon_minutes=10,
+            ... )
+        """
+        if "timestamp" not in df.columns:
+            return df
+        if start is None and end is None:
+            return df
+
+        start_bound = (
+            start - timedelta(minutes=lookback_periods + horizon_minutes)
+            if start is not None
+            else None
+        )
+        end_bound = end + timedelta(minutes=horizon_minutes) if end is not None else None
+
+        restricted = df
+        if start_bound is not None:
+            restricted = restricted.filter(pl.col("timestamp") >= start_bound)
+        if end_bound is not None:
+            restricted = restricted.filter(pl.col("timestamp") < end_bound)
+        return restricted
 
     def create_sliding_windows(
         self,

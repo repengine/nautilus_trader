@@ -26,6 +26,7 @@ from dataclasses import fields
 from dataclasses import replace
 from datetime import date
 from functools import lru_cache
+from functools import partial
 from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
@@ -35,6 +36,8 @@ from ml.common.db_connections import collect_postgres_candidates as _collect_db_
 from ml.common.logging_config import bind_log_context
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.validation_strategies import DEFAULT_HOLDOUT_STRATEGY
+from ml.common.validation_strategies import HOLDOUT_STRATEGIES
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import coerce_storage_kind
 from ml.config.market_data import load_market_feed_descriptors as _load_market_feed_descriptors
@@ -123,8 +126,8 @@ _WRITE_MODE_ALLOWED_TOKENS: Final[frozenset[str]] = frozenset({"sql", "datastore
 _SCHEMA_ALIASES: Final[dict[str, str]] = {
     "bars": "ohlcv-1m",
     "ohlcv": "ohlcv-1m",
-    "tbbo": "tbbo",
-    "quotes": "tbbo",
+    "tbbo": "quotes",
+    "quotes": "quotes",
     "trades": "trades",
 }
 
@@ -404,7 +407,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     # Ingestion/backfill
     parser.add_argument("--ingest", action="store_true", help="Run ingestion backfill first")
     parser.add_argument("--dataset_id", default=None)
-    parser.add_argument("--schema", default="bars", choices=["bars", "tbbo", "trades"])
+    parser.add_argument("--schema", default="bars", choices=["bars", "quotes", "tbbo", "trades"])
     parser.add_argument("--instruments", default="SPY.NYSE")
     parser.add_argument("--lookback_days", type=int, default=7)
     parser.add_argument("--coverage_mode", default="catalog", choices=["catalog", "sql"])
@@ -606,7 +609,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--auto_fill_l2_schema",
         default=None,
-        help="Schema to use for auto-fill L2 ingestion (default mbp-10)",
+        help="Schema to use for auto-fill L2 ingestion (default mbp-1)",
     )
     parser.add_argument(
         "--auto_fill_l2_progress_file",
@@ -729,11 +732,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tail_rows", type=int, default=0)
     parser.add_argument("--limit_groups", type=int, default=0)
     parser.add_argument("--val_days", type=int, default=0)
+    parser.add_argument(
+        "--validation_strategy",
+        choices=list(HOLDOUT_STRATEGIES),
+        default=DEFAULT_HOLDOUT_STRATEGY,
+        help="Validation strategy for teacher training (time_window or purged)",
+    )
     parser.add_argument("--embargo_hours", type=float, default=24.0)
+    parser.add_argument("--embargo_pct", type=float, default=None)
     parser.add_argument("--purge_gap", type=int, default=0)
     parser.add_argument("--cv_splits", type=int, default=5)
     parser.add_argument("--test_fraction", type=float, default=0.2)
-    parser.add_argument("--target_col", default="y")
+    parser.add_argument(
+        "--target_col",
+        default="y",
+        help="Target column name declared in target_semantics labels (or legacy_aliases when enabled).",
+    )
     parser.add_argument("--time_index_col", default="time_index")
     parser.add_argument("--timestamp_col", default="timestamp")
     parser.add_argument("--group_id_col", default="instrument_id")
@@ -1016,13 +1030,19 @@ def _execute_with_namespace(
                 "--ingest requested but DATABENTO_API_KEY is missing; skipping",
             )
 
-    from ml.scripts.build_tft_dataset import main as build_main
+    from ml.tasks.datasets import tft_cli as build_cli
     from ml.training.teacher.tft_cli import main as teacher_main
 
-    try:
-        from ml.cli.hpo_tft import main as _hpo_main
+    build_main = build_cli.main
 
-        hpo_main_cli: _CliMain | None = _hpo_main
+    try:
+        from ml.tasks.training import hpo_tft as _hpo_task
+
+        hpo_main_cli: _CliMain | None = partial(
+            _hpo_task.main,
+            teacher_main=teacher_main,
+            has_optuna=_hpo_task.HAS_OPTUNA,
+        )
     except Exception:  # pragma: no cover - optional dependency
         hpo_main_cli = None
 
@@ -1254,7 +1274,9 @@ def _execute_with_namespace(
         tail_rows=int(args.tail_rows),
         limit_groups=int(args.limit_groups),
         val_days=int(args.val_days),
+        validation_strategy=str(args.validation_strategy),
         embargo_hours=float(args.embargo_hours),
+        embargo_pct=(None if args.embargo_pct is None else float(args.embargo_pct)),
         purge_gap=int(args.purge_gap),
         cv_splits=int(args.cv_splits),
         test_fraction=float(args.test_fraction),
@@ -1367,8 +1389,10 @@ def _run_ingestion_stage(
             return "quotes"
         if "trade" in token:
             return "trades"
-        if "mbp" in token or token.startswith(("l2", "l3")):
-            return "mbp"
+        if "mbo" in token or token.startswith("l3"):
+            return "l3"
+        if "mbp" in token or token.startswith("l2"):
+            return "l2"
         return token
 
     def _attempt_primary_ingestion(
@@ -2252,7 +2276,7 @@ def _build_auto_fill_config_from_args(
         getattr(args, "auto_fill_l2_dataset_id", None) or "DBEQ.BASIC",
     )
     l2_schema = str(
-        getattr(args, "auto_fill_l2_schema", None) or "mbp-10",
+        getattr(args, "auto_fill_l2_schema", None) or "mbp-1",
     )
     l2_days_raw = getattr(args, "auto_fill_l2_days", None)
     l2_days = int(l2_days_raw) if l2_days_raw is not None else None

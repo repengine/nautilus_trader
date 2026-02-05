@@ -18,6 +18,7 @@ from allpairspy import AllPairs
 from ml.actors.signal import MLSignalActorConfig
 from ml.features.config import FeatureConfig
 from ml.registry import ModelManifest
+from ml.registry.base import DataRequirements
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
@@ -84,6 +85,14 @@ class TestConfigurationCombinations:
                 include_trade_flow,
             ) = combo
 
+            # Derive data requirements to satisfy feature constraints
+            if include_trade_flow:
+                data_requirements = DataRequirements.L1_L2_L3
+            elif include_microstructure:
+                data_requirements = DataRequirements.L1_L2
+            else:
+                data_requirements = DataRequirements.L1_ONLY
+
             # Create configuration
             config = FeatureConfig(
                 return_periods=return_periods,
@@ -95,6 +104,7 @@ class TestConfigurationCombinations:
                 volume_ma_periods=volume_ma_periods,
                 include_microstructure=include_microstructure,
                 include_trade_flow=include_trade_flow,
+                data_requirements=data_requirements,
             )
 
             # Verify configuration is valid

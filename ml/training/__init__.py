@@ -273,6 +273,10 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - import side-effect util
     missing.
 
     """
+    if name == "common":
+        import importlib
+
+        return importlib.import_module("ml.training.common")
     # Base classes - always available
     if name == "BaseMLTrainer":
         from .base import BaseMLTrainer

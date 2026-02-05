@@ -36,10 +36,10 @@ from ml import _imports as _ml_imports
 from ml._imports import check_ml_dependencies
 from ml._imports import pd as pd_runtime
 from ml._imports import pl as pl_runtime
+from ml.common import current_rss_mb
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
-from ml.common.resource_monitor import current_rss_mb
 
 
 FloatArray = npt.NDArray[np.float64]

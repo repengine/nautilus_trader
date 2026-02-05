@@ -47,7 +47,7 @@ def test_feature_refresh_event_emitted_to_message_bus() -> None:
         message_bus=message_bus,
     )
 
-    features = ["sma_20", "ema_50", "rsi_14"]
+    features = ["price_sma_20", "ema_50", "rsi_14"]
 
     # Execute
     synchronizer._emit_feature_refresh_event("spy_2024_ohlcv", features)
@@ -122,7 +122,7 @@ def test_event_payload_contains_metadata() -> None:
         message_bus=message_bus,
     )
 
-    features = ["sma_20", "ema_50", "rsi_14"]
+    features = ["price_sma_20", "ema_50", "rsi_14"]
 
     # Execute
     synchronizer._emit_feature_refresh_event("spy_2024_ohlcv", features)

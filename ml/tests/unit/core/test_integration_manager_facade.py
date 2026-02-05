@@ -600,7 +600,7 @@ class TestFacadeEmitCascade:
             "instrument_id": "BTC.USD",
             "ts_event": 1000000000,
             "event_id": "evt_001",
-            "payload": {"feature_name": "sma_20"},
+            "payload": {"feature_name": "price_sma_20"},
         }
 
         expected_result = {

@@ -531,6 +531,22 @@ def build_ml_trading_strategy_stub(
                 self,
                 MLTradingStrategy,
             )
+            self._derive_horizon_max_holding_ms = (
+                MLTradingStrategy._derive_horizon_max_holding_ms.__get__(
+                    self,
+                    MLTradingStrategy,
+                )
+            )
+            self._derive_horizon_min_hold_ms = (
+                MLTradingStrategy._derive_horizon_min_hold_ms.__get__(
+                    self,
+                    MLTradingStrategy,
+                )
+            )
+            self._resolve_model_exit_config = MLTradingStrategy._resolve_model_exit_config.__get__(
+                self,
+                MLTradingStrategy,
+            )
             self._timestamp_ns = MLTradingStrategy._timestamp_ns.__get__(self, MLTradingStrategy)
             self._update_returns_from_signal = MLTradingStrategy._update_returns_from_signal.__get__(
                 self,

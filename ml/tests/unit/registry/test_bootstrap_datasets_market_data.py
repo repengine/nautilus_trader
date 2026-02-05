@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from ml.config.dataset_ids import EQUS_MINI_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_MBP1_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_MBP10_DATASET_ID
+from ml.config.dataset_ids import EQUS_MINI_MBO_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_QUOTES_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_TBBO_DATASET_ID
 from ml.config.dataset_ids import EQUS_MINI_TRADES_DATASET_ID
@@ -79,6 +81,46 @@ def test_equs_mini_mbp1_contract_present() -> None:
     contract = contracts[EQUS_MINI_MBP1_DATASET_ID]
     assert contract.enforcement_mode == "lenient"
     assert any(rule.field_name == "bid" for rule in contract.validation_rules)
+
+
+def test_equs_mini_mbp10_manifest_registered() -> None:
+    """
+    EQUS.MINI_MBP10 should be registered to the per-class MBP-10 table.
+    """
+    manifest = _get_manifest(EQUS_MINI_MBP10_DATASET_ID)
+    assert manifest.location == "market_data_mbp10"
+    assert manifest.primary_keys == ["instrument_id", "ts_event", "sequence"]
+    assert {"bids", "asks"} <= manifest.schema.keys()
+
+
+def test_equs_mini_mbp10_contract_present() -> None:
+    """
+    EQUS.MINI_MBP10 requires a lenient contract for depth validation.
+    """
+    contracts = bootstrap.create_standard_contracts()
+    contract = contracts[EQUS_MINI_MBP10_DATASET_ID]
+    assert contract.enforcement_mode == "lenient"
+    assert any(rule.field_name == "ts_event" for rule in contract.validation_rules)
+
+
+def test_equs_mini_mbo_manifest_registered() -> None:
+    """
+    EQUS.MINI_MBO should be registered to the per-class MBO table.
+    """
+    manifest = _get_manifest(EQUS_MINI_MBO_DATASET_ID)
+    assert manifest.location == "market_data_mbo"
+    assert manifest.primary_keys == ["instrument_id", "ts_event", "sequence"]
+    assert {"action", "order_payload"} <= manifest.schema.keys()
+
+
+def test_equs_mini_mbo_contract_present() -> None:
+    """
+    EQUS.MINI_MBO requires a lenient contract for delta validation.
+    """
+    contracts = bootstrap.create_standard_contracts()
+    contract = contracts[EQUS_MINI_MBO_DATASET_ID]
+    assert contract.enforcement_mode == "lenient"
+    assert any(rule.field_name == "ts_event" for rule in contract.validation_rules)
 
 
 def test_equs_mini_quotes_manifest_registered() -> None:

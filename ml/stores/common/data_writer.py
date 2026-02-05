@@ -18,7 +18,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_PROMETHEUS
-from ml.common.decision_metadata import normalize_decision_metadata
+from ml.common import normalize_decision_metadata
 from ml.common.events_util import stage_for_dataset_type
 from ml.common.metrics_bootstrap import get_counter
 from ml.config import EARNINGS_ACTUALS_DATASET_ID

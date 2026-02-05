@@ -163,3 +163,75 @@ def test_list_manifests_and_iterators(tmp_path: Path) -> None:
     assert len(lineage) == 1
     assert lineage[0].child_dataset_id == "features_iter"
     assert lineage[0].parent_dataset_id == "bars_iter"
+
+
+def test_list_legacy_dataset_ids_reports_json_backend(tmp_path: Path) -> None:
+    reg_dir = tmp_path / "registry"
+    reg = DataRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+        batch_save_interval=0.0,
+    )
+
+    legacy_manifest = DatasetManifest(
+        dataset_id="ohlcv_spy_xnas",
+        dataset_type=DatasetType.BARS,
+        storage_kind=StorageKind.PARQUET,
+        location=str(tmp_path / "bars"),
+        partitioning={"by": "ts_event", "interval": "daily"},
+        retention_days=30,
+        schema={
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "open": "float64",
+            "high": "float64",
+            "low": "float64",
+            "close": "float64",
+            "volume": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["instrument_id", "ts_event"],
+        schema_hash="hash",
+        constraints={"nullability": {"instrument_id": False, "ts_event": False, "ts_init": False}},
+        lineage=[],
+        pipeline_signature="unit",
+        version="1.0.0",
+    )
+    reg.register_dataset(legacy_manifest)
+
+    reg.emit_event(
+        dataset_id="mbp_spy_xnas",
+        instrument_id="SPY.XNAS",
+        stage=Stage.CATALOG_WRITTEN,
+        source=Source.HISTORICAL,
+        run_id="run-legacy",
+        ts_min=1,
+        ts_max=2,
+        count=1,
+        status=EventStatus.SUCCESS,
+    )
+    reg.update_watermark(
+        dataset_id="ohlcv_spy_xnas",
+        instrument_id="SPY.XNAS",
+        source=Source.HISTORICAL,
+        last_success_ns=2,
+        count=1,
+        completeness_pct=100.0,
+    )
+    reg.link_lineage(
+        child_dataset_id="ohlcv_spy_xnas",
+        parent_ids=["mbp_spy_xnas"],
+        transform_id="legacy_pipeline",
+        ts_range={"start_ns": 1, "end_ns": 2},
+        params={},
+    )
+
+    report = reg.list_legacy_dataset_ids()
+    assert report["registry"] == ("ohlcv_spy_xnas",)
+    assert "mbp_spy_xnas" in report["events"]
+    assert "ohlcv_spy_xnas" in report["events"]
+    assert report["watermarks"] == ("ohlcv_spy_xnas",)
+    assert report["lineage_children"] == ("ohlcv_spy_xnas",)
+    assert report["lineage_parents"] == ("mbp_spy_xnas",)

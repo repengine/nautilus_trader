@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from ml.data.feature_manifest_export import FeatureExportConfig
 from ml.data.feature_manifest_export import export_feature_manifest
@@ -45,3 +46,19 @@ def test_export_feature_manifest_roundtrip(tmp_path: Path) -> None:
     assert info is not None
     assert info.manifest.feature_names == feature_names
     assert info.manifest.capability_flags.get("include_macro") is True
+
+
+def test_export_feature_manifest_rejects_legacy_aliases(tmp_path: Path) -> None:
+    cfg = FeatureExportConfig(
+        registry_path=tmp_path / "features",
+        role=FeatureRole.TEACHER,
+        data_requirements=DataRequirements.L1_ONLY,
+    )
+
+    with pytest.raises(ValueError, match="Legacy feature names detected"):
+        export_feature_manifest(
+            feature_names=["return_1", "volume_ratio"],
+            feature_dtypes=["float32", "float32"],
+            flags={},
+            cfg=cfg,
+        )

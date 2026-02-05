@@ -346,11 +346,25 @@ class OrchestratorCollectionComponent:
         from ml.stores.io_raw import FilteredRawWriter
         from ml.stores.io_raw import ParquetCatalogRawWriter
 
+        if dataset_type_identifier_templates:
+            logger.warning(
+                "Ignoring deprecated dataset_type_identifier_templates overrides; "
+                "schema registry defaults are enforced",
+                extra={
+                    "dataset_types": sorted(
+                        dt.value for dt in dataset_type_identifier_templates
+                    ),
+                },
+            )
+            dataset_type_identifier_templates = None
+
         base_toggles = {
             DatasetType.BARS: True,
             DatasetType.TRADES: True,
             DatasetType.TBBO: True,
             DatasetType.MBP1: True,
+            DatasetType.MBP10: True,
+            DatasetType.MBO: True,
         }
         if dataset_type_toggles:
             base_toggles.update(dataset_type_toggles)

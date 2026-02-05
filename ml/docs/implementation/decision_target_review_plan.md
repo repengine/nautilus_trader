@@ -28,7 +28,7 @@ features -> prediction -> signal -> strategy -> risk/sizing -> portfolio -> PnL.
   - `ml/preprocessing/joins.py`, `ml/preprocessing/stationarity.py`, `ml/preprocessing/vintage_age.py`
   - `ml/preprocessing/event_ingestion.py`
 - Data ingestion and dataset assembly:
-  - `ml/data/tft_dataset_builder.py`, `ml/data/tft_dataset_builder_facade.py`
+  - `ml/data/tft_dataset_builder_facade.py`
   - `ml/data/feature_computation_manager.py`, `ml/data/feature_manifest_export.py`
   - `ml/data/ingest/`, `ml/data/providers/`, `ml/data/rehydration/`, `ml/data/validation.py`
   - `ml/data/catalog/`, `ml/data/sources/`, `ml/data/coverage/`
@@ -251,7 +251,7 @@ Decisions to make based on verified behavior (no solutions implied):
 - Evidence: Training persistence populates decision_policy/config from trainer config attributes (if present). (`ml/training/common/persistence.py:353`)
 - Evidence: Teacher/Student CLIs accept `--decision_policy` and `--decision_config` JSON; student manifest builder does not set these unless CLI updates after creation. (`ml/training/teacher/tft_cli.py:989`, `ml/training/student/lightgbm_cli.py:90`, `ml/registry/utils.py:132`)
 - Evidence: Target generation defines binary label `y = (forward_return > threshold)` and fills trailing NaNs as 0; no explicit short/neutral class. (`ml/training/datasets/target_generator.py:215`)
-- Evidence: TFTDatasetBuilder repeats binary label `y` generation from forward returns with positive threshold. (`ml/data/tft_dataset_builder.py:2344`)
+- Evidence: TFTDatasetBuilder repeats binary label `y` generation from forward returns with positive threshold. (`ml/data/tft_dataset_builder_facade.py`)
 - Evidence: TFT teacher CLI defaults `target_col` to `y` and computes “signals” from probabilities using a 0.5 threshold (long-only gate). (`ml/training/teacher/tft_cli.py:138`, `ml/training/teacher/tft_cli.py:287`)
 - Evidence: LightGBM student export declares ONNX output schema `binary_proba` (shape [N,1]), implying probability output rather than class index. (`ml/training/student/lightgbm.py:321`)
 - Evidence: Base ONNX inference path defaults confidence to 0.95 when only a single output is present. (`ml/actors/base.py:2086`)
@@ -360,8 +360,8 @@ Decisions to make based on verified behavior (no solutions implied):
   - Confirm label metadata propagates into export/registry sidecars.
   - Evidence: TargetGenerator uses `forward_return = (future_close - current_close) / current_close` and binary label `y = forward_return > threshold`, filling trailing NaNs with 0 (no explicit short/neutral). (ml/training/datasets/target_generator.py)
   - Evidence: TargetGenerator docstring + implementation define binary `y` and `forward_return` only; labels are `(forward_return > threshold)` with NaN fill. (ml/training/datasets/target_generator.py:122-223)
-  - Evidence: TFT dataset builder repeats binary `y` generation with `min_return_threshold` default 0.001; no cost/slippage adjustments baked in. (ml/data/tft_dataset_builder.py)
-  - Evidence: TFTDatasetBuilder `_generate_targets_polars` computes `forward_return` and binary `y` only, filling NaNs; no short/neutral or cost-aware labels. (ml/data/tft_dataset_builder.py:2328-2356)
+  - Evidence: TFT dataset builder repeats binary `y` generation with `min_return_threshold` default 0.001; no cost/slippage adjustments baked in. (`ml/data/tft_dataset_builder_facade.py`)
+  - Evidence: TFTDatasetBuilder `_generate_targets_polars` computes `forward_return` and binary `y` only, filling NaNs; no short/neutral or cost-aware labels. (`ml/data/tft_dataset_builder_facade.py`)
   - Evidence: TargetGenerationComponent in `ml/data/common/target_generation.py` duplicates the same binary label logic with forward_return and NaN fill. (ml/data/common/target_generation.py)
   - Evidence: TargetGenerationComponent documents binary-only targets (`y` in {0,1}) and computes `forward_return` sidecar with NaN fill. (ml/data/common/target_generation.py:46-167)
   - Evidence: Target generation tests iterate different horizons by re-running the same generator; outputs remain single `y`/`forward_return` columns (no multi-horizon target columns). (ml/tests/unit/data/common/test_target_generation.py:231-266)

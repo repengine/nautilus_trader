@@ -79,6 +79,35 @@ def test_split_time_series_frame_boundaries() -> None:
     assert split.row_counts == {"train": 4, "val": 2, "test": 2}
 
 
+def test_split_time_series_frame_purged_strategy() -> None:
+    """
+    Verify purged validation splits respect timestamp boundaries.
+    """
+    _require_polars()
+    df = _sample_frame()
+    config = ChronosEvaluationConfig(
+        train_fraction=0.5,
+        val_fraction=0.25,
+        test_fraction=0.25,
+        min_rows_per_split=1,
+        validation_strategy="purged",
+        cv_splits=2,
+        purge_gap=0,
+        embargo_pct=0.0,
+    )
+    split = split_time_series_frame(df, config)
+
+    assert split.row_counts == {"train": 2, "val": 4, "test": 2}
+
+
+def test_chronos_evaluation_config_invalid_validation_strategy() -> None:
+    """
+    Invalid validation strategies should raise.
+    """
+    with pytest.raises(ValueError, match="validation_strategy"):
+        ChronosEvaluationConfig(validation_strategy="unsupported")
+
+
 def test_evaluate_baseline_per_item_mean() -> None:
     """
     Baseline metrics should match expected per-item means.
@@ -151,7 +180,7 @@ def test_run_chronos_time_split_evaluation_filters_market_hours() -> None:
             "ts_event": [1, 2, 3, 4, 5, 6],
             "forward_return": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
             "feature_one": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            "is_market_open": [1, 1, 0, 1, 0, 1],
+            "is_market_hours": [1, 1, 0, 1, 0, 1],
         },
     )
 

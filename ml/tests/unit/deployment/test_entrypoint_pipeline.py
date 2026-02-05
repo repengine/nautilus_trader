@@ -430,7 +430,7 @@ def test_parse_market_dataset_inputs_rejects_invalid_schema(
     runner = entrypoint_pipeline.PipelineRunner()
     monkeypatch.setenv(
         "MARKET_DATASET_INPUTS",
-        '[{"descriptor_id":"EQUS.MINI","schema_override":"mbp-10"}]',
+        '[{"descriptor_id":"EQUS.MINI","schema_override":"mbp-1"}]',
     )
     with pytest.raises(ValueError):
         runner._parse_market_dataset_inputs()

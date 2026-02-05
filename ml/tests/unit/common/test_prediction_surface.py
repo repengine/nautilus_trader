@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ml.common.prediction_surface import decision_from_probability
-from ml.common.prediction_surface import normalize_prediction_batch
-from ml.common.prediction_surface import normalize_prediction_output
+from ml.common import decision_from_probability
+from ml.common import normalize_prediction_batch
+from ml.common import normalize_prediction_output
 
 
 def test_normalize_prediction_output_when_probabilities_vector_returns_positive_probability() -> None:

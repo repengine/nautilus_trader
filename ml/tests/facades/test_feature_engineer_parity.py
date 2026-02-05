@@ -34,7 +34,7 @@ pytestmark = [pytest.mark.parity, pytest.mark.unit]
 
 # Note: Main parity tests pass after Task 1.1c (RSI, hl_spread post-processing).
 # Edge case tests with insufficient data (single bar, short lookbacks) may still
-# fail due to volume_ratio fallback differences - these are marked xfail individually.
+# fail due to volume_ratio_20 fallback differences - these are marked xfail individually.
 
 
 # ==================== Helper Functions ====================

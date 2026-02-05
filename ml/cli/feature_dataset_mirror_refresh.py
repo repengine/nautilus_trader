@@ -8,10 +8,10 @@ from __future__ import annotations
 import argparse
 import os
 
+from ml.config import FeatureDatasetMirrorConfig
 from ml.config._env_utils import resolve_db_connection
-from ml.config.feature_dataset_mirror import FeatureDatasetMirrorConfig
-from ml.stores.feature_dataset_mirror import FeatureDatasetMirrorExportConfig
-from ml.stores.feature_dataset_mirror import refresh_feature_dataset_mirrors
+from ml.stores import FeatureDatasetMirrorExportConfig
+from ml.stores import refresh_feature_dataset_mirrors
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

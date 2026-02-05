@@ -45,9 +45,14 @@ def create_purged_splits(
     n_splits: int = 5,
     purge_gap: int = 0,
     embargo_hours: float = 24.0,
+    embargo_pct: float | None = None,
 ) -> dict[str, Any]:
     """
     Create purged cross-validation splits with configurable embargo.
+
+    When ``embargo_pct`` is provided, it overrides ``embargo_hours`` and is
+    passed directly to ``PurgedCrossValidator``. Otherwise, the embargo
+    percentage is derived from the dataset time span and ``embargo_hours``.
     """
     pdf = _to_pandas(df).copy()
     if _pd is None:
@@ -70,14 +75,21 @@ def create_purged_splits(
     train_indices = np.arange(train_len)
     test_indices = np.arange(train_len, n_samples)
 
-    span = train_df[timestamp_col].iloc[-1] - train_df[timestamp_col].iloc[0]
-    total_hours = max(span.total_seconds() / 3600.0, 1.0)
-    embargo_pct = min(max(embargo_hours / total_hours, 0.0), 0.5)
+    if embargo_pct is None:
+        span = train_df[timestamp_col].iloc[-1] - train_df[timestamp_col].iloc[0]
+        total_hours = max(span.total_seconds() / 3600.0, 1.0)
+        resolved_embargo_pct = min(max(embargo_hours / total_hours, 0.0), 0.5)
+    else:
+        resolved_embargo_pct = float(embargo_pct)
+        if not 0.0 <= resolved_embargo_pct < 1.0:
+            raise ValueError(
+                f"embargo_pct must be in [0.0, 1.0), got {resolved_embargo_pct}",
+            )
 
     cv = PurgedCrossValidator(
         n_splits=n_splits,
         purge_gap=purge_gap,
-        embargo_pct=embargo_pct,
+        embargo_pct=resolved_embargo_pct,
     )
     cv_splits = cv.split(train_indices.reshape(-1, 1))
 
@@ -85,5 +97,5 @@ def create_purged_splits(
         "train_indices": train_indices,
         "test_indices": test_indices,
         "cv_splits": cv_splits,
-        "embargo_pct": embargo_pct,
+        "embargo_pct": resolved_embargo_pct,
     }

@@ -34,6 +34,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from ml._imports import HAS_OPTUNA, HAS_SKLEARN
+from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import MulticlassTargetConfig
+from ml.config.targets import RegressionTargetConfig
+from ml.config.targets import TargetCostModelConfig
+from ml.config.targets import TargetHorizonSpec
+from ml.config.targets import TargetSemanticsConfig
 from ml.training.common.hyperparameter import (
     HyperparameterComponent,
     HyperparameterTrainerProtocol,
@@ -87,6 +93,7 @@ class MockConfig:
     """Mock training configuration for hyperparameter testing."""
 
     optuna_config: MockOptunaConfig | None = None
+    target_semantics: TargetSemanticsConfig | None = None
 
 
 class TestableTrainer:
@@ -151,6 +158,21 @@ class TestableTrainer:
         self._call_log.append("predict")
         n = len(X)
         return np.full(n, 0.6, dtype=np.float32)
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def _build_cost_semantics(cost_bps: float) -> TargetSemanticsConfig:
+    return TargetSemanticsConfig(
+        horizons=(TargetHorizonSpec(minutes=15),),
+        cost_model=TargetCostModelConfig(cost_bps=cost_bps),
+        binary=BinaryTargetConfig(enabled=True, threshold_bps=10.0, return_basis="raw"),
+        multiclass=MulticlassTargetConfig(enabled=False),
+        regression=RegressionTargetConfig(enabled=False),
+    )
 
 
 # ============================================================================
@@ -586,6 +608,31 @@ class TestCalculateSharpeMetric:
         sharpe = hp_component._calculate_sharpe_metric(predictions, targets, returns)
 
         assert sharpe == 0.0
+
+    def test_calculate_sharpe_metric_applies_cost_model(self) -> None:
+        """Verify cost model reduces Sharpe ratio."""
+        cost_semantics = _build_cost_semantics(cost_bps=10.0)
+        trainer_cost = TestableTrainer(
+            MockConfig(optuna_config=None, target_semantics=cost_semantics),
+        )
+        trainer_raw = TestableTrainer(MockConfig(optuna_config=None))
+
+        predictions = np.array([0.7, 0.8, 0.9, 0.6], dtype=np.float64)
+        targets = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64)
+        returns = np.array([0.01, 0.012, 0.011, 0.013], dtype=np.float64)
+
+        sharpe_cost = HyperparameterComponent(trainer_cost)._calculate_sharpe_metric(
+            predictions,
+            targets,
+            returns,
+        )
+        sharpe_raw = HyperparameterComponent(trainer_raw)._calculate_sharpe_metric(
+            predictions,
+            targets,
+            returns,
+        )
+
+        assert sharpe_cost < sharpe_raw
 
 
 # ============================================================================

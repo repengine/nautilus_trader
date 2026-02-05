@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.strategies.common.decision_persistence import _SafeLogger
+from ml.strategies.common.portfolio_signal_batching import get_portfolio_signal_batcher
+from ml.strategies.portfolio import PortfolioBatchingConfig
 
 
 if TYPE_CHECKING:
@@ -219,6 +221,8 @@ class PositionManagementComponent:
         Portfolio instance for risk manager checks.
     instrument_id : Any, optional
         Target instrument ID for position sizing.
+    portfolio_batching_config : PortfolioBatchingConfig | None, optional
+        Optional batching configuration for portfolio allocation.
     account_id : Any, optional
         Account ID for balance lookup.
     positions_provider : PositionsProviderProtocol | None, optional
@@ -253,6 +257,7 @@ class PositionManagementComponent:
         cache: CacheProtocol | None = None,
         portfolio: Any = None,
         instrument_id: Any = None,
+        portfolio_batching_config: PortfolioBatchingConfig | None = None,
         account_id: Any = None,
         positions_provider: PositionsProviderProtocol | None = None,
         log: Any = None,
@@ -269,6 +274,7 @@ class PositionManagementComponent:
         self._cache = cache
         self._portfolio = portfolio
         self._instrument_id = instrument_id
+        self._portfolio_batching_config = portfolio_batching_config
         self._account_id = account_id
         self._positions_provider = positions_provider
         self._log = _SafeLogger(log if log is not None else _NoOpLogger())
@@ -324,6 +330,7 @@ class PositionManagementComponent:
         *,
         position_size_pct: float | None = None,
         instrument_id: Any = None,
+        portfolio_batching_config: PortfolioBatchingConfig | None = None,
         cache: CacheProtocol | None = None,
         portfolio: Any = None,
         positions_provider: PositionsProviderProtocol | None = None,
@@ -338,6 +345,8 @@ class PositionManagementComponent:
             Updated position size percentage.
         instrument_id : Any, optional
             Updated target instrument ID.
+        portfolio_batching_config : PortfolioBatchingConfig | None, optional
+            Updated batching configuration for portfolio allocation.
         cache : CacheProtocol | None, optional
             Updated cache instance.
         portfolio : Any, optional
@@ -352,6 +361,8 @@ class PositionManagementComponent:
             self._position_size_pct = position_size_pct
         if instrument_id is not None:
             self._instrument_id = instrument_id
+        if portfolio_batching_config is not None:
+            self._portfolio_batching_config = portfolio_batching_config
         if cache is not None:
             self._cache = cache
         if portfolio is not None:
@@ -824,10 +835,34 @@ class PositionManagementComponent:
             )
             return proposed_value
 
+        signals_for_allocation = [signal]
+        batching_config = self._portfolio_batching_config
+        if batching_config is not None and batching_config.enabled:
+            try:
+                batcher = get_portfolio_signal_batcher()
+                signals_for_allocation = batcher.update_and_get_batch(
+                    signal,
+                    config=batching_config,
+                    portfolio=self._portfolio,
+                    strategy_id=self._strategy_id,
+                )
+            except Exception as exc:
+                self._log.debug(
+                    "ml_strategy.portfolio_batching_failed",
+                    strategy_id=self._strategy_id,
+                    instrument=str(signal.instrument_id),
+                    exc_info=True,
+                    error=str(exc),
+                )
+                signals_for_allocation = [signal]
+
+        if not signals_for_allocation:
+            signals_for_allocation = [signal]
+
         # Get allocations from portfolio manager
         try:
             allocations = self._portfolio_manager.allocate_signals(
-                [signal],
+                signals_for_allocation,
                 available_capital,
             )
         except Exception as exc:

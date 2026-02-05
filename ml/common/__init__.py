@@ -27,11 +27,13 @@ Usage:
 
 """
 
+import importlib
+from typing import TYPE_CHECKING
+
 # ============================================================================
 # PATTERN 5: CENTRALIZED METRICS BOOTSTRAP (MANDATORY)
 # ============================================================================
 # NEVER import prometheus_client directly - use these instead
-
 from ml.common.cascade import EventDict
 from ml.common.cascade import emit_cascade
 
@@ -120,6 +122,61 @@ from ml.common.trace_context import extract_and_link_from_event
 from ml.common.trace_context import get_correlation_and_trace_context
 
 
+if TYPE_CHECKING:
+    from ml.common.decision_metadata import decision_metadata_from_model_metadata
+    from ml.common.decision_metadata import normalize_decision_metadata
+    from ml.common.decision_metadata import resolve_decision_horizon_ms
+    from ml.common.prediction_surface import decision_from_probability
+    from ml.common.prediction_surface import neutral_band_bounds
+    from ml.common.prediction_surface import normalize_prediction_batch
+    from ml.common.prediction_surface import normalize_prediction_output
+    from ml.common.prediction_surface import resolve_output_is_logits
+    from ml.common.prediction_surface import resolve_positive_class_index
+    from ml.common.resource_monitor import current_rss_mb
+    from ml.common.symbol_utils import resolve_symbol_data_dir
+    from ml.common.symbol_utils import resolve_symbol_data_dir_candidates
+    from ml.common.symbol_utils import resolve_symbol_data_dir_exact
+    from ml.common.symbol_utils import select_latest_symbol_file
+    from ml.common.watermark_window import WatermarkRegistryProtocol
+    from ml.common.watermark_window import WatermarkWindowResult
+    from ml.common.watermark_window import resolve_watermark_start_date
+    from ml.common.watermark_window import resolve_watermark_start_datetime
+
+
+_LAZY_COMMON_EXPORTS: dict[str, tuple[str, str]] = {
+    "decision_metadata_from_model_metadata": (
+        "ml.common.decision_metadata",
+        "decision_metadata_from_model_metadata",
+    ),
+    "normalize_decision_metadata": ("ml.common.decision_metadata", "normalize_decision_metadata"),
+    "resolve_decision_horizon_ms": ("ml.common.decision_metadata", "resolve_decision_horizon_ms"),
+    "decision_from_probability": ("ml.common.prediction_surface", "decision_from_probability"),
+    "neutral_band_bounds": ("ml.common.prediction_surface", "neutral_band_bounds"),
+    "normalize_prediction_batch": ("ml.common.prediction_surface", "normalize_prediction_batch"),
+    "normalize_prediction_output": ("ml.common.prediction_surface", "normalize_prediction_output"),
+    "resolve_output_is_logits": ("ml.common.prediction_surface", "resolve_output_is_logits"),
+    "resolve_positive_class_index": ("ml.common.prediction_surface", "resolve_positive_class_index"),
+    "current_rss_mb": ("ml.common.resource_monitor", "current_rss_mb"),
+    "resolve_symbol_data_dir": ("ml.common.symbol_utils", "resolve_symbol_data_dir"),
+    "resolve_symbol_data_dir_candidates": ("ml.common.symbol_utils", "resolve_symbol_data_dir_candidates"),
+    "resolve_symbol_data_dir_exact": ("ml.common.symbol_utils", "resolve_symbol_data_dir_exact"),
+    "select_latest_symbol_file": ("ml.common.symbol_utils", "select_latest_symbol_file"),
+    "WatermarkRegistryProtocol": ("ml.common.watermark_window", "WatermarkRegistryProtocol"),
+    "WatermarkWindowResult": ("ml.common.watermark_window", "WatermarkWindowResult"),
+    "resolve_watermark_start_date": ("ml.common.watermark_window", "resolve_watermark_start_date"),
+    "resolve_watermark_start_datetime": ("ml.common.watermark_window", "resolve_watermark_start_datetime"),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_COMMON_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attr_name = target
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)
+
+
 # ============================================================================
 # PUBLIC API SURFACE
 # ============================================================================
@@ -145,6 +202,8 @@ __all__ = [
     "RedisStreamsPublisher",
     "SourceStr",
     "Throttler",
+    "WatermarkRegistryProtocol",
+    "WatermarkWindowResult",
     "build_bus_payload",
     "build_stage_topic",
     "build_topic",
@@ -152,7 +211,10 @@ __all__ = [
     "calculate_file_sha256",
     "clamp_price_str",
     "collect_postgres_candidates",
+    "current_rss_mb",
     "db_operation_handler",
+    "decision_from_probability",
+    "decision_metadata_from_model_metadata",
     "emit_cascade",
     "emit_dataset_event",
     "emit_dataset_event_and_watermark",
@@ -168,16 +230,29 @@ __all__ = [
     "make_correlation_id",
     "map_stage_to_topic_segments",
     "match_topic",
+    "neutral_band_bounds",
+    "normalize_decision_metadata",
+    "normalize_prediction_batch",
+    "normalize_prediction_output",
     "normalize_timestamp_ns",
     "publisher_from_config",
     "record_stage_boundary",
     "registry_operation_handler",
     "resolve_databento_api_key",
+    "resolve_decision_horizon_ms",
+    "resolve_output_is_logits",
+    "resolve_positive_class_index",
+    "resolve_symbol_data_dir",
+    "resolve_symbol_data_dir_candidates",
+    "resolve_symbol_data_dir_exact",
+    "resolve_watermark_start_date",
+    "resolve_watermark_start_datetime",
     "safe_divide",
     "safe_divide_expr",
     "sanitize_timestamp_ns",
     "secure_onnx_load",
     "select_first_working_connection",
+    "select_latest_symbol_file",
     "to_source_enum",
     "to_source_str",
     "verify_artifact_integrity",

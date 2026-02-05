@@ -311,7 +311,7 @@ def mock_registry_factory():
                 version="1.0.0",
                 role=FeatureRole.INFERENCE_SUPPORT,
                 data_requirements=DataRequirements.L1_ONLY,
-                feature_names=["sma_20", "rsi_14", "volume_ratio"],
+                feature_names=["price_sma_20", "rsi_14", "volume_ratio_20"],
                 feature_dtypes=["float32", "float32", "float32"],
                 schema_hash="def456",
                 pipeline_signature="pipeline_sig_123",

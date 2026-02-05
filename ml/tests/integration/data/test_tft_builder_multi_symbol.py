@@ -16,31 +16,19 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 @pytest.mark.integration
 def test_build_training_dataset_when_multiple_symbols_includes_all_instruments(
-    monkeypatch: pytest.MonkeyPatch,
-    sample_bars_dataframe_factory,
+    patch_bars_to_dataframe,
     sample_bar_series_config_factory,
     tmp_path: Path,
 ) -> None:
     base_start = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
-    rows = 7
+    rows = 4
 
-    def _bars_stub(
-        _catalog: object,
-        instrument_ids: list[str],
-        start: datetime | None = None,
-        end: datetime | None = None,
-    ) -> pl.DataFrame:
-        del _catalog, start, end
-        instrument_id = instrument_ids[0]
-        symbol = instrument_id.split(".")[0]
-        config = sample_bar_series_config_factory(
-            instrument_id=symbol,
-            rows=rows,
-            start=base_start,
-        )
-        return sample_bars_dataframe_factory(config)
-
-    monkeypatch.setattr("ml.data.tft_dataset_builder.bars_to_dataframe", _bars_stub)
+    config = sample_bar_series_config_factory(
+        instrument_id="SPY",
+        rows=rows,
+        start=base_start,
+    )
+    patch_bars_to_dataframe("ml.data.tft_dataset_builder", config)
 
     builder = TFTDatasetBuilder(
         ParquetDataCatalog(path=str(tmp_path)),

@@ -71,7 +71,7 @@ def sample_feature_objects(timestamp_now: int) -> list[FeatureData]:
                 values={
                     "rsi": 50.0 + i,
                     "macd": 0.5 + i * 0.1,
-                    "volume_ratio": 1.2 + i * 0.05,
+                    "volume_ratio_20": 1.2 + i * 0.05,
                 },
                 ts_event=base_ts + i * 1_000_000_000,  # 1 second apart
                 ts_init=base_ts + i * 1_000_000_000,

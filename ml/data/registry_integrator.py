@@ -178,9 +178,10 @@ class RegistryIntegrator:
         Parameters
         ----------
         dataset_id : str
-            The dataset identifier (e.g., "ohlcv_spy_xnas").
+            The dataset identifier (e.g., "bars_spy_xnas").
         dataset_type_label : str
-            High-level dataset type label ("bars", "trades", "tbbo", "mbp1", "order_events").
+            High-level dataset type label
+            ("bars", "trades", "tbbo", "mbp-1/mbp1", "mbp-10/mbp10", "mbo", "order_events").
         location : str
             Storage location for the dataset (e.g., catalog path).
         retention_days : int
@@ -188,21 +189,14 @@ class RegistryIntegrator:
 
         """
         from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
-        from ml.registry.dataclasses import DatasetType
         from ml.registry.dataclasses import StorageKind
+        from ml.schema import map_schema_to_dataset_type
 
         if self._registry is None:
             return
 
-        # Map label to DatasetType enum
-        dt_map = {
-            "bars": DatasetType.BARS,
-            "trades": DatasetType.TRADES,
-            "tbbo": DatasetType.TBBO,
-            "mbp1": DatasetType.MBP1,
-            "order_events": DatasetType.ORDER_EVENTS,
-        }
-        dataset_type = dt_map.get(dataset_type_label, DatasetType.BARS)
+        # Map label to DatasetType enum (raises for unknown labels)
+        dataset_type = map_schema_to_dataset_type(dataset_type_label)
 
         try:
             # If manifest exists, this will succeed
@@ -210,6 +204,11 @@ class RegistryIntegrator:
             return
         except Exception:
             # Register a minimal manifest
+            self._logger.debug(
+                "Dataset manifest lookup failed; attempting auto-registration",
+                extra={"dataset_id": dataset_id, "dataset_type": dataset_type_label},
+                exc_info=True,
+            )
             try:
                 manifest = build_auto_dataset_manifest(
                     dataset_id=dataset_id,

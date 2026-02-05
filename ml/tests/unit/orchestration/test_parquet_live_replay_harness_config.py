@@ -119,6 +119,7 @@ def test_build_actor_config_includes_actor_overrides() -> None:
         bar_type=bar_type,
         instrument_id=instrument_id,
         actor_id="ACTOR-1",
+        db_connection=actor.db_connection,
     )
 
     assert cfg.publish_signals is False
@@ -140,6 +141,7 @@ def test_build_actor_config_uses_defaults_when_overrides_missing() -> None:
         bar_type=bar_type,
         instrument_id=instrument_id,
         actor_id="ACTOR-1",
+        db_connection=actor.db_connection,
     )
 
     assert cfg.signal_strategy == "threshold"

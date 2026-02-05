@@ -35,6 +35,7 @@ from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
+from ml.data.common.dataset_registration import build_dataset_id_for_schema
 from ml.data.coverage.manager import BucketSpec
 from ml.data.coverage.types import DAY_NS
 from ml.data.data_retention_manager import DataRetentionManager
@@ -52,9 +53,7 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
 from ml.schema import map_schema_to_dataset_type
-from ml.schema import validate_dataset_type_templates
 from ml.stores.io_raw import FilteredRawWriter
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
@@ -314,13 +313,25 @@ class DataScheduler:
             DatasetType.TRADES: True,
             DatasetType.TBBO: True,
             DatasetType.MBP1: True,
+            DatasetType.MBP10: True,
+            DatasetType.MBO: True,
         }
         if dual_write_dataset_types:
             for dataset_type, enabled in dual_write_dataset_types.items():
                 base_dual_write[dataset_type] = bool(enabled)
         self._dual_write_dataset_types = base_dual_write
-        templates = validate_dataset_type_templates(dataset_type_identifier_templates)
-        self._dataset_type_identifier_templates = templates or DATASET_TYPE_IDENTIFIER_DEFAULTS.copy()
+        # Identifier template overrides are deprecated; enforce registry defaults.
+        if dataset_type_identifier_templates:
+            logger.warning(
+                "Ignoring deprecated dataset_type_identifier_templates overrides; "
+                "schema registry defaults are enforced",
+                extra={
+                    "dataset_types": sorted(
+                        dt.value for dt in dataset_type_identifier_templates
+                    ),
+                },
+            )
+        self._dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None
 
         # Scheduling state
         self.enabled = True
@@ -374,9 +385,9 @@ class DataScheduler:
         Parameters
         ----------
         dataset_id : str
-            The dataset identifier (e.g., "ohlcv_spy_xnas").
+            The dataset identifier (e.g., "bars_spy_xnas").
         dataset_type_label : str
-            High-level dataset type label ("bars", "trades", "tbbo", "mbp1").
+            High-level dataset type label (e.g., "bars", "trades", "tbbo", "mbp1", "mbp10", "mbo").
         location : str
             Storage location for the dataset (e.g., catalog path).
 
@@ -384,14 +395,8 @@ class DataScheduler:
         if self._data_registry is None:
             return
 
-        # Map label to DatasetType enum
-        dt_map = {
-            "bars": DatasetType.BARS,
-            "trades": DatasetType.TRADES,
-            "tbbo": DatasetType.TBBO,
-            "mbp1": DatasetType.MBP1,
-        }
-        dataset_type = dt_map.get(dataset_type_label, DatasetType.BARS)
+        # Map label to DatasetType enum (raises for unknown labels)
+        dataset_type = map_schema_to_dataset_type(dataset_type_label)
 
         try:
             # If manifest exists, this will succeed
@@ -838,17 +843,7 @@ class DataScheduler:
 
                     # Prepare low-cardinality metric labels ahead of time
                     schema_name = self.config.databento.schema
-                    schema_base = schema_name.split("-")[0].lower()
-                    if schema_base == "ohlcv":
-                        dataset_type_label = "bars"
-                    elif schema_base == "trades":
-                        dataset_type_label = "trades"
-                    elif schema_base.startswith("mbp"):
-                        dataset_type_label = "mbp1"
-                    elif schema_base == "tbbo":
-                        dataset_type_label = "tbbo"
-                    else:
-                        dataset_type_label = schema_base
+                    dataset_type_label = map_schema_to_dataset_type(schema_name).value
 
                     try:
                         self.catalog.write_data(data)
@@ -870,8 +865,11 @@ class DataScheduler:
                                 )
 
                                 # Determine dataset_id based on schema type
-                                schema_type = self.config.databento.schema.split("-")[0].upper()
-                                dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+                                dataset_id = build_dataset_id_for_schema(
+                                    schema=self.config.databento.schema,
+                                    symbol_code=symbol_code,
+                                    venue=venue,
+                                )
 
                                 # Metric labels prepared above (dataset_type_label, schema_name)
 
@@ -949,8 +947,11 @@ class DataScheduler:
                                     "_current_run_id",
                                     f"scheduler_{time.time_ns()}",
                                 )
-                                schema_type = self.config.databento.schema.split("-")[0].upper()
-                                dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+                                dataset_id = build_dataset_id_for_schema(
+                                    schema=self.config.databento.schema,
+                                    symbol_code=symbol_code,
+                                    venue=venue,
+                                )
 
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,

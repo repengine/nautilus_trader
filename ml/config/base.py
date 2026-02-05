@@ -309,6 +309,8 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
         Whether to enable health status monitoring and reporting.
     max_feature_latency_ms : PositiveFloat, default 0.5
         Maximum allowed feature computation latency in milliseconds.
+    allow_sync_persistence_fallback : bool, default True
+        Allow synchronous persistence when the async worker is unavailable.
     component_id : ComponentId, optional
         The component ID. If None then the identifier will be taken from the actor class name.
     log_events : bool, default True
@@ -348,6 +350,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     use_dummy_stores: bool = False
     # Async persistence configuration (enabled by default for production performance)
     enable_async_persistence: bool = True
+    allow_sync_persistence_fallback: bool = True
     persistence_queue_size: PositiveInt = 10000
     persistence_flush_interval: PositiveFloat = 1.0
     persistence_batch_size: PositiveInt = 100
@@ -389,7 +392,8 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
         ML_ENABLE_HEALTH_MONITORING, ML_MAX_FEATURE_LATENCY_MS,
         ML_LOG_EVENTS, ML_LOG_COMMANDS, ML_ALLOW_NON_ONNX_IN_DEV,
         ML_ENABLE_ASYNC_PERSISTENCE, ML_PERSISTENCE_QUEUE_SIZE,
-        ML_PERSISTENCE_FLUSH_INTERVAL_S, ML_PERSISTENCE_BATCH_SIZE
+        ML_PERSISTENCE_FLUSH_INTERVAL_S, ML_PERSISTENCE_BATCH_SIZE,
+        ML_ALLOW_SYNC_PERSISTENCE_FALLBACK
             Optional runtime tunables aligned with config fields.
         ML_PREDICTION_NEUTRAL_BAND
             Neutral-band half width around 0.5 for downstream decision mapping.
@@ -446,6 +450,11 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
             False,
         )
         enable_async_persistence = _env_truthy(source, "ML_ENABLE_ASYNC_PERSISTENCE", True)
+        allow_sync_persistence_fallback = _env_truthy(
+            source,
+            "ML_ALLOW_SYNC_PERSISTENCE_FALLBACK",
+            True,
+        )
         persistence_queue_size = _env_positive_int(
             source,
             "ML_PERSISTENCE_QUEUE_SIZE",
@@ -494,6 +503,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
             db_connection=db_connection,
             use_dummy_stores=inference_cfg.use_dummy_stores,
             enable_async_persistence=enable_async_persistence,
+            allow_sync_persistence_fallback=allow_sync_persistence_fallback,
             persistence_queue_size=persistence_queue_size,
             persistence_flush_interval=persistence_flush_interval,
             persistence_batch_size=persistence_batch_size,
@@ -922,6 +932,49 @@ class ModelExitConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValidationError("reverse_on_flip requires exit_on_flip=True")
 
 
+class ExitHorizonConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for deriving exit defaults from decision horizon metadata.
+
+    Parameters
+    ----------
+    enabled : bool, default True
+        Whether to derive exit defaults from decision horizon metadata.
+    max_holding_multiplier : PositiveFloat, default 1.0
+        Multiplier applied to horizon milliseconds to compute max_holding_ms.
+    min_hold_multiplier : NonNegativeFloat, default 0.25
+        Multiplier applied to horizon milliseconds to compute min_hold_ms.
+    min_hold_min_ms : NonNegativeInt, default 5000
+        Minimum clamp for derived min_hold_ms.
+    min_hold_max_ms : NonNegativeInt, default 300000
+        Maximum clamp for derived min_hold_ms.
+    apply_to_exit_policy : bool, default True
+        Apply horizon-derived max_holding_ms when exit policy max_holding_ms is unset.
+    apply_to_model_exit : bool, default True
+        Apply horizon-derived min_hold_ms when model exit min_hold_ms is unset.
+
+    """
+
+    enabled: bool = True
+    max_holding_multiplier: PositiveFloat = 1.0
+    min_hold_multiplier: NonNegativeFloat = 0.25
+    min_hold_min_ms: NonNegativeInt = 5_000
+    min_hold_max_ms: NonNegativeInt = 300_000
+    apply_to_exit_policy: bool = True
+    apply_to_model_exit: bool = True
+
+    def __post_init__(self) -> None:
+        """
+        Validate horizon mapping configuration.
+        """
+        if self.max_holding_multiplier <= 0.0:
+            raise ValidationError("max_holding_multiplier must be > 0")
+        if self.min_hold_multiplier < 0.0:
+            raise ValidationError("min_hold_multiplier must be >= 0")
+        if self.min_hold_max_ms < self.min_hold_min_ms:
+            raise ValidationError("min_hold_max_ms must be >= min_hold_min_ms")
+
+
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     r"""
     Configuration for ML-based trading strategies.
@@ -953,6 +1006,8 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Optional exit policy configuration for stop-loss, take-profit, and timeouts.
     model_exit_config : ModelExitConfig | None, optional
         Optional configuration for model-driven exits and reversals.
+    exit_horizon_config : ExitHorizonConfig, optional
+        Optional configuration for deriving exit defaults from decision horizon metadata.
     use_strategy_store : bool, default True
         Whether to persist strategy decisions to StrategyStore.
     strategy_store_config : dict[str, Any] | None, default None
@@ -1018,6 +1073,9 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     returns_config: ReturnsConfig | None = None
     exit_policy_config: ExitPolicyConfig | None = None
     model_exit_config: ModelExitConfig | None = None
+    exit_horizon_config: ExitHorizonConfig = msgspec.field(
+        default_factory=ExitHorizonConfig,
+    )
     sizing_config: _SizingConfig | None = None
     risk_config: _RiskConfig | None = None
     execution_config: _ExecutionConfig | None = None
@@ -1097,6 +1155,20 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             Neutral-zone prediction band around 0.5 for model exits.
         ML_MODEL_EXIT_MIN_HOLD_MS
             Minimum holding time in milliseconds before model exits are allowed.
+        ML_EXIT_HORIZON_ENABLED
+            Toggle horizon-derived exit defaults.
+        ML_EXIT_HORIZON_MAX_HOLD_MULTIPLIER
+            Multiplier for horizon-derived max holding time.
+        ML_EXIT_HORIZON_MIN_HOLD_MULTIPLIER
+            Multiplier for horizon-derived min hold time.
+        ML_EXIT_HORIZON_MIN_HOLD_MIN_MS
+            Minimum clamp (ms) for horizon-derived min hold time.
+        ML_EXIT_HORIZON_MIN_HOLD_MAX_MS
+            Maximum clamp (ms) for horizon-derived min hold time.
+        ML_EXIT_HORIZON_APPLY_EXIT_POLICY
+            Apply horizon-derived defaults to exit policy config.
+        ML_EXIT_HORIZON_APPLY_MODEL_EXIT
+            Apply horizon-derived defaults to model-exit config.
         ML_USE_STRATEGY_STORE
             Toggle strategy store persistence.
         ML_RUN_ID
@@ -1248,6 +1320,46 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             take_profit_pct=take_profit_pct,
             max_holding_ms=max_holding_ms,
         )
+        max_hold_multiplier = _env_positive_float(
+            source,
+            "ML_EXIT_HORIZON_MAX_HOLD_MULTIPLIER",
+            1.0,
+        )
+        if max_hold_multiplier <= 0.0:
+            LOGGER.debug(
+                "invalid_exit_horizon_multiplier",
+                extra={"key": "ML_EXIT_HORIZON_MAX_HOLD_MULTIPLIER", "value": max_hold_multiplier},
+            )
+            max_hold_multiplier = 1.0
+        exit_horizon_config = ExitHorizonConfig(
+            enabled=_env_truthy(source, "ML_EXIT_HORIZON_ENABLED", True),
+            max_holding_multiplier=max_hold_multiplier,
+            min_hold_multiplier=_env_positive_float(
+                source,
+                "ML_EXIT_HORIZON_MIN_HOLD_MULTIPLIER",
+                0.25,
+            ),
+            min_hold_min_ms=_env_non_negative_int(
+                source,
+                "ML_EXIT_HORIZON_MIN_HOLD_MIN_MS",
+                5_000,
+            ),
+            min_hold_max_ms=_env_non_negative_int(
+                source,
+                "ML_EXIT_HORIZON_MIN_HOLD_MAX_MS",
+                300_000,
+            ),
+            apply_to_exit_policy=_env_truthy(
+                source,
+                "ML_EXIT_HORIZON_APPLY_EXIT_POLICY",
+                True,
+            ),
+            apply_to_model_exit=_env_truthy(
+                source,
+                "ML_EXIT_HORIZON_APPLY_MODEL_EXIT",
+                True,
+            ),
+        )
         model_exit_config: ModelExitConfig | None = None
         exit_on_flip = _env_truthy(source, "ML_MODEL_EXIT_ON_FLIP", False)
         reverse_on_flip = _env_truthy(source, "ML_MODEL_REVERSE_ON_FLIP", False)
@@ -1322,6 +1434,7 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
             positions_config=None,
             exit_policy_config=exit_policy_config,
             model_exit_config=model_exit_config,
+            exit_horizon_config=exit_horizon_config,
             sizing_config=None,
             risk_config=None,
             execution_config=None,

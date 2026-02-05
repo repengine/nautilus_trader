@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from dataclasses import field
 from typing import TYPE_CHECKING, Final
 
 import numpy as np
@@ -60,6 +61,43 @@ active_positions_gauge = get_gauge(
 
 # ===== Configuration =====
 @dataclass(frozen=True)
+class PortfolioBatchingConfig:
+    """
+    Configuration for batching signals before portfolio allocation.
+
+    Parameters
+    ----------
+    enabled : bool, default True
+        Enable batching of signals across instruments for allocation.
+    window_ms : int, default 1000
+        Time window in milliseconds used to keep recent signals.
+    min_batch_size : int, default 2
+        Minimum number of signals required to apply multi-signal allocation.
+    max_batch_size : int, default 50
+        Maximum number of signals to include in a batch.
+
+    """
+
+    enabled: bool = True
+    window_ms: int = 1000
+    min_batch_size: int = 2
+    max_batch_size: int = 50
+
+    def __post_init__(self) -> None:
+        """
+        Validate batching configuration.
+        """
+        if self.window_ms < 0:
+            raise ValueError("window_ms must be non-negative")
+        if self.min_batch_size < 1:
+            raise ValueError("min_batch_size must be >= 1")
+        if self.max_batch_size < 1:
+            raise ValueError("max_batch_size must be >= 1")
+        if self.min_batch_size > self.max_batch_size:
+            raise ValueError("min_batch_size must be <= max_batch_size")
+
+
+@dataclass(frozen=True)
 class PortfolioConfig:
     """
     Configuration for portfolio management.
@@ -85,6 +123,9 @@ class PortfolioConfig:
     track_attribution: bool = True  # Track per-instrument P&L
     attribution_window: int = 30  # Days to track attribution
     annualization_factor: float | None = None  # Bars per year for volatility scaling
+    batching_config: PortfolioBatchingConfig = field(
+        default_factory=PortfolioBatchingConfig,
+    )
 
 
 # ===== Portfolio Manager =====
@@ -858,6 +899,7 @@ class PortfolioManager:
 
 # ===== Public API =====
 __all__ = [
+    "PortfolioBatchingConfig",
     "PortfolioConfig",
     "PortfolioManager",
 ]

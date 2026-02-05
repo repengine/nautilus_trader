@@ -92,8 +92,24 @@ Strict mode (no backward compat) is now enforced for Tasks 1–3. Key updates:
 - Task 3: `target_semantics` is mandatory for dataset builds and orchestration; all CLIs,
   pipelines, and test fixtures now pass explicit semantics; legacy fallbacks removed.
 
-Remaining work primarily sits in prediction-surface normalization and training-level
-target semantics enforcement (see Task 1 + Task 3 checklists below).
+Remaining work now sits in Tasks 4–8 (CV/exit/hot-path/calibration/portfolio),
+see the checklists below.
+
+### Status Update (2026-02-04)
+Task 6 (hot-path safety) is complete with shared async bus bridge, explicit
+sync-fallback gating, and deployment defaults wired for async persistence.
+
+### Status Update (2026-02-05)
+Strict target semantics enforcement now extends beyond TFT/Chronos:
+- Base ML training orchestration validates dataset metadata target_semantics and target_col
+  when training from local dataset artifacts.
+- Streaming training runner validates dataset_metadata target_semantics against the resolved
+  streaming target_col.
+- Student distillation requires target_semantics metadata and validates target_col alignment.
+- HPO orchestration resolves target_col from dataset metadata and enforces target_semantics alignment.
+- CLI/config help text now calls out target_col alignment with target_semantics.
+Rationale: prevent implicit/legacy target selection and ensure every training entrypoint
+fails fast unless target semantics are explicit and aligned.
 
 ### 1) Prediction Semantics + Decision Mapping
 **Goal:** Canonical prediction surface and consistent mapping.
@@ -106,21 +122,21 @@ Evidence anchors (current behavior):
 - `prediction_threshold` is explicitly a confidence threshold. (`ml/config/base.py:85-108`)
 
 Checklist:
-- [ ] Define `PredictionSurface` schema (probability, optional logits, calibration info).
-- [ ] Update inference adapters to normalize outputs into canonical surface.
-- [ ] Remove auto-pass confidence defaults; make confidence explicit or derived.
-- [ ] Align signal strategies to operate on canonical confidence/probability.
-- [ ] Update strategy mapping to use neutral band and canonical surface.
-- [ ] Document mapping in manifest + code docstrings.
+- [x] Define `PredictionSurface` schema (probability, optional logits, calibration info).
+- [x] Update inference adapters to normalize outputs into canonical surface.
+- [x] Remove auto-pass confidence defaults; make confidence explicit or derived.
+- [x] Align signal strategies to operate on canonical confidence/probability.
+- [x] Update strategy mapping to use neutral band and canonical surface.
+- [x] Document mapping in manifest + code docstrings.
 - [x] Require explicit positive-class mapping (index/label) in model metadata
       for any vector output; remove heuristic class selection.
 - [x] Fail fast when vector outputs are observed without an explicit mapping.
 - [x] Enforce classifier mapping in manifest creation/export/distillation paths.
 
 Tests to update/add:
-- [ ] Unit tests for mapping classifier outputs → canonical surface.
-- [ ] Property tests for signal gating invariants (threshold + neutral band).
-- [ ] Regression tests for ONNX single-output behavior.
+- [x] Unit tests for mapping classifier outputs → canonical surface.
+- [x] Property tests for signal gating invariants (threshold + neutral band).
+- [x] Regression tests for ONNX single-output behavior.
 - [x] Regression tests for missing positive-class metadata (must fail).
 
 ### 2) Decision Metadata Schema + Persistence
@@ -154,25 +170,25 @@ Tests to update/add:
 
 Evidence anchors (current behavior):
 - Binary label: `y = forward_return > threshold` with NaN fill. (`ml/training/datasets/target_generator.py:122-223`)
-- TFT dataset builder repeats the same binary label logic. (`ml/data/tft_dataset_builder.py:2328-2356`)
+- TFT dataset builder repeats the same binary label logic. (`ml/data/tft_dataset_builder_facade.py`)
 - Target generation component documents binary-only targets. (`ml/data/common/target_generation.py:48-165`)
 - LightGBM/XGBoost configs allow non-binary objectives without a standardized target meaning. (`ml/config/lightgbm.py:257-320`, `ml/config/xgboost.py:70-125`)
 - Non-distilled trainer only validates `target_col` presence. (`ml/training/non_distilled/lightgbm.py:39-73`)
 
 Checklist:
-- [ ] Implement target variants (binary long-only + multi-class + cost-aware).
-- [ ] Add multi-horizon target generation (explicit column naming).
+- [x] Implement target variants (binary long-only + multi-class + cost-aware).
+- [x] Add multi-horizon target generation (explicit column naming).
 - [x] Persist target semantics in dataset manifests/sidecars.
 - [x] Update dataset builders to require explicit target semantics.
-- [ ] Update training configs to require target semantics declaration.
+- [x] Update training configs to require target semantics declaration.
 - [x] Remove legacy `TargetSemanticsConfig.from_legacy` fallbacks (explicit config required).
 - [x] Enforce explicit target semantics in all CLIs/configs (incl. Chronos/AutoGluon).
 
 Tests to update/add:
-- [ ] Unit tests for multi-horizon target generation invariants.
-- [ ] Contract tests for target schema in datasets.
-- [ ] Metamorphic tests: cost-aware labels respond to fees/slippage.
-- [ ] Tests that missing target semantics fail fast.
+- [x] Unit tests for multi-horizon target generation invariants.
+- [x] Contract tests for target schema in datasets.
+- [x] Metamorphic tests: cost-aware labels respond to fees/slippage.
+- [x] Tests that missing target semantics fail fast.
 
 Proposed target naming + semantics (Task 3 design notes)
 - Deployment cadence assumption (for horizon alignment):
@@ -237,7 +253,7 @@ Primary codebase touchpoints for Task 3
 - Target generation:
   - `ml/training/datasets/target_generator.py` (canonical target generator)
   - `ml/data/common/target_generation.py` (shared component; remove duplicate logic)
-  - `ml/data/tft_dataset_builder.py` (call shared generator + emit multiple target cols)
+  - `ml/data/tft_dataset_builder_facade.py` (call shared generator + emit multiple target cols)
 - Training config + validation:
   - `ml/config/base.py` (`MLTrainingConfig.target_column` + new target semantics config)
   - `ml/config/lightgbm.py`, `ml/config/xgboost.py` (require target semantics)
@@ -257,16 +273,28 @@ Evidence anchors (current behavior):
 - Training trading metrics are costless (signals * returns). (`ml/training/common/evaluation.py:166-213`)
 
 Checklist:
-- [ ] Add `embargo_pct` to shared training config and validators.
-- [ ] Wire `purge_gap`/`embargo_pct` through all trainers/CLIs.
-- [ ] Align HPO and Chronos to declared CV strategy or document exceptions.
-- [ ] Add cost/slippage model to training evaluation (match Stage2 config).
-- [ ] Document when time-window validation is acceptable.
+- [x] Add `embargo_pct` to shared training config and validators.
+- [x] Wire `purge_gap`/`embargo_pct` through all trainers/CLIs.
+- [x] Align HPO and Chronos to declared CV strategy or document exceptions.
+- [x] Add cost/slippage model to training evaluation (match Stage2 config).
+- [x] Document when time-window validation is acceptable.
+- [x] Follow-up: require explicit `validation_strategy` across teacher/orchestrator/Chronos entrypoints and pass `embargo_pct`/`purge_gap` without silent fallback (time-window now an explicit exception).
+Note: Chronos evaluation now honors `validation_strategy` and uses the last purged split for train/validation when selected.
 
 Tests to update/add:
-- [ ] Unit tests for purge/embargo usage (config wiring).
-- [ ] Regression tests ensuring CV strategy is enforced across trainers.
-- [ ] Tests for training trading metrics with cost model.
+- [x] Unit tests for purge/embargo usage (config wiring).
+- [x] Regression tests ensuring CV strategy is enforced across trainers.
+- [x] Tests for training trading metrics with cost model.
+
+Time-window validation is acceptable when:
+- Running rapid HPO sweeps or teacher pretraining where time-budget is tight.
+- Chronos foundation-model evaluation where purged CV is infeasible on full panels.
+- Producing a quick diagnostic/health signal, not a final model selection gate.
+- Datasets are non-overlapping by construction and a single contiguous holdout window is
+  explicitly required by the experiment design.
+
+Use purged/embargoed CV for final model selection whenever overlapping horizons or
+autocorrelated returns can leak information across folds.
 
 ### 5) Exit Policy vs Horizon
 **Goal:** Ensure exits align with label horizon or document divergence.
@@ -277,14 +305,41 @@ Evidence anchors (current behavior):
 - Strategy decision path uses 0.5 threshold. (`ml/strategies/ml_strategy.py:265-275`)
 
 Checklist:
-- [ ] Define rule for mapping horizon → exit defaults (configurable).
-- [ ] Persist horizon metadata into decision/execution params.
-- [ ] Update exit policy logic to use horizon-based defaults (if enabled).
-- [ ] Document policy in strategy config and in decision metadata.
+- [x] Define rule for mapping horizon → exit defaults (configurable).
+- [x] Persist horizon metadata into decision/execution params.
+- [x] Update exit policy logic to use horizon-based defaults (if enabled).
+- [x] Document policy in strategy config and in decision metadata.
+Notes (handoff):
+- Recommendation: default max holding derived from horizon with no slack. Use `max_holding_ms = horizon_ms * 1.0`
+  when horizon-mapping is enabled and no explicit max holding override is provided.
+- Recommendation: derive model-exit min hold when horizon-mapping is enabled using
+  `min_hold_ms = horizon_ms * 0.25`, clamped (suggested clamp: min 5s, max 5m).
+- Recommendation: persist both `horizon` (dict, unit-aware) and `horizon_ms` (int) in execution params.
+- Plumbing gaps to fix:
+  - `training_config` exported for model manifests should include a scalar `target_horizon_minutes`
+    (derived from target semantics primary horizon).
+  - Registry load should include `training_config` in model metadata so `decision_metadata_from_model_metadata`
+    can populate `horizon`.
+  - Add a shared helper to compute `horizon_ms` from decision metadata (unit-aware) for reuse in strategy
+    execution params and exit logic.
+- Likely touch points:
+  - `ml/training/common/mlflow_tracking.py` (add `target_horizon_minutes` to training_config export)
+  - `ml/actors/base.py` (include manifest.training_config in `_model_metadata` when loading from registry)
+  - `ml/common/decision_metadata.py` (helper to resolve horizon + compute ms)
+  - `ml/config/base.py` (new horizon→exit mapping config on `MLStrategyConfig`)
+  - `ml/strategies/ml_strategy.py` and `ml/strategies/common/model_exit_policy.py` (apply horizon-derived defaults)
+  - `ml/strategies/common/decision_persistence.py` (inject horizon + horizon_ms into execution_params)
+  - Update tests in `ml/tests/unit/strategies/` and docs accordingly.
+
+Update (2026-02-04):
+- Added `ExitHorizonConfig` (env overrides) and wired horizon-derived defaults for max holding and model-exit min hold.
+- Training config export now emits `target_horizon_minutes`; registry load includes `training_config` in model metadata.
+- Added `resolve_decision_horizon_ms` helper and injected `horizon` + `horizon_ms` into execution params.
+- Tests added for horizon-derived exit defaults and execution param enrichment.
 
 Tests to update/add:
-- [ ] Unit tests for horizon-driven exit default computation.
-- [ ] Strategy tests verifying horizon-based exit behavior.
+- [x] Unit tests for horizon-driven exit default computation.
+- [x] Strategy tests verifying horizon-based exit behavior.
 
 ### 6) Hot-Path Safety (Persistence + Publish)
 **Goal:** No blocking operations on hot paths.
@@ -297,14 +352,31 @@ Evidence anchors (current behavior):
 - Actor/strategy containers do not enable ML bus by default. (`ml/deployment/docker-compose.yml:157-238`)
 
 Checklist:
-- [ ] Enforce async persistence in production configs (entrypoints + env).
-- [ ] Disable synchronous fallback in production or gate behind explicit flag.
-- [ ] Ensure publish is non-blocking or done off hot path.
-- [ ] Add telemetry for enqueue drops/backpressure.
+- [x] Enforce async persistence in production configs (entrypoints + env).
+- [x] Disable synchronous fallback in production or gate behind explicit flag.
+- [x] Ensure publish is non-blocking or done off hot path.
+- [x] Add telemetry for enqueue drops/backpressure.
+
+Notes (handoff, 2026-02-04):
+- Hot-path sync writes exist in `ml/actors/base.py` (`_generate_prediction_protected` sync fallback), `ml/actors/signal_facade_impl.py` (`_persist_prediction` writes to ModelStore), and `ml/actors/common/features.py` (`persist_features_async` sync fallback).
+- Async persistence worker already tracks queue depth/drops in `ml/observability/ml_async_persistence.py`. Actor-side bus publishing is non-blocking via `ml/actors/ml_domain_events.py`, but strategy decision publishing still uses synchronous `MessageBusConfig` publishers in `ml/strategies/common/decision_persistence.py`.
+- Production compose does not set `ML_ENABLE_ASYNC_PERSISTENCE` / bus flags for `ml_signal_actor` + `ml_strategy` (only the streaming services do); `.env.example` defaults exist but are not wired in compose.
+- Proposed config addition: add an explicit gate such as `allow_sync_persistence_fallback` (or `require_async_persistence`) on `MLActorConfig` with env override to drop-and-metric when no worker is available.
+- Proposed refactor: centralize feature/prediction persistence helper to avoid duplicate feature-dict construction, and enforce drop-only behavior when sync fallback is disabled.
+- Publishing plan: keep bus disabled for strategy until a non-blocking path exists, or move/refactor `DomainEventBridge` into `ml/common` so strategies can use a shared async publisher without cross-domain imports.
+- Deployment/entrypoints: wire `ML_ENABLE_ASYNC_PERSISTENCE=1` and the new sync-fallback flag in `ml/deployment/docker-compose.yml` and `ml/deployment/entrypoint_actor.py`; add bus env (`ML_BUS_ENABLE=1`, `ML_BUS_FROM_ACTOR=1`, `ML_BUS_FROM_STORE=0`) only when async publishing is ready.
+- Tests to add: unit tests for sync-fallback gating in `BaseMLInferenceActor` and `MLSignalActorFacade`; config env parsing tests; async bus bridge queue drop metrics if introduced.
+
+Update (2026-02-04):
+- Added shared `DomainEventBridge` in `ml/common/bus_bridge.py` and refactored actor/strategy publishers to use it with `ML_BUS_FROM_ACTOR`/`ML_BUS_FROM_STRATEGY` gating.
+- Added `ML_ALLOW_SYNC_PERSISTENCE_FALLBACK` to `MLActorConfig`, enforced drop-and-metric behavior when async persistence is missing, and centralized feature dict construction.
+- Wired async persistence + bus env defaults in deployment compose and actor entrypoint (`ML_ENABLE_ASYNC_PERSISTENCE=1`, `ML_ALLOW_SYNC_PERSISTENCE_FALLBACK=0`, `ML_BUS_ENABLE=1`).
+- Added backpressure + queue depth telemetry in the shared bridge; drop metrics for sync fallback.
 
 Tests to update/add:
-- [ ] Unit tests for persistence worker enqueue + fallback behavior.
-- [ ] Integration tests validating publish path is disabled or async in prod mode.
+- [x] Unit tests for persistence fallback gating and feature persistence helper (`ml/tests/unit/actors/common/test_features.py`).
+- [x] Unit tests for strategy bus bridge + bus config env parsing (`ml/tests/unit/strategies/test_strategy_bus_bridge.py`, `ml/tests/unit/config/test_actor_bus_config.py`).
+- [x] Integration tests validating publish path is disabled or async in prod mode.
 
 ### 7) Calibration + Output Schema Persistence
 **Goal:** Calibration metadata and output schema are in registry and inference.
@@ -315,14 +387,20 @@ Evidence anchors (current behavior):
 - ONNX metadata extraction records only shapes/names, not calibration schema. (`ml/actors/common/model.py:479-521`)
 
 Checklist:
-- [ ] Extend ModelManifest to include output_schema + calibration params.
-- [ ] Ingest `student.meta.json` during registration and model load.
-- [ ] Use manifest calibration in inference (no silent defaults).
-- [ ] Document calibration lifecycle (train → registry → inference).
+- [x] Extend ModelManifest to include output_schema + calibration params.
+- [x] Ingest `student.meta.json` during registration and model load.
+- [x] Use manifest calibration in inference (no silent defaults).
+- [x] Document calibration lifecycle (train → registry → inference).
+
+Update (2026-02-04):
+- Added output schema + calibration fields to ModelManifest and persisted them in registry storage.
+- Registration now ingests student sidecar metadata; ModelComponent merges sidecar metadata on load.
+- Inference decision metadata now includes calibration when present in model metadata.
+- Documented calibration lifecycle in `ml/training/README.md`.
 
 Tests to update/add:
-- [ ] Unit tests for manifest ingestion of student meta.
-- [ ] Inference tests verifying calibration parameters are applied.
+- [x] Unit tests for manifest ingestion of student meta.
+- [x] Inference tests verifying calibration parameters are applied.
 
 ### 8) Portfolio Aggregation Activation
 **Goal:** Multi-signal allocation is exercised when portfolio/correlation logic is enabled.
@@ -334,14 +412,27 @@ Evidence anchors (current behavior):
 - Multi-signal actor batches inference but emits per-instrument signals. (`ml/actors/multi_signal.py:220-323`)
 
 Checklist:
-- [ ] Define batching window semantics (time/size-based).
-- [ ] Update signal routing to batch signals across instruments.
-- [ ] Ensure allocation uses list of signals, not singletons.
-- [ ] Track aggregated_from metadata consistently.
+- [x] Define batching window semantics (time/size-based).
+- [x] Update signal routing to batch signals across instruments.
+- [x] Ensure allocation uses list of signals, not singletons.
+- [x] Track aggregated_from metadata consistently.
+
+Update (2026-02-04):
+- Added `PortfolioBatchingConfig` (window/min/max) and wired it into strategy
+  position management to batch signals across instruments before allocation.
+- Introduced shared `PortfolioSignalBatcher` keyed by portfolio identity to
+  assemble cross-instrument batches without altering per-instrument strategies.
+- Allocation now uses batched signal lists when batching is enabled; existing
+  signal metadata (including `aggregated_from`) is preserved.
 
 Tests to update/add:
-- [ ] Unit tests for multi-signal allocation path.
-- [ ] Property tests for allocation invariants under batching.
+- [x] Unit tests for multi-signal allocation path.
+- [x] Property tests for allocation invariants under batching.
+
+Update (2026-02-04):
+- Added property-based coverage for batched allocation invariants and a
+  lightweight batching test to confirm shared portfolio grouping across
+  strategies without a heavy integration harness.
 
 ## Rollout Plan (High-Level)
 1) Decision confirmations (if any deviations from best-practice defaults).
@@ -377,16 +468,59 @@ Fixture discipline:
 - Replay/backtest verifying exit policies and portfolio aggregation behavior.
 - Confirm inference consumes registry calibration + output schema.
 
+Update (2026-02-04):
+- Replay harness run (AAPL.EQUS, bar_spec=1-MINUTE-LAST, warm_up=5, lookback=5,
+  model=chronos_option2_distilled_lgbm_v1) completed; signals persisted to
+  `public.ml_strategy_signals` (DB 5432). Decision metadata includes calibration
+  (platt) for the run window 2025-01-14 14:30–21:00 UTC.
+- `ModelComponent` load (poetry env) confirms sidecar-provided `output_schema`
+  + `calibration` are present in model metadata.
+Update (2026-02-05):
+- Replay summary registry emission now re-checks for `replay_summary` after
+  auto-registration and skips event/watermark updates when the dataset is still
+  missing, emitting a fallback metric to avoid FK warnings.
+- Replay harness now resolves a single DB connection (prefers explicit actor
+  override; otherwise selects the first reachable candidate) and uses it for
+  actor initialization + replay summary persistence to avoid split persistence.
+- Training operational validation: minimal TFT run completed on
+  `baseline_spy_small_v3` using purged CV (`cv_splits=2`, `test_fraction=0.2`,
+  `purge_gap=1`, `embargo_hours=24`) with `max_epochs=1`, `batch_size=32`,
+  `hidden_size=8`, `loss=bce`, `seed=7`. Outputs written under
+  `ml_out/op_validation_tft_small_20260205` (teacher preds/meta, model metrics,
+  validation returns). Dataset metadata still lacks `target_semantics`, so a
+  rebuild with explicit target semantics is required for subsequent training
+  runs now that strict validation is enforced.
+- Strict target semantics enforcement added: training coordinator and TFT
+  teacher CLI now require `dataset_metadata.json` to include a full
+  `target_semantics` payload (version/horizons/labels/returns), with unit tests
+  covering the new validation guard.
+- Additional strictness added: training now validates that `target_col` is
+  declared in `target_semantics` labels (or legacy aliases), with unit tests
+  covering aligned and misaligned configurations.
+- Chronos training experiment now resolves `target_col` from target semantics
+  (or `--target_col` override) and validates dataset metadata includes
+  `target_semantics` plus a matching target declaration; new unit tests cover
+  target resolution edge cases.
+- Target-semantic rebuild + training validation completed: built
+  `tft_baseline_spy_small_v3_target_semantics` from
+  `SPY.EQUS-1-MINUTE-LAST-EXTERNAL` catalog bars (2024-01-02 to 2024-01-04) with
+  explicit semantics (`target_bin_15m`) and registered a new feature set
+  (`feature_set_1770256818342716`). Training run completed with purged CV
+  (`cv_splits=2`, `test_fraction=0.2`, `purge_gap=1`, `embargo_hours=24`,
+  `max_epochs=1`, `batch_size=32`, `hidden_size=8`, `loss=bce`, `seed=7`);
+  outputs written under `ml_out/op_validation_tft_target_semantics_20260205`
+  (teacher preds/meta, model metrics).
+
 ## Impact Analysis Checklist
 Use this checklist after each workstream to catch secondary blast-radius items
 that unit tests might miss.
-- [ ] Registry/bootstrap schemas updated (manifests + contracts + schema_hash if needed).
-- [ ] DB migrations and schema audits updated consistently.
-- [ ] Deployment entrypoints and compose/env defaults updated to reflect new configs.
-- [ ] Streaming/evaluation paths reviewed for semantic alignment.
-- [ ] Metrics/event topics still aligned with new decision metadata.
-- [ ] Backward compatibility addressed (conversion or versioning for persisted data).
-- [ ] Documentation updated (plan + relevant ops/docs).
+- [x] Registry/bootstrap schemas updated (manifests + contracts + schema_hash if needed). (N/A for Task 8: no schema changes.)
+- [x] DB migrations and schema audits updated consistently. (N/A for Task 8: no persisted schema changes.)
+- [x] Deployment entrypoints and compose/env defaults updated to reflect new configs. (N/A for Task 8: no env/config surface added.)
+- [x] Streaming/evaluation paths reviewed for semantic alignment. (N/A for Task 8: runtime strategy-only change.)
+- [x] Metrics/event topics still aligned with new decision metadata. (N/A for Task 8: no new event surfaces.)
+- [x] Backward compatibility addressed (conversion or versioning for persisted data). (N/A for Task 8: batching is in-memory only.)
+- [x] Documentation updated (plan + relevant ops/docs). (Task 8 notes updated here.)
 
 ## Secondary Touchpoints (Likely Downstream Impact)
 These modules commonly depend on the workstreams and often require updates even

@@ -122,6 +122,38 @@ class TestHappyPath:
         assert hasattr(actor, "config")
         assert actor.config.db_connection == actor_factory_component.db_connection
 
+    def test_create_integrated_actor_routes_multi_signal_config(
+        self,
+        actor_factory_component: ActorFactoryComponent,
+        default_bar_type: Any,
+        default_instrument_id: Any,
+        dummy_onnx_model: Any,
+        base_feature_config: Any,
+    ) -> None:
+        """Verify MLSignalActor config dispatches to multi-instrument actor."""
+        from ml.actors.multi_signal import MultiInstrumentSignalActor
+        from ml.actors.multi_signal import MultiInstrumentSignalActorConfig
+        from ml.actors.signal import MLSignalActor
+
+        config = MultiInstrumentSignalActorConfig(
+            model_id="multi-model",
+            model_path=str(dummy_onnx_model),
+            bar_type=default_bar_type,
+            instrument_id=default_instrument_id,
+            feature_config=base_feature_config,
+            batch_size=1,
+            warm_up_period=5,
+            prediction_threshold=0.5,
+            use_dummy_stores=True,
+            signal_strategy="threshold",
+            max_batch_size=4,
+            feature_dim=2,
+        )
+
+        actor = actor_factory_component.create_integrated_actor(MLSignalActor, config)
+
+        assert isinstance(actor, MultiInstrumentSignalActor)
+
     def test_shutdown_flushes_all_stores(
         self,
         actor_factory_component: ActorFactoryComponent,
@@ -174,7 +206,7 @@ class TestHappyPath:
             "instrument_id": "BTC.USD",
             "ts_event": 1000000000,
             "event_id": "evt_001",
-            "payload": {"feature_name": "sma_20"},
+            "payload": {"feature_name": "price_sma_20"},
         }
 
         result = actor_factory_component.emit_cascade(

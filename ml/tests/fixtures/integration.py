@@ -528,7 +528,7 @@ def test_feature_data() -> pd.DataFrame:
         {
             "sma_ratio": base_feature + rng.standard_normal(n_samples) * 0.1,
             "rsi": np.clip(50 + base_feature * 20 + rng.standard_normal(n_samples) * 10, 0, 100),
-            "volume_ratio": np.exp(rng.standard_normal(n_samples)),
+            "volume_ratio_20": np.exp(rng.standard_normal(n_samples)),
             "high_low_spread": np.abs(rng.standard_normal(n_samples)) * 0.001,
             "momentum": base_feature * 0.5 + rng.standard_normal(n_samples) * 0.2,
         },

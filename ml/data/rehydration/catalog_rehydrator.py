@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Final
 
 import pandas as pd
 from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import OrderBookDepth10
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.data import capsule_to_list
@@ -605,7 +607,14 @@ class ParquetCatalogRehydrator:
             end=bucket_end_ns,
         )
         if not objects:
-            if dataset_type in (DatasetType.QUOTES, DatasetType.TRADES, DatasetType.TBBO, DatasetType.MBP1):
+            if dataset_type in (
+                DatasetType.QUOTES,
+                DatasetType.TRADES,
+                DatasetType.TBBO,
+                DatasetType.MBP1,
+                DatasetType.MBP10,
+                DatasetType.MBO,
+            ):
                 return pd.DataFrame()
             try:
                 objects = self._catalog.query(
@@ -753,6 +762,14 @@ class ParquetCatalogRehydrator:
             for column in ("bid", "ask", "bid_size", "ask_size"):
                 if column in frame.columns:
                     frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        elif dataset_type is DatasetType.MBP10:
+            if "type" in frame.columns:
+                frame = frame.drop(columns=["type"])
+        elif dataset_type is DatasetType.MBO:
+            if "order" in frame.columns and "order_payload" not in frame.columns:
+                frame = frame.rename(columns={"order": "order_payload"})
+            if "type" in frame.columns:
+                frame = frame.drop(columns=["type"])
         elif dataset_type == DatasetType.TRADES:
             frame = frame.rename(columns={"price": "last", "size": "volume"})
             if "volume" in frame.columns:
@@ -850,5 +867,7 @@ def _datetime_to_ns(value: datetime) -> int:
     return int(value.timestamp() * 1_000_000_000)
 
 
-def _data_class_for_dataset(dataset_type: DatasetType) -> type[Bar | QuoteTick | TradeTick]:
+def _data_class_for_dataset(
+    dataset_type: DatasetType,
+) -> type[Bar | QuoteTick | TradeTick | OrderBookDepth10 | OrderBookDelta]:
     return dataset_type_to_dataclass(dataset_type)

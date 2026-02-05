@@ -255,7 +255,7 @@ class ConfigResolverProtocol(Protocol):
         auto_fill_cfg: AutoFillUniverseConfig,
     ) -> None:
         """
-        Populate schemas for the configured universe (bars/tbbo/trades).
+        Populate schemas for the configured universe (bars/quotes/trades).
         """
         ...
 
@@ -593,7 +593,7 @@ class ConfigResolver:
         auto_fill_cfg: AutoFillUniverseConfig,
     ) -> None:
         """
-        Populate schemas for the configured universe (bars/tbbo/trades).
+        Populate schemas for the configured universe (bars/quotes/trades).
         """
         if not auto_fill_cfg.enabled:
             return
@@ -610,7 +610,7 @@ class ConfigResolver:
             if auto_fill_cfg.include_tbbo:
                 self._auto_fill_schema(
                     dataset_id=dataset_cfg.dataset_id,
-                    schema="tbbo",
+                    schema="quotes",
                     instrument_id=instrument_id,
                     dataset_cfg=dataset_cfg,
                 )
@@ -635,7 +635,7 @@ class ConfigResolver:
         Populate L2 schemas (depth/mbp) for the provided instruments.
         """
         depth_schema = "depth"
-        mbp_schema = auto_fill_cfg.l2_schema or "mbp-10"
+        mbp_schema = auto_fill_cfg.l2_schema or "mbp-1"
         for instrument_id in instruments:
             self._auto_fill_schema(
                 dataset_id=dataset_cfg.dataset_id,

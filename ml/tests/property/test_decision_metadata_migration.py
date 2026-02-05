@@ -9,7 +9,7 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.common.decision_metadata import normalize_decision_metadata
+from ml.common import normalize_decision_metadata
 
 
 @pytest.mark.property

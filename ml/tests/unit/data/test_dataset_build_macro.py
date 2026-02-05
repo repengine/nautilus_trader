@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import polars as pl
 import pytest
@@ -14,12 +15,15 @@ import pytest
 from ml.data import DatasetBuildConfig
 from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset
+from ml.data.common.capability_flags import capability_flags_from_builder
 from ml.tests.utils.targets import build_default_target_semantics
 from ml.data.ingest.macro_refresh import MacroRefreshResult
 from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.data.tft_dataset_builder_facade import TFTDatasetBuilderFacade
 from ml.data.validation import DatasetValidationError
 from ml.data.vintage import VintagePolicy
+from ml.data.vintage import format_dt
 from ml.registry.feature_registry import FeatureRegistry
 from ml.tasks.datasets import TFTDatasetTaskConfig
 
@@ -35,6 +39,24 @@ TARGET_SEMANTICS = build_default_target_semantics(
     legacy_aliases=True,
 )
 
+
+class SampleBarSeriesConfigProtocol(Protocol):
+    """Protocol for sample bar series configuration fixtures."""
+
+    instrument_id: str
+    rows: int
+    start: datetime
+    freq_minutes: int
+
+
+class MacroVintageArtifactsProtocol(Protocol):
+    """Protocol for macro vintage artifacts fixtures."""
+
+    series_id: str
+    fred_path: Path
+    vintage_dir: Path
+
+
 def _install_recording_builder(monkeypatch: pytest.MonkeyPatch, recorder: dict[str, object]) -> None:
     """Replace TFTDatasetBuilder with a subclass that records init kwargs while invoking real logic."""
 
@@ -44,6 +66,8 @@ def _install_recording_builder(monkeypatch: pytest.MonkeyPatch, recorder: dict[s
             super().__init__(*args, **kwargs)
 
     monkeypatch.setattr("ml.data.TFTDatasetBuilder", _RecordingBuilder)
+    monkeypatch.setattr("ml.data.tft_dataset_builder.TFTDatasetBuilder", _RecordingBuilder)
+    monkeypatch.setattr("ml.data.tft_dataset_builder_facade.TFTDatasetBuilderFacade", _RecordingBuilder)
 
 def _patch_market_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub market binding resolution to avoid relying on descriptor files."""
@@ -67,6 +91,8 @@ def _patch_market_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
         return (binding,)
 
     monkeypatch.setattr("ml.data.resolve_market_dataset_bindings", _resolver)
+    monkeypatch.setattr("ml.data.build.resolve_market_dataset_bindings", _resolver)
+    monkeypatch.setattr("ml.data.ingest.market_bindings.resolve_market_dataset_bindings", _resolver)
 
 
 def _disable_micro_catalog_queries(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,6 +157,7 @@ def test_build_tft_dataset_invokes_macro_refresh(
             min_feature_coverage=0.0,
             require_macro_series=(),
             macro_min_vintage_observations=None,
+            require_numeric_features=False,
         ),
     )
 
@@ -209,6 +236,8 @@ def test_build_tft_dataset_marks_capabilities_for_earnings(
         _CatalogStub,
     )
     monkeypatch.setattr("ml.data.TFTDatasetBuilder", _BuilderStub)
+    monkeypatch.setattr("ml.data.tft_dataset_builder.TFTDatasetBuilder", _BuilderStub)
+    monkeypatch.setattr("ml.data.tft_dataset_builder_facade.TFTDatasetBuilderFacade", _BuilderStub)
 
     cfg = DatasetBuildConfig(
         data_dir=tmp_path,
@@ -285,6 +314,8 @@ def test_build_tft_dataset_rejects_missing_macro_observations(
         _CatalogStub,
     )
     monkeypatch.setattr("ml.data.TFTDatasetBuilder", _BuilderStub)
+    monkeypatch.setattr("ml.data.tft_dataset_builder.TFTDatasetBuilder", _BuilderStub)
+    monkeypatch.setattr("ml.data.tft_dataset_builder_facade.TFTDatasetBuilderFacade", _BuilderStub)
 
     cfg = DatasetBuildConfig(
         data_dir=tmp_path,
@@ -349,6 +380,7 @@ def test_build_tft_dataset_registers_capability_flags(
             min_feature_coverage=0.0,
             require_macro_series=(),
             macro_min_vintage_observations=None,
+            require_numeric_features=False,
         ),
     )
 
@@ -368,6 +400,8 @@ def test_tft_dataset_task_config_overrides_base_dirs(
     tmp_path: Path,
     patch_dataset_bars,
 ) -> None:
+    from ml.tasks.datasets import build_tft_dataset as build_task_dataset
+
     builder_records: dict[str, object] = {}
     patch_dataset_bars()
     _disable_micro_catalog_queries(monkeypatch)
@@ -398,11 +432,138 @@ def test_tft_dataset_task_config_overrides_base_dirs(
             min_feature_coverage=0.0,
             require_macro_series=(),
             macro_min_vintage_observations=None,
+            require_numeric_features=False,
         ),
     )
 
-    result = build_tft_dataset(cfg)
+    result = build_task_dataset(cfg)
     builder_params = builder_records["builder_params"]
     assert builder_params["micro_base_dir"] == str(micro_dir)
     assert builder_params["l2_base_dir"] == str(l2_dir)
     assert result.dataset_parquet.exists()
+
+
+def test_tft_builder_capability_flags_reflect_config(
+    tmp_path: Path,
+) -> None:
+    """
+    Ensure builder capability flags mirror configuration, including L2 implies micro.
+    """
+    from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+    data_store_stub = object()
+    catalog = ParquetDataCatalog(path=str(tmp_path))
+    builder_kwargs = {
+        "symbols": ["SPY"],
+        "include_macro": True,
+        "include_macro_deltas": True,
+        "include_macro_revisions": True,
+        "include_calendar": True,
+        "include_calendar_lags": True,
+        "include_clustering_tags": True,
+        "include_context_features": True,
+        "include_events": True,
+        "include_earnings": True,
+        "include_l2": True,
+        "include_micro": False,
+        "data_store": data_store_stub,
+        "micro_base_dir": str(tmp_path),
+        "l2_base_dir": str(tmp_path),
+        "events_base_dir": str(tmp_path),
+        "vintage_base_dir": str(tmp_path),
+    }
+
+    builder = TFTDatasetBuilderFacade(catalog=catalog, **builder_kwargs)
+    flags = capability_flags_from_builder(builder)
+
+    assert flags["include_macro"] is True
+    assert flags["include_macro_deltas"] is True
+    assert flags["include_macro_revisions"] is True
+    assert flags["include_calendar"] is True
+    assert flags["include_calendar_lags"] is True
+    assert flags["include_clustering_tags"] is True
+    assert flags["include_context_features"] is True
+    assert flags["include_events"] is True
+    assert flags["include_earnings"] is True
+    assert flags["include_l2"] is True
+    assert flags["include_micro"] is True
+
+
+def test_build_tft_dataset_with_macro_and_csv_sample_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    patch_dataset_bars: Callable[
+        [Sequence[str] | None, SampleBarSeriesConfigProtocol | None],
+        SampleBarSeriesConfigProtocol,
+    ],
+    sample_bar_series_config_factory: Callable[..., SampleBarSeriesConfigProtocol],
+    macro_vintage_artifacts: MacroVintageArtifactsProtocol,
+) -> None:
+    """
+    Validate schema, metadata, macro vintage, and CSV sampling contracts.
+    """
+    sample_config = sample_bar_series_config_factory(
+        instrument_id="SPY",
+        rows=18,
+        start=datetime(2025, 2, 3, 9, 30, tzinfo=UTC),
+        freq_minutes=1,
+    )
+    patch_dataset_bars(config=sample_config)
+    _disable_micro_catalog_queries(monkeypatch)
+    _patch_market_bindings(monkeypatch)
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    vintage_cutoff = datetime(2025, 2, 3, tzinfo=UTC)
+    validation_cfg = DatasetValidationConfig(
+        min_rows=0,
+        min_positive_rate=None,
+        max_positive_rate=None,
+        min_feature_coverage=0.0,
+        require_macro_series=(macro_vintage_artifacts.series_id,),
+        macro_min_vintage_observations=None,
+        require_numeric_features=False,
+    )
+
+    cfg = DatasetBuildConfig(
+        data_dir=data_dir,
+        out_dir=tmp_path / "out",
+        symbols=["SPY"],
+        target_semantics=TARGET_SEMANTICS,
+        include_macro=True,
+        macro_series_ids=(macro_vintage_artifacts.series_id,),
+        macro_fred_path=macro_vintage_artifacts.fred_path,
+        fred_vintage_dir=macro_vintage_artifacts.vintage_dir,
+        auto_refresh_macro=False,
+        lookback_periods=1,
+        write_csv=False,
+        csv_sample_rows=3,
+        vintage_policy=VintagePolicy.REAL_TIME,
+        vintage_as_of=vintage_cutoff,
+        validation=validation_cfg,
+    )
+
+    result = build_tft_dataset(cfg)
+
+    df = pl.read_parquet(result.dataset_parquet)
+
+    assert df.height > 0
+    assert {"instrument_id", "close", "y", "forward_return"}.issubset(set(df.columns))
+    assert "timestamp" in df.columns or "ts_event" in df.columns
+
+    metadata = result.metadata
+    assert metadata is not None
+    assert metadata.dataset_id == cfg.dataset_id
+    assert metadata.vintage_policy == VintagePolicy.REAL_TIME
+    assert metadata.vintage_cutoff == format_dt(vintage_cutoff)
+    assert metadata.capability_flags["include_macro"] is True
+    assert metadata.macro_observation_counts.get(macro_vintage_artifacts.series_id, 0) > 0
+
+    sample_path = result.dataset_csv.with_name("dataset_sample.csv")
+    assert not result.dataset_csv.exists()
+    assert sample_path.exists()
+
+    sample_df = pl.read_csv(sample_path)
+    expected_sample_rows = min(cfg.csv_sample_rows or 0, df.height)
+    assert sample_df.height == expected_sample_rows
+    assert set(sample_df.columns).issubset(set(df.columns))

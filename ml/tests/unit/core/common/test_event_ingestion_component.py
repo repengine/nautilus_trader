@@ -27,7 +27,7 @@ import pytest
 from ml.core.common.event_ingestion import EventIngestionComponent
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
+from ml.config import WatermarkWindowConfig
 from ml.registry.watermark import Watermark
 from ml.tests.utils.db import build_postgres_url
 

@@ -166,15 +166,42 @@ class MicroMinuteCache:
         start: datetime,
         end: datetime,
         raw_base_dir: Path,
+        allow_compute: bool = True,
     ) -> PolarsDF:
+        """
+        Return cached per-minute microstructure features for ``symbol`` in [start, end).
+
+        Args:
+            symbol: Instrument symbol (e.g., "SPY").
+            start: Inclusive start datetime (UTC recommended).
+            end: Exclusive end datetime (UTC recommended).
+            raw_base_dir: Raw tier1 data root used for cache backfills.
+            allow_compute: When False, read only existing cache partitions
+                without aggregating from raw data.
+
+        Returns:
+            Polars DataFrame with microstructure columns filtered to [start, end).
+        """
         ensure_polars()
         _pl = pl
         assert _pl is not None
         parts: list[PolarsDF] = []
         for day in iter_days(start, end):
-            p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
-            if p.exists():
-                parts.append(_pl.read_parquet(str(p)))
+            if allow_compute:
+                p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
+                if p.exists():
+                    parts.append(_pl.read_parquet(str(p)))
+                continue
+            existing, _ = resolve_cache_partition_path(self.cache_dir, symbol, day)
+            if existing is None:
+                continue
+            if not self.is_valid_partition(existing):
+                logger.debug(
+                    "micro_cache.invalid_partition",
+                    extra={"symbol": symbol, "day": day.isoformat(), "path": str(existing)},
+                )
+                continue
+            parts.append(_pl.read_parquet(str(existing)))
         if not parts:
             from typing import cast as _cast
 

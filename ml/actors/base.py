@@ -35,12 +35,14 @@ from ml.actors.common import FeaturesComponent
 from ml.actors.common import ModelComponent
 from ml.actors.common import RegistryComponent
 from ml.actors.common import StoreOperationsComponent
-from ml.actors.common.signal_metadata import build_prediction_surface_metadata
-from ml.actors.common.signal_metadata import build_signal_metadata
+from ml.actors.common import build_prediction_surface_metadata
+from ml.actors.common import build_signal_metadata
+from ml.actors.common.features import build_feature_dict
+from ml.common import normalize_prediction_output
+from ml.common import resolve_output_is_logits
+from ml.common import resolve_positive_class_index
+from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_manager import MetricsManager
-from ml.common.prediction_surface import normalize_prediction_output
-from ml.common.prediction_surface import resolve_output_is_logits
-from ml.common.prediction_surface import resolve_positive_class_index
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
@@ -755,6 +757,12 @@ ml_signal_confidence = _MM.histogram(
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
 
+_persistence_fallback_drops = get_counter(
+    "nautilus_ml_persistence_fallback_drops_total",
+    "Total persistence drops when sync fallback is disabled",
+    labelnames=("kind", "reason"),
+)
+
 
 class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """
@@ -914,6 +922,10 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._circuit_breaker = (
             CircuitBreaker(config.circuit_breaker_config) if config.circuit_breaker_config else None
         )
+        self._features_component.update_dependencies(
+            health_monitor=self._health_monitor,
+            persistence_worker=self._persistence_worker,
+        )
 
         # Hot reload state
         self._last_model_check = 0.0
@@ -924,6 +936,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._total_inference_time = 0.0
         self._total_feature_time = 0.0
         self._last_prediction_time = 0
+        self._sync_prediction_fallback_disabled_logged = False
 
         # Warm-up tracking
         self._bars_processed = 0
@@ -1387,6 +1400,18 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._store_ops_component.on_stop()
         self.log.debug("StoreOperationsComponent stopped (all stores flushed)")
 
+        # Stop actor-side bus bridge if enabled
+        bridge = getattr(self, "_actor_bus_bridge", None)
+        if bridge is not None:
+            try:
+                bridge.stop(drain=True, timeout=1.0)
+            except Exception as exc:
+                self.log.debug(
+                    "ml_actor.bus_bridge_stop_failed",
+                    exc_info=True,
+                    extra={"error": str(exc)},
+                )
+
         # Legacy stats logging (keep for backward compatibility)
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
         avg_feature_time = self._total_feature_time / max(self._bars_processed, 1)
@@ -1445,7 +1470,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             self._prediction_count += 1
 
             # MANDATORY: Store features for parity tracking (prefer manifest names)
-            feature_dict: dict[str, float]
+            feature_names: list[str] | None = None
             try:
                 fid = getattr(self._config, "feature_set_id", None)
                 manifest = None
@@ -1453,67 +1478,33 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 if fid and callable(getter):
                     manifest = getter(fid)
                 if manifest is not None and len(manifest.feature_names) == len(features):
-                    feature_dict = {
-                        manifest.feature_names[i]: float(features[i]) for i in range(len(features))
-                    }
-                else:
-                    feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
-            except Exception:
-                feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
+                    feature_names = list(manifest.feature_names)
+            except Exception as exc:
+                self.log.debug(
+                    "feature_manifest_lookup_failed",
+                    exc_info=True,
+                    extra={"error": str(exc)},
+                )
+            feature_dict = build_feature_dict(features, feature_names=feature_names)
 
-            # MANDATORY: Store features for parity tracking (async if enabled)
-            if self._persistence_worker is not None:
-                # Non-blocking async enqueue
-                enqueued = self._persistence_worker.enqueue_features(
-                    feature_set_id=getattr(self._config, "feature_set_id", "default"),
-                    instrument_id=str(bar.bar_type.instrument_id),
-                    features=feature_dict,
-                    ts_event=bar.ts_event,
-                    ts_init=bar.ts_init,
-                )
-                if not enqueued:
-                    self.log.warning(
-                        f"Persistence queue full - feature write dropped "
-                        f"(instrument: {bar.bar_type.instrument_id})",
-                    )
-            else:
-                # Synchronous fallback
-                self._feature_store.write_features(
-                    feature_set_id=getattr(self._config, "feature_set_id", "default"),
-                    instrument_id=str(bar.bar_type.instrument_id),
-                    features=feature_dict,
-                    ts_event=bar.ts_event,
-                    ts_init=bar.ts_init,
-                )
+            feature_set_id = getattr(self._config, "feature_set_id", "default")
+            self._features_component.persist_features_async(
+                feature_set_id=feature_set_id,
+                instrument_id=str(bar.bar_type.instrument_id),
+                features=feature_dict,
+                ts_event=bar.ts_event,
+                ts_init=bar.ts_init,
+            )
 
             # MANDATORY: Store prediction for performance tracking (async if enabled)
-            if self._persistence_worker is not None:
-                # Non-blocking async enqueue
-                enqueued = self._persistence_worker.enqueue_prediction(
-                    model_id=self._model_id,
-                    instrument_id=str(bar.bar_type.instrument_id),
-                    prediction=float(prediction),
-                    confidence=float(confidence),
-                    features=feature_dict,
-                    inference_time_ms=inference_time,
-                    ts_event=bar.ts_event,
-                )
-                if not enqueued:
-                    self.log.warning(
-                        f"Persistence queue full - prediction write dropped "
-                        f"(instrument: {bar.bar_type.instrument_id})",
-                    )
-            else:
-                # Synchronous fallback
-                self._model_store.write_prediction(
-                    model_id=self._model_id,
-                    instrument_id=str(bar.bar_type.instrument_id),
-                    prediction=float(prediction),
-                    confidence=float(confidence),
-                    features=feature_dict,
-                    inference_time_ms=inference_time,
-                    ts_event=bar.ts_event,
-                )
+            self._persist_prediction_async(
+                instrument_id=str(bar.bar_type.instrument_id),
+                prediction=float(prediction),
+                confidence=float(confidence),
+                features=feature_dict,
+                inference_time_ms=inference_time,
+                ts_event=bar.ts_event,
+            )
 
             # Record success in circuit breaker
             if self._circuit_breaker:
@@ -1582,6 +1573,97 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 self._health_monitor.update_prediction_failure()
 
             # Log error (metrics tracking removed to avoid duplicate registration)
+
+    def _record_persistence_drop(self, *, kind: str, reason: str) -> None:
+        """
+        Record a persistence drop for observability.
+
+        Args:
+            kind: The drop type (e.g., "feature", "prediction").
+            reason: Reason for drop (e.g., "sync_disabled", "queue_full").
+        """
+        try:
+            _persistence_fallback_drops.labels(kind=kind, reason=reason).inc()
+        except Exception as exc:
+            self.log.debug(
+                "ml_actor.persistence_drop_metric_failed",
+                exc_info=True,
+                extra={"error": str(exc), "kind": kind, "reason": reason},
+            )
+
+    def _persist_prediction_async(
+        self,
+        *,
+        instrument_id: str,
+        prediction: float,
+        confidence: float,
+        features: dict[str, float],
+        inference_time_ms: float,
+        ts_event: int,
+        is_live: bool | None = None,
+    ) -> bool:
+        """
+        Persist predictions using the async worker when available.
+
+        Args:
+            instrument_id: Instrument identifier.
+            prediction: Model prediction value.
+            confidence: Prediction confidence.
+            features: Feature dictionary used for inference.
+            inference_time_ms: Inference latency in milliseconds.
+            ts_event: Event timestamp in nanoseconds.
+
+        Returns:
+            True when enqueued/written, False when dropped or failed.
+        """
+        try:
+            if self._persistence_worker is not None:
+                enqueued = self._persistence_worker.enqueue_prediction(
+                    model_id=self._model_id,
+                    instrument_id=instrument_id,
+                    prediction=float(prediction),
+                    confidence=float(confidence),
+                    features=features,
+                    inference_time_ms=float(inference_time_ms),
+                    ts_event=int(ts_event),
+                )
+                if not enqueued:
+                    self.log.warning(
+                        f"Persistence queue full - prediction write dropped (instrument: {instrument_id})",
+                    )
+                    self._record_persistence_drop(kind="prediction", reason="queue_full")
+                return enqueued
+
+            allow_sync_fallback = bool(
+                getattr(self._config, "allow_sync_persistence_fallback", True),
+            )
+            if not allow_sync_fallback:
+                self._record_persistence_drop(kind="prediction", reason="sync_disabled")
+                if not self._sync_prediction_fallback_disabled_logged:
+                    self.log.warning(
+                        "Sync prediction persistence disabled; dropping prediction writes",
+                    )
+                    self._sync_prediction_fallback_disabled_logged = True
+                return False
+
+            self._model_store.write_prediction(
+                model_id=self._model_id,
+                instrument_id=instrument_id,
+                prediction=float(prediction),
+                confidence=float(confidence),
+                features=features,
+                inference_time_ms=float(inference_time_ms),
+                ts_event=int(ts_event),
+                is_live=bool(is_live) if is_live is not None else False,
+            )
+            return True
+        except Exception as exc:
+            self.log.debug(
+                "ml_actor.prediction_persist_failed",
+                exc_info=True,
+                extra={"error": str(exc), "instrument_id": instrument_id},
+            )
+            return False
 
     def _publish_signal(self, signal: MLSignal) -> None:
         """
@@ -1800,8 +1882,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 "parent_id": manifest.parent_id,
                 "performance_metrics": manifest.performance_metrics,
                 "deployment_constraints": manifest.deployment_constraints,
+                "training_config": dict(getattr(manifest, "training_config", {})),
                 "decision_policy": getattr(manifest, "decision_policy", None),
                 "decision_config": getattr(manifest, "decision_config", {}),
+                "output_schema": getattr(manifest, "output_schema", None),
+                "calibration": getattr(manifest, "calibration", None),
                 "artifact_sha256_digest": getattr(manifest, "artifact_sha256_digest", None),
             }
             # Stash manifest feature names/dtypes and hash
@@ -1863,7 +1948,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         Refresh decision metadata payloads after model metadata updates.
         """
         try:
-            from ml.common.decision_metadata import decision_metadata_from_model_metadata
+            from ml.common import decision_metadata_from_model_metadata
 
             payload = decision_metadata_from_model_metadata(
                 self._model_metadata,

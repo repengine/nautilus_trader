@@ -92,6 +92,7 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import OptimizationLevel
 from ml.actors.signal import SignalPolicy
 from ml.actors.signal import SignalStrategy
+from ml.actors.signal import create_signal_actor
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
 
@@ -110,6 +111,7 @@ __all__ = [
     "SignalPolicy",
     "SignalStrategy",
     "StrategyConfig",
+    "create_signal_actor",
 ]
 
 # Internal implementation note:

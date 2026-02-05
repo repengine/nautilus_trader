@@ -70,6 +70,9 @@ PostgreSQL → DummyStore (no persistence, warnings logged)
 See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 """
 
+import importlib
+from typing import TYPE_CHECKING
+
 from ml.stores.base import BaseStore
 from ml.stores.base import DummyStore
 from ml.stores.base import FeatureData
@@ -78,27 +81,6 @@ from ml.stores.base import StrategyOrderEvent
 from ml.stores.base import StrategyReplaySummary
 from ml.stores.base import StrategyRiskHaltEvent
 from ml.stores.base import StrategySignal
-from ml.stores.data_processor import DataProcessor
-from ml.stores.data_store import DataStore
-from ml.stores.data_store import DataStoreFacade
-from ml.stores.earnings_store import DummyEarningsStore
-from ml.stores.earnings_store import EarningsStore
-from ml.stores.feature_store import FeatureStore
-from ml.stores.feature_store import FeatureStoreFacade
-from ml.stores.file_backed import FileDataStore
-from ml.stores.file_backed import FileEarningsStore  # noqa: F401 - re-export for Pattern 4 fallback
-from ml.stores.file_backed import FileFeatureStore
-from ml.stores.file_backed import FileModelStore
-from ml.stores.file_backed import FileStrategyStore
-from ml.stores.infrastructure import PartitionManager
-from ml.stores.infrastructure import check_db_prereqs
-from ml.stores.infrastructure import run_partition_maintenance
-from ml.stores.instrument_metadata_store import DummyInstrumentMetadataStore
-from ml.stores.instrument_metadata_store import InstrumentMetadataStore
-from ml.stores.io_raw import ParquetCatalogRawReader
-from ml.stores.io_raw import ParquetCatalogRawWriter
-from ml.stores.io_raw import RawIngestionWriterProtocol
-from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.mixins import BufferedStoreMixin
 from ml.stores.mixins import DataRegistryMixin
 from ml.stores.mixins import EngineInitMixin
@@ -108,7 +90,6 @@ from ml.stores.mixins import SQLUpsertMixin
 from ml.stores.mixins import StoreInitMixin
 from ml.stores.mixins import publish_batch_and_rows
 from ml.stores.mixins import sanitize_and_dedup
-from ml.stores.model_store import ModelStore
 from ml.stores.protocols import BaseStoreProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import DataStoreFacadeProtocol
@@ -124,22 +105,221 @@ from ml.stores.protocols import SignalRecord
 from ml.stores.protocols import StrategyStoreProtocol
 from ml.stores.protocols import StrategyStoreStrictProtocol
 from ml.stores.protocols import WriteRecords
-from ml.stores.providers import CatalogCoverageProvider
-from ml.stores.providers import SqlCoverageProvider
-from ml.stores.providers import SqlMarketDataWriter
-from ml.stores.strategy_store import StrategyStore
-from ml.stores.table_factory import build_instrument_id_column
-from ml.stores.table_factory import build_nautilus_timestamp_columns
-from ml.stores.table_factory import build_standard_indexes
-from ml.stores.table_factory import create_ml_table
-from ml.stores.table_factory import get_schema_name
-from ml.stores.writers import DataStoreMarketDataWriter
-from ml.stores.writers import LiveDataRecorder
-from ml.stores.writers import ParquetCatalogMarketDataWriter
 
 
-# Component-based alias (legacy removed, facade is canonical).
-ComponentFeatureStore = FeatureStoreFacade
+if TYPE_CHECKING:
+    from ml.stores.data_processor import DataProcessor
+    from ml.stores.data_store import DataStore
+    from ml.stores.data_store import DataStoreFacade
+    from ml.stores.earnings_store import DummyEarningsStore
+    from ml.stores.earnings_store import EarningsStore
+    from ml.stores.feature_dataset_mirror import FeatureDatasetMirrorExportConfig
+    from ml.stores.feature_dataset_mirror import FeatureDatasetMirrorExportResult
+    from ml.stores.feature_dataset_mirror import refresh_feature_dataset_mirrors
+    from ml.stores.feature_store import FeatureStore
+    from ml.stores.feature_store import FeatureStoreFacade
+    from ml.stores.feature_store_mirror_backfill import FeatureStoreMirrorBackfillResult
+    from ml.stores.feature_store_mirror_backfill import backfill_feature_store_mirror
+    from ml.stores.file_backed import FileDataStore
+    from ml.stores.file_backed import FileEarningsStore
+    from ml.stores.file_backed import FileFeatureStore
+    from ml.stores.file_backed import FileModelStore
+    from ml.stores.file_backed import FileStrategyStore
+    from ml.stores.infrastructure import PartitionManager
+    from ml.stores.infrastructure import check_db_prereqs
+    from ml.stores.infrastructure import run_partition_maintenance
+    from ml.stores.instrument_metadata_store import DummyInstrumentMetadataStore
+    from ml.stores.instrument_metadata_store import InstrumentMetadataStore
+    from ml.stores.io_raw import ParquetCatalogRawReader
+    from ml.stores.io_raw import ParquetCatalogRawWriter
+    from ml.stores.io_raw import RawIngestionWriterProtocol
+    from ml.stores.io_raw import RawReaderProtocol
+    from ml.stores.model_store import ModelStore
+    from ml.stores.providers import CatalogCoverageProvider
+    from ml.stores.providers import SqlCoverageProvider
+    from ml.stores.providers import SqlMarketDataWriter
+    from ml.stores.strategy_store import StrategyStore
+    from ml.stores.table_factory import build_instrument_id_column
+    from ml.stores.table_factory import build_nautilus_timestamp_columns
+    from ml.stores.table_factory import build_standard_indexes
+    from ml.stores.table_factory import create_ml_table
+    from ml.stores.table_factory import get_schema_name
+    from ml.stores.writers import DataStoreMarketDataWriter
+    from ml.stores.writers import LiveDataRecorder
+    from ml.stores.writers import ParquetCatalogMarketDataWriter
+
+
+_LAZY_STORE_EXPORTS: dict[str, tuple[str, str]] = {
+    "DataProcessor": (
+        "ml.stores.data_processor",
+        "DataProcessor",
+    ),
+    "DataStore": (
+        "ml.stores.data_store",
+        "DataStore",
+    ),
+    "DataStoreFacade": (
+        "ml.stores.data_store",
+        "DataStoreFacade",
+    ),
+    "DummyEarningsStore": (
+        "ml.stores.earnings_store",
+        "DummyEarningsStore",
+    ),
+    "EarningsStore": (
+        "ml.stores.earnings_store",
+        "EarningsStore",
+    ),
+    "FeatureStore": (
+        "ml.stores.feature_store",
+        "FeatureStore",
+    ),
+    "FeatureStoreFacade": (
+        "ml.stores.feature_store",
+        "FeatureStoreFacade",
+    ),
+    "ComponentFeatureStore": (
+        "ml.stores.feature_store",
+        "FeatureStoreFacade",
+    ),
+    "FileDataStore": (
+        "ml.stores.file_backed",
+        "FileDataStore",
+    ),
+    "FileEarningsStore": (
+        "ml.stores.file_backed",
+        "FileEarningsStore",
+    ),
+    "FileFeatureStore": (
+        "ml.stores.file_backed",
+        "FileFeatureStore",
+    ),
+    "FileModelStore": (
+        "ml.stores.file_backed",
+        "FileModelStore",
+    ),
+    "FileStrategyStore": (
+        "ml.stores.file_backed",
+        "FileStrategyStore",
+    ),
+    "PartitionManager": (
+        "ml.stores.infrastructure",
+        "PartitionManager",
+    ),
+    "check_db_prereqs": (
+        "ml.stores.infrastructure",
+        "check_db_prereqs",
+    ),
+    "run_partition_maintenance": (
+        "ml.stores.infrastructure",
+        "run_partition_maintenance",
+    ),
+    "DummyInstrumentMetadataStore": (
+        "ml.stores.instrument_metadata_store",
+        "DummyInstrumentMetadataStore",
+    ),
+    "InstrumentMetadataStore": (
+        "ml.stores.instrument_metadata_store",
+        "InstrumentMetadataStore",
+    ),
+    "ParquetCatalogRawReader": (
+        "ml.stores.io_raw",
+        "ParquetCatalogRawReader",
+    ),
+    "ParquetCatalogRawWriter": (
+        "ml.stores.io_raw",
+        "ParquetCatalogRawWriter",
+    ),
+    "RawIngestionWriterProtocol": (
+        "ml.stores.io_raw",
+        "RawIngestionWriterProtocol",
+    ),
+    "RawReaderProtocol": (
+        "ml.stores.io_raw",
+        "RawReaderProtocol",
+    ),
+    "DataStoreMarketDataWriter": (
+        "ml.stores.writers",
+        "DataStoreMarketDataWriter",
+    ),
+    "LiveDataRecorder": (
+        "ml.stores.writers",
+        "LiveDataRecorder",
+    ),
+    "ParquetCatalogMarketDataWriter": (
+        "ml.stores.writers",
+        "ParquetCatalogMarketDataWriter",
+    ),
+    "ModelStore": (
+        "ml.stores.model_store",
+        "ModelStore",
+    ),
+    "CatalogCoverageProvider": (
+        "ml.stores.providers",
+        "CatalogCoverageProvider",
+    ),
+    "SqlCoverageProvider": (
+        "ml.stores.providers",
+        "SqlCoverageProvider",
+    ),
+    "SqlMarketDataWriter": (
+        "ml.stores.providers",
+        "SqlMarketDataWriter",
+    ),
+    "StrategyStore": (
+        "ml.stores.strategy_store",
+        "StrategyStore",
+    ),
+    "build_instrument_id_column": (
+        "ml.stores.table_factory",
+        "build_instrument_id_column",
+    ),
+    "build_nautilus_timestamp_columns": (
+        "ml.stores.table_factory",
+        "build_nautilus_timestamp_columns",
+    ),
+    "build_standard_indexes": (
+        "ml.stores.table_factory",
+        "build_standard_indexes",
+    ),
+    "create_ml_table": (
+        "ml.stores.table_factory",
+        "create_ml_table",
+    ),
+    "get_schema_name": (
+        "ml.stores.table_factory",
+        "get_schema_name",
+    ),
+    "FeatureDatasetMirrorExportConfig": (
+        "ml.stores.feature_dataset_mirror",
+        "FeatureDatasetMirrorExportConfig",
+    ),
+    "FeatureDatasetMirrorExportResult": (
+        "ml.stores.feature_dataset_mirror",
+        "FeatureDatasetMirrorExportResult",
+    ),
+    "refresh_feature_dataset_mirrors": (
+        "ml.stores.feature_dataset_mirror",
+        "refresh_feature_dataset_mirrors",
+    ),
+    "FeatureStoreMirrorBackfillResult": (
+        "ml.stores.feature_store_mirror_backfill",
+        "FeatureStoreMirrorBackfillResult",
+    ),
+    "backfill_feature_store_mirror": (
+        "ml.stores.feature_store_mirror_backfill",
+        "backfill_feature_store_mirror",
+    ),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_STORE_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attr_name = target
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)
 
 
 # =============================================================================
@@ -165,11 +345,15 @@ __all__ = [
     "EarningsStore",
     "EngineInitMixin",
     "FeatureData",
+    "FeatureDatasetMirrorExportConfig",
+    "FeatureDatasetMirrorExportResult",
     "FeatureStore",
     "FeatureStoreFacade",
+    "FeatureStoreMirrorBackfillResult",
     "FeatureStoreProtocol",
     "FeatureStoreStrictProtocol",
     "FileDataStore",
+    "FileEarningsStore",
     "FileFeatureStore",
     "FileModelStore",
     "FileStrategyStore",
@@ -204,6 +388,7 @@ __all__ = [
     "StrategyStoreProtocol",
     "StrategyStoreStrictProtocol",
     "WriteRecords",
+    "backfill_feature_store_mirror",
     "build_instrument_id_column",
     "build_nautilus_timestamp_columns",
     "build_standard_indexes",
@@ -211,6 +396,7 @@ __all__ = [
     "create_ml_table",
     "get_schema_name",
     "publish_batch_and_rows",
+    "refresh_feature_dataset_mirrors",
     "run_partition_maintenance",
     "sanitize_and_dedup",
 ]

@@ -17,7 +17,9 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from ml.actors.base import MLSignal
+from ml.common import resolve_decision_horizon_ms
 from ml.common.metrics_bootstrap import get_counter
+from ml.config.base import ModelExitConfig
 from ml.config.base import ShortEntryPolicy
 from ml.strategies.base import BaseMLStrategy
 from ml.strategies.common.model_exit_policy import PositionSideProtocol
@@ -69,9 +71,11 @@ class MLTradingStrategy(BaseMLStrategy):
 
     def _resolve_exit_policy_config(
         self,
+        *,
+        horizon_ms: int | None = None,
     ) -> tuple[float, float, int | None]:
         """
-        Resolve exit policy thresholds from config.
+        Resolve exit policy thresholds from config, applying horizon defaults.
 
         Returns
         -------
@@ -81,15 +85,84 @@ class MLTradingStrategy(BaseMLStrategy):
         """
         exit_policy = getattr(self._config, "exit_policy_config", None)
         if exit_policy is not None:
+            max_holding_ms = exit_policy.max_holding_ms
+            if max_holding_ms is None:
+                max_holding_ms = self._derive_horizon_max_holding_ms(horizon_ms)
             return (
                 float(exit_policy.stop_loss_pct),
                 float(exit_policy.take_profit_pct),
-                exit_policy.max_holding_ms,
+                max_holding_ms,
             )
+        max_holding_ms = self._derive_horizon_max_holding_ms(horizon_ms)
         return (
             float(getattr(self._config, "stop_loss_pct", 0.0)),
             float(getattr(self._config, "take_profit_pct", 0.0)),
-            None,
+            max_holding_ms,
+        )
+
+    def _derive_horizon_max_holding_ms(self, horizon_ms: int | None) -> int | None:
+        """
+        Derive max holding time from horizon metadata when enabled.
+        """
+        if horizon_ms is None or horizon_ms <= 0:
+            return None
+        exit_horizon_config = getattr(self._config, "exit_horizon_config", None)
+        if (
+            exit_horizon_config is None
+            or not exit_horizon_config.enabled
+            or not exit_horizon_config.apply_to_exit_policy
+        ):
+            return None
+        multiplier = float(exit_horizon_config.max_holding_multiplier)
+        derived = int(horizon_ms * multiplier)
+        if derived <= 0:
+            return None
+        return derived
+
+    def _derive_horizon_min_hold_ms(self, horizon_ms: int | None) -> int | None:
+        """
+        Derive min hold time from horizon metadata when enabled.
+        """
+        if horizon_ms is None or horizon_ms <= 0:
+            return None
+        exit_horizon_config = getattr(self._config, "exit_horizon_config", None)
+        if (
+            exit_horizon_config is None
+            or not exit_horizon_config.enabled
+            or not exit_horizon_config.apply_to_model_exit
+        ):
+            return None
+        multiplier = float(exit_horizon_config.min_hold_multiplier)
+        derived = int(horizon_ms * multiplier)
+        min_ms = int(exit_horizon_config.min_hold_min_ms)
+        max_ms = int(exit_horizon_config.min_hold_max_ms)
+        if derived < min_ms:
+            return min_ms
+        if derived > max_ms:
+            return max_ms
+        return derived
+
+    def _resolve_model_exit_config(self, *, horizon_ms: int | None) -> ModelExitConfig | None:
+        """
+        Resolve model exit config, applying horizon-derived min hold when enabled.
+        """
+        model_exit_config = cast(
+            ModelExitConfig | None,
+            getattr(self._config, "model_exit_config", None),
+        )
+        if model_exit_config is None:
+            return None
+        if model_exit_config.min_hold_ms is not None:
+            return model_exit_config
+        derived_min_hold = self._derive_horizon_min_hold_ms(horizon_ms)
+        if derived_min_hold is None:
+            return model_exit_config
+        return ModelExitConfig(
+            exit_on_flip=model_exit_config.exit_on_flip,
+            reverse_on_flip=model_exit_config.reverse_on_flip,
+            exit_confidence_threshold=model_exit_config.exit_confidence_threshold,
+            exit_prediction_band=model_exit_config.exit_prediction_band,
+            min_hold_ms=derived_min_hold,
         )
 
     def _timestamp_ns(self) -> int:
@@ -186,11 +259,14 @@ class MLTradingStrategy(BaseMLStrategy):
         position: object,
         *,
         instrument_id: object,
+        horizon_ms: int | None = None,
     ) -> dict[str, object] | None:
         """
         Evaluate exit policy for the current position.
         """
-        stop_loss_pct, take_profit_pct, max_holding_ms = self._resolve_exit_policy_config()
+        stop_loss_pct, take_profit_pct, max_holding_ms = self._resolve_exit_policy_config(
+            horizon_ms=horizon_ms,
+        )
         if stop_loss_pct <= 0.0 and take_profit_pct <= 0.0 and not max_holding_ms:
             return None
 
@@ -385,9 +461,14 @@ class MLTradingStrategy(BaseMLStrategy):
                 )
             return
 
+        decision_metadata_payload = (
+            signal.metadata.get("decision_metadata") if signal.metadata else None
+        )
+        horizon_ms = resolve_decision_horizon_ms(decision_metadata_payload)
         exit_payload = self._evaluate_exit_policy(
             current_position,
             instrument_id=signal.instrument_id,
+            horizon_ms=horizon_ms,
         )
         if exit_payload is not None:
             exit_side = self._exit_side_for_position(current_position)
@@ -419,7 +500,7 @@ class MLTradingStrategy(BaseMLStrategy):
                 )
             return
 
-        model_exit_config = getattr(self._config, "model_exit_config", None)
+        model_exit_config = self._resolve_model_exit_config(horizon_ms=horizon_ms)
         if model_exit_config is not None:
             try:
                 current_price = self._resolve_market_price(signal.instrument_id)

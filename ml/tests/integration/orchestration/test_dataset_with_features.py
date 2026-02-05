@@ -24,7 +24,7 @@ def test_build_dataset_with_technical_indicators() -> None:
 
     Expected Behavior (Phase 2.2.8):
     - OHLCV columns present
-    - Feature columns present: sma_20, ema_50, rsi_14, macd, macd_signal, macd_hist
+    - Feature columns present: price_sma_20, ema_50, rsi_14, macd, macd_signal, macd_hist
     - Features aligned with bars (same row count)
     - No look-ahead bias in feature calculation
     """
@@ -56,7 +56,7 @@ def test_features_align_with_bars_no_lookahead_bias() -> None:
 
     Expected Behavior (Phase 2.2.8):
     - Feature at bar[i] only uses data from bar[0:i] (no future data)
-    - SMA_20 at bar[30] = mean(close[10:30])
+    - price_sma_20 at bar[30] = mean(close[10:30])
     - Features have same timestamp as bars
     - No off-by-one errors
     """

@@ -47,7 +47,7 @@
 5) Builder aliasing and timestamp columns
    - `TFTDatasetBuilderFacade` is a direct alias, so patching the builder class in tests does not affect the facade.
    - FeatureStore path renames `timestamp -> ts_event` without restoring `timestamp`, leading to missing column failures.
-   - Evidence: `ml/data/tft_dataset_builder.py:691-742` and alias at `ml/data/tft_dataset_builder.py:2139`.
+   - Evidence: `ml/data/tft_dataset_builder_facade.py` and wrapper at `ml/data/tft_dataset_builder.py`.
 
 6) Orchestrator runtime attachment mismatch
    - StageController default runtime attachment updates its own fields; orchestrator fields remain unset.

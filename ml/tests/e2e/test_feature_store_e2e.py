@@ -95,7 +95,7 @@ def test_01_write_and_read_basic(feature_store: FeatureStore) -> None:
 
     # Write features
     feature_set_id = feature_store._get_feature_set_id()
-    features = {"rsi": 55.5, "macd": 0.05, "volume_ratio": 1.2}
+    features = {"rsi": 55.5, "macd": 0.05, "volume_ratio_20": 1.2}
 
     feature_store.write_features(
         feature_set_id=feature_set_id,
@@ -114,7 +114,7 @@ def test_01_write_and_read_basic(feature_store: FeatureStore) -> None:
     assert result is not None
     assert result["rsi"] == pytest.approx(55.5)
     assert result["macd"] == pytest.approx(0.05)
-    assert result["volume_ratio"] == pytest.approx(1.2)
+    assert result["volume_ratio_20"] == pytest.approx(1.2)
 
 
 # =============================================================================

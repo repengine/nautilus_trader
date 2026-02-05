@@ -124,13 +124,12 @@ def test_actor_bus_scheme_prefix_integration(
         },
     ):
         monkeypatch.setattr("ml.actors.ml_domain_events.publisher_from_config", fake_factory)
-        # Avoid double publish to Nautilus path
-        monkeypatch.setattr(
-            "ml.actors.base.BaseMLInferenceActor._publish_signal",
-            lambda self, s: None,
-        )
-
         actor = MLSignalActor(base_signal_config)
+        # Avoid double publish to Nautilus path (actor is unregistered in tests).
+        base_cls = next(
+            cls for cls in type(actor).__mro__ if cls.__name__ == "BaseMLInferenceActor"
+        )
+        monkeypatch.setattr(base_cls, "_publish_signal", lambda self, s: None)
         # Publish one signal
         sig = MLSignal(
             instrument_id=base_signal_config.instrument_id,

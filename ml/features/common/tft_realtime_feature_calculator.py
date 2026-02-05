@@ -17,7 +17,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ml.common.safe_math import safe_divide
-from ml.data.common.feature_alignment import FeatureAlignmentComponent
+from ml.data.common.static_features import resolve_tick_size
 
 
 if TYPE_CHECKING:
@@ -32,15 +32,16 @@ _MINUTES_PER_DAY = 24 * 60
 _SECONDS_PER_DAY = 24 * 60 * 60
 
 _MINUTE_INDEX = np.arange(_MINUTES_PER_DAY, dtype=np.int32)
-_HOUR_BY_MINUTE = (_MINUTE_INDEX // 60).astype(np.float32)
-_MINUTE_BY_MINUTE = (_MINUTE_INDEX % 60).astype(np.float32)
-_TOD_ANGLE = (2.0 * math.pi * _MINUTE_INDEX / float(_MINUTES_PER_DAY)).astype(np.float64)
-_TOD_SIN = np.sin(_TOD_ANGLE).astype(np.float32)
-_TOD_COS = np.cos(_TOD_ANGLE).astype(np.float32)
+_HOUR_ANGLE = (2.0 * math.pi * _MINUTE_INDEX / float(_MINUTES_PER_DAY)).astype(np.float64)
+_HOUR_SIN = np.sin(_HOUR_ANGLE).astype(np.float32)
+_HOUR_COS = np.cos(_HOUR_ANGLE).astype(np.float32)
+_MINUTE_ANGLE = (2.0 * math.pi * (_MINUTE_INDEX % 60) / 60.0).astype(np.float64)
+_MINUTE_SIN = np.sin(_MINUTE_ANGLE).astype(np.float32)
+_MINUTE_COS = np.cos(_MINUTE_ANGLE).astype(np.float32)
 
-_MARKET_OPEN = ((_MINUTE_INDEX >= 9 * 60) & (_MINUTE_INDEX < 16 * 60)).astype(np.float32)
-_PREMARKET = ((_MINUTE_INDEX >= 4 * 60) & (_MINUTE_INDEX < 9 * 60)).astype(np.float32)
-_AFTERMARKET = ((_MINUTE_INDEX >= 16 * 60) & (_MINUTE_INDEX < 20 * 60)).astype(np.float32)
+_MARKET_HOURS = ((_MINUTE_INDEX >= 9 * 60) & (_MINUTE_INDEX < 16 * 60)).astype(np.float32)
+_PRE_MARKET = ((_MINUTE_INDEX >= 4 * 60) & (_MINUTE_INDEX < 9 * 60)).astype(np.float32)
+_AFTER_HOURS = ((_MINUTE_INDEX >= 16 * 60) & (_MINUTE_INDEX < 20 * 60)).astype(np.float32)
 
 _DOW_INDEX = np.arange(7, dtype=np.int32)
 _DOW_ANGLE = (2.0 * math.pi * _DOW_INDEX / 7.0).astype(np.float64)
@@ -74,16 +75,15 @@ class TFTRealtimeFeatureCalculator:
     _DIRECT_FEATURES: set[str] = {
         "close",
         "tick_size",
-        "hour",
-        "minute",
-        "tod_sin",
-        "tod_cos",
-        "dow",
+        "hour_sin",
+        "hour_cos",
+        "minute_sin",
+        "minute_cos",
         "dow_sin",
         "dow_cos",
-        "is_market_open",
-        "is_premarket",
-        "is_aftermarket",
+        "is_market_hours",
+        "is_pre_market",
+        "is_after_hours",
     }
 
     def __init__(self, feature_names: list[str]) -> None:
@@ -180,12 +180,7 @@ class TFTRealtimeFeatureCalculator:
         if cached is not None:
             return cached
 
-        symbol = instrument_id.split(".")[0] if instrument_id else ""
-        static = FeatureAlignmentComponent.STATIC_FEATURE_MAP.get(
-            symbol,
-            FeatureAlignmentComponent.DEFAULT_STATIC_FEATURES,
-        )
-        tick_size = float(static.get("tick_size", 0.01))
+        tick_size = resolve_tick_size(instrument_id)
         self._tick_size_cache[instrument_id] = tick_size
         return tick_size
 
@@ -199,10 +194,6 @@ class TFTRealtimeFeatureCalculator:
         direct_indices: dict[str, int] = {}
 
         unsupported: list[str] = []
-        default_period_candidates: list[int] = []
-        pending_volume_ratio: list[int] = []
-        pending_price_position: list[int] = []
-
         for idx, name in enumerate(feature_names):
             if name in TFTRealtimeFeatureCalculator._DIRECT_FEATURES:
                 direct_indices[name] = idx
@@ -212,40 +203,31 @@ class TFTRealtimeFeatureCalculator:
                 period = _parse_suffix_period(name, "return_")
                 if period is not None:
                     return_indices[period] = idx
-                    default_period_candidates.append(period)
                     continue
 
-            if name.startswith("sma_"):
-                period = _parse_suffix_period(name, "sma_")
+            if name.startswith("price_sma_"):
+                period = _parse_suffix_period(name, "price_sma_")
                 if period is not None:
                     sma_indices[period] = idx
-                    default_period_candidates.append(period)
                     continue
 
             if name.startswith("volatility_"):
                 period = _parse_suffix_period(name, "volatility_")
                 if period is not None:
                     volatility_indices[period] = idx
-                    default_period_candidates.append(period)
                     continue
 
-            if name.startswith("volume_ratio"):
-                period = _parse_optional_period(name, "volume_ratio")
+            if name.startswith("volume_ratio_"):
+                period = _parse_suffix_period(name, "volume_ratio_")
                 if period is not None:
                     volume_ratio_indices[period] = idx
-                    default_period_candidates.append(period)
-                else:
-                    pending_volume_ratio.append(idx)
-                continue
+                    continue
 
-            if name.startswith("price_position"):
-                period = _parse_optional_period(name, "price_position")
+            if name.startswith("price_position_"):
+                period = _parse_suffix_period(name, "price_position_")
                 if period is not None:
                     price_position_indices[period] = idx
-                    default_period_candidates.append(period)
-                else:
-                    pending_price_position.append(idx)
-                continue
+                    continue
 
             unsupported.append(name)
 
@@ -253,17 +235,6 @@ class TFTRealtimeFeatureCalculator:
             raise ValueError(
                 "Unsupported TFT realtime features: " f"{sorted(unsupported)}",
             )
-
-        if pending_volume_ratio or pending_price_position:
-            if not default_period_candidates:
-                raise ValueError(
-                    "Feature set requires a default period but none found",
-                )
-            inferred = max(default_period_candidates)
-            for idx in pending_volume_ratio:
-                volume_ratio_indices[inferred] = idx
-            for idx in pending_price_position:
-                price_position_indices[inferred] = idx
 
         required = _compute_required_history(
             return_indices,
@@ -296,26 +267,24 @@ class TFTRealtimeFeatureCalculator:
         minute_of_day = int((seconds // 60) % _MINUTES_PER_DAY)
         buffer_idx = direct_indices
 
-        if "hour" in buffer_idx:
-            buffer[buffer_idx["hour"]] = _HOUR_BY_MINUTE[minute_of_day]
-        if "minute" in buffer_idx:
-            buffer[buffer_idx["minute"]] = _MINUTE_BY_MINUTE[minute_of_day]
-        if "tod_sin" in buffer_idx:
-            buffer[buffer_idx["tod_sin"]] = _TOD_SIN[minute_of_day]
-        if "tod_cos" in buffer_idx:
-            buffer[buffer_idx["tod_cos"]] = _TOD_COS[minute_of_day]
-        if "is_market_open" in buffer_idx:
-            buffer[buffer_idx["is_market_open"]] = _MARKET_OPEN[minute_of_day]
-        if "is_premarket" in buffer_idx:
-            buffer[buffer_idx["is_premarket"]] = _PREMARKET[minute_of_day]
-        if "is_aftermarket" in buffer_idx:
-            buffer[buffer_idx["is_aftermarket"]] = _AFTERMARKET[minute_of_day]
+        if "hour_sin" in buffer_idx:
+            buffer[buffer_idx["hour_sin"]] = _HOUR_SIN[minute_of_day]
+        if "hour_cos" in buffer_idx:
+            buffer[buffer_idx["hour_cos"]] = _HOUR_COS[minute_of_day]
+        if "minute_sin" in buffer_idx:
+            buffer[buffer_idx["minute_sin"]] = _MINUTE_SIN[minute_of_day]
+        if "minute_cos" in buffer_idx:
+            buffer[buffer_idx["minute_cos"]] = _MINUTE_COS[minute_of_day]
+        if "is_market_hours" in buffer_idx:
+            buffer[buffer_idx["is_market_hours"]] = _MARKET_HOURS[minute_of_day]
+        if "is_pre_market" in buffer_idx:
+            buffer[buffer_idx["is_pre_market"]] = _PRE_MARKET[minute_of_day]
+        if "is_after_hours" in buffer_idx:
+            buffer[buffer_idx["is_after_hours"]] = _AFTER_HOURS[minute_of_day]
 
-        if "dow" in buffer_idx or "dow_sin" in buffer_idx or "dow_cos" in buffer_idx:
+        if "dow_sin" in buffer_idx or "dow_cos" in buffer_idx:
             days_since_epoch = int(seconds // _SECONDS_PER_DAY)
             dow = int((days_since_epoch + 3) % 7)
-            if "dow" in buffer_idx:
-                buffer[buffer_idx["dow"]] = float(dow)
             if "dow_sin" in buffer_idx:
                 buffer[buffer_idx["dow_sin"]] = _DOW_SIN[dow]
             if "dow_cos" in buffer_idx:
@@ -406,17 +375,6 @@ def _parse_suffix_period(name: str, prefix: str) -> int | None:
     if not name.startswith(prefix):
         return None
     suffix = name[len(prefix) :]
-    if not suffix.isdigit():
-        return None
-    return int(suffix)
-
-
-def _parse_optional_period(name: str, prefix: str) -> int | None:
-    if name == prefix:
-        return None
-    if not name.startswith(prefix + "_"):
-        return None
-    suffix = name[len(prefix) + 1 :]
     if not suffix.isdigit():
         return None
     return int(suffix)

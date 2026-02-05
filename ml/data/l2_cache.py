@@ -91,6 +91,21 @@ class L2MinuteCache:
 
     cache_dir: Path
 
+    @staticmethod
+    def _coerce_partition_columns(df: _pl.DataFrame) -> _pl.DataFrame:
+        missing = [name for name in L2_MINUTE_COLUMNS if name not in df.columns]
+        if missing:
+            df = df.with_columns([PL.lit(0.0).alias(name) for name in missing if name != "timestamp"])
+            if "timestamp" in missing:
+                df = df.with_columns(
+                    [
+                        PL.lit(None)
+                        .cast(PL.Datetime("ns", "UTC"))
+                        .alias("timestamp"),
+                    ],
+                )
+        return df.select(list(L2_MINUTE_COLUMNS))
+
     def path_for(self, symbol: str, day: date) -> Path:
         """
         Return the cache path for ``symbol`` and ``day``.
@@ -152,18 +167,7 @@ class L2MinuteCache:
             )
             return out
         else:
-            missing = [name for name in L2_MINUTE_COLUMNS if name not in df.columns]
-            if missing:
-                df = df.with_columns([PL.lit(0.0).alias(name) for name in missing if name != "timestamp"])
-                if "timestamp" in missing:
-                    df = df.with_columns(
-                        [
-                            PL.lit(None)
-                            .cast(PL.Datetime("ns", "UTC"))
-                            .alias("timestamp"),
-                        ],
-                    )
-            df = df.select(list(L2_MINUTE_COLUMNS))
+            df = self._coerce_partition_columns(df)
         if df.is_empty():
             logger.debug(
                 "l2_cache.partition_empty",
@@ -208,17 +212,21 @@ class L2MinuteCache:
         start: datetime,
         end: datetime,
         raw_base_dir: Path,
+        allow_compute: bool = True,
     ) -> _pl.DataFrame:
         """
         Get cached per-minute L2 features for ``symbol`` in [start, end).
 
-        Missing day partitions are computed and cached on-demand.
+        Missing day partitions are computed and cached on-demand when
+        ``allow_compute`` is True.
 
         Args:
             symbol: Instrument symbol.
             start: Inclusive start datetime (UTC recommended).
             end: Exclusive end datetime (UTC recommended).
             raw_base_dir: Raw tier1 data root for fallback aggregation.
+            allow_compute: When False, only read existing cache partitions and
+                skip aggregation of missing days.
 
         Returns:
             Polars DataFrame with columns ``timestamp`` and L2 feature columns,
@@ -228,9 +236,23 @@ class L2MinuteCache:
         ensure_polars()
         parts: list[_pl.DataFrame] = []
         for day in iter_days(start, end):
-            p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
-            if p.exists():
-                parts.append(cast("_pl.DataFrame", PL.read_parquet(str(p))))
+            if allow_compute:
+                p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
+                if p.exists():
+                    part = cast("_pl.DataFrame", PL.read_parquet(str(p)))
+                    parts.append(self._coerce_partition_columns(part))
+                continue
+            existing, _ = resolve_cache_partition_path(self.cache_dir, symbol, day)
+            if existing is None:
+                continue
+            if not self._is_valid_partition(existing, symbol, day):
+                logger.debug(
+                    "l2_cache.invalid_partition",
+                    extra={"symbol": symbol, "day": day.isoformat(), "path": str(existing)},
+                )
+                continue
+            part = cast("_pl.DataFrame", PL.read_parquet(str(existing)))
+            parts.append(self._coerce_partition_columns(part))
         if not parts:
             return cast("_pl.DataFrame", PL.DataFrame({"timestamp": []}))
         df = PL.concat(parts, how="vertical")

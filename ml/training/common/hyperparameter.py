@@ -25,6 +25,8 @@ from ml._imports import HAS_OPTUNA
 from ml._imports import HAS_SKLEARN
 from ml._imports import check_ml_dependencies
 from ml._imports import optuna
+from ml.training.common.trading_costs import apply_round_trip_costs
+from ml.training.common.trading_costs import resolve_round_trip_cost_decimal
 
 
 if TYPE_CHECKING:
@@ -522,7 +524,8 @@ class HyperparameterComponent:
         Calculate annualized Sharpe ratio from predictions and returns.
 
         Converts predictions to trading signals, applies them to returns,
-        and computes the annualized Sharpe ratio assuming 252 trading days.
+        applies any configured round-trip costs, and computes the annualized
+        Sharpe ratio assuming 252 trading days.
 
         Parameters
         ----------
@@ -558,7 +561,14 @@ class HyperparameterComponent:
         n = min(len(signals), len(returns))
         if n == 0:
             return 0.0
-        strategy_returns = returns[:n] * signals[:n]
+        signals_aligned = signals[:n].astype(np.float64)
+        strategy_returns = returns[:n] * signals_aligned
+        cost_decimal = resolve_round_trip_cost_decimal(self._trainer._config)
+        strategy_returns = apply_round_trip_costs(
+            strategy_returns=strategy_returns,
+            signals=signals_aligned,
+            cost_decimal=cost_decimal,
+        )
         strategy_returns = strategy_returns[np.isfinite(strategy_returns)]
         if strategy_returns.size == 0:
             return 0.0

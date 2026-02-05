@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
 from nautilus_trader.model.data import QuoteTick as _QuoteTick
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from ml.registry.dataclasses import DatasetType
@@ -144,3 +145,25 @@ def test_parquet_raw_writer_converts_trades_to_domain() -> None:
     from nautilus_trader.model.data import TradeTick as _TradeTick
 
     assert isinstance(catalog.items[0], _TradeTick)
+
+
+def test_parquet_raw_writer_rejects_tabular_mbp10() -> None:
+    catalog = _FakeCatalog()
+    writer = ParquetCatalogRawWriter(catalog)
+
+    with pytest.raises(ValueError, match="mbp10"):
+        writer.write(
+            dataset_type=DatasetType.MBP10,
+            data=[{"instrument_id": "SPY.EQUS", "ts_event": 1, "ts_init": 1}],
+        )
+
+
+def test_parquet_raw_writer_rejects_tabular_mbo() -> None:
+    catalog = _FakeCatalog()
+    writer = ParquetCatalogRawWriter(catalog)
+
+    with pytest.raises(ValueError, match="mbo"):
+        writer.write(
+            dataset_type=DatasetType.MBO,
+            data=[{"instrument_id": "SPY.EQUS", "ts_event": 1, "ts_init": 1}],
+        )

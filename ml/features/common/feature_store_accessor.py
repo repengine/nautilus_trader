@@ -53,7 +53,7 @@ class FeatureStoreAccessor:
     >>>
     >>> # Write features
     >>> import pandas as pd
-    >>> features = pd.DataFrame({"sma_20": [100.5], "rsi_14": [55.3]})
+    >>> features = pd.DataFrame({"price_sma_20": [100.5], "rsi_14": [55.3]})
     >>> success = accessor.write_features_to_store(
     ...     instrument_id="SPY",
     ...     features_df=features,
@@ -64,7 +64,7 @@ class FeatureStoreAccessor:
     >>> # Validate schema
     >>> is_valid, errors = accessor.validate_feature_schema(
     ...     features_df=features,
-    ...     expected_columns=["sma_20", "rsi_14"],
+    ...     expected_columns=["price_sma_20", "rsi_14"],
     ... )
     """
 
@@ -229,7 +229,7 @@ class FeatureStoreAccessor:
         --------
         >>> accessor = FeatureStoreAccessor(feature_store=store)
         >>> features = pd.DataFrame({
-        ...     "sma_20": [100.5, 101.2],
+        ...     "price_sma_20": [100.5, 101.2],
         ...     "rsi_14": [55.3, 58.7],
         ... })
         >>> success = accessor.write_features_to_store(
@@ -368,10 +368,10 @@ class FeatureStoreAccessor:
         Examples
         --------
         >>> accessor = FeatureStoreAccessor()
-        >>> features = pd.DataFrame({"sma_20": [100.5], "rsi_14": [55.3]})
+        >>> features = pd.DataFrame({"price_sma_20": [100.5], "rsi_14": [55.3]})
         >>> is_valid, errors = accessor.validate_feature_schema(
         ...     features_df=features,
-        ...     expected_columns=["sma_20", "rsi_14"],
+        ...     expected_columns=["price_sma_20", "rsi_14"],
         ... )
         >>> assert is_valid is True
         >>> assert errors == []

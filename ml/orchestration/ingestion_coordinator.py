@@ -528,7 +528,9 @@ class IngestionCoordinator:
         policy = self._resolve_coverage_policy()
         schema_aliases = {
             "bars": "ohlcv-1m",
-            "tbbo": "tbbo",
+            # L1 quotes use the canonical "quotes" schema; provider schema may be tbbo.
+            "tbbo": "quotes",
+            "quotes": "quotes",
             "trades": "trades",
         }
         processed_binding_keys: set[tuple[str, str]] = set()
@@ -1014,9 +1016,10 @@ class IngestionCoordinator:
         start_time = time.perf_counter()
         status = "success"
         try:
+            schema_identifier = auto_fill_cfg.l2_schema or "mbp-1"
             self._ensure_dataset_registered(
                 dataset_id=auto_fill_cfg.l2_dataset_id,
-                dataset_type=DatasetType.MBP1,
+                dataset_type=self._map_schema_to_dataset_type(schema_identifier),
                 location=dataset_cfg.data_dir,
             )
             config = PopulateL2TaskConfig(
@@ -1026,7 +1029,7 @@ class IngestionCoordinator:
                 tier=None,
                 days=int(l2_days),
                 dataset=auto_fill_cfg.l2_dataset_id,
-                schema=auto_fill_cfg.l2_schema,
+                schema=schema_identifier,
             )
             logger.info(
                 "Auto-fill L2 start | symbols=%d days=%d dataset=%s schema=%s",

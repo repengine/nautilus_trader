@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
+from ml.common.model_sidecar import extract_inference_metadata
+from ml.common.model_sidecar import load_sidecar_metadata
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
@@ -166,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
             performance_metrics = {}
 
     decision_cfg = build_student_decision_config()
+    sidecar = load_sidecar_metadata(Path(meta_path))
+    output_schema, calibration = (
+        extract_inference_metadata(sidecar) if sidecar is not None else (None, None)
+    )
 
     manifest = build_student_manifest(
         model_id=args.model_id,
@@ -178,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,
         decision_config=decision_cfg,
+        output_schema=output_schema,
+        calibration=calibration,
     )
     registry.register_model(Path(onnx_path), manifest, auto_deploy=True)
 

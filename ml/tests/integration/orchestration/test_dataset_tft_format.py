@@ -40,8 +40,8 @@ def test_tft_static_vs_time_varying_features() -> None:
 
     Expected Behavior (Phase 2.2.8):
     - Static features: instrument_id, day_of_week, month (constant per sequence)
-    - Time-varying known: hour, minute, is_market_open (known at prediction time)
-    - Time-varying unknown: close, volume, sma_20, rsi_14 (predicted targets)
+    - Time-varying known: hour_sin, minute_sin, is_market_hours (known at prediction time)
+    - Time-varying unknown: close, volume, price_sma_20, rsi_14 (predicted targets)
     """
 
 

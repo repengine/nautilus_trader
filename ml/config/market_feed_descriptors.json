@@ -107,6 +107,22 @@
       ],
       "license_start": "2018-01-01",
       "license_end": null
+    },
+    {
+      "descriptor_id": "XNAS.ITCH_MBO",
+      "dataset_id": "XNAS.ITCH",
+      "provider_dataset_id": "XNAS.ITCH",
+      "storage_kind": "postgres",
+      "schema": "mbo",
+      "symbol_patterns": [
+        "*.XNAS",
+        "*"
+      ],
+      "instrument_id_templates": [
+        "{symbol}.XNAS"
+      ],
+      "license_start": "2018-01-01",
+      "license_end": null
     }
   ]
 }

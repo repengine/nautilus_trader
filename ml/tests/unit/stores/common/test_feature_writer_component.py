@@ -281,7 +281,7 @@ class TestWriteFeaturesExplicitArgs:
             feature_writer.write_features(
                 feature_set_id="test_fs_001",
                 instrument_id="SPY.DATABENTO",
-                features={"close_return": 0.01, "volume_ratio": 1.5},
+                features={"close_return": 0.01, "volume_ratio_20": 1.5},
                 ts_event=1700000000000000000,
                 ts_init=1700000000000000000,
             )
@@ -293,7 +293,7 @@ class TestWriteFeaturesExplicitArgs:
             assert row["feature_set_id"] == "test_fs_001"
             assert row["instrument_id"] == "SPY.DATABENTO"
             assert row["values"]["close_return"] == 0.01
-            assert row["values"]["volume_ratio"] == 1.5
+            assert row["values"]["volume_ratio_20"] == 1.5
             assert row["is_live"] is False
             assert row["source"] == "computed"
 

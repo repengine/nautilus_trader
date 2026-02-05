@@ -149,17 +149,17 @@ class TestFacadeHappyPath:
         """
         import polars as pl
 
-        # Mock the legacy builder's build_training_dataset
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.build_training_dataset.return_value = sample_ohlcv_polars_df.with_columns(
-                [
-                    pl.lit(0).alias("y"),
-                    pl.lit(0.001).alias("forward_return"),
-                ]
-            )
-            mock_builder_cls.return_value = mock_builder
-
+        mock_result = sample_ohlcv_polars_df.with_columns(
+            [
+                pl.lit(0).alias("y"),
+                pl.lit(0.001).alias("forward_return"),
+            ]
+        )
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=mock_result,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
                 symbols=["SPY"],
@@ -169,6 +169,7 @@ class TestFacadeHappyPath:
 
             assert isinstance(result, pl.DataFrame)
             assert "timestamp" in result.columns or "ts_event" in result.columns
+            mock_build.assert_called_once()
 
     def test_e2_facade_prepare_training_data(
         self,
@@ -184,11 +185,11 @@ class TestFacadeHappyPath:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.prepare_training_data.return_value = sample_ohlcv_polars_df
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=sample_ohlcv_polars_df,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
                 symbols=["SPY"],
@@ -200,7 +201,7 @@ class TestFacadeHappyPath:
             )
 
             assert isinstance(result, pl.DataFrame)
-            mock_builder.prepare_training_data.assert_called_once()
+            mock_build.assert_called_once()
 
     def test_e3_facade_uses_feature_store_when_configured(
         self,
@@ -214,19 +215,15 @@ class TestFacadeHappyPath:
         Expected: Calls FeatureStore.get_training_data
 
         """
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder_cls.return_value = mock_builder
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+            feature_store=mock_feature_store,
+        )
 
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-                feature_store=mock_feature_store,
-            )
-
-            # The facade should have feature_store configured
-            assert facade.feature_store is not None
-            assert facade.feature_store is mock_feature_store
+        # The facade should have feature_store configured
+        assert facade.feature_store is not None
+        assert facade.feature_store is mock_feature_store
 
     def test_e4_facade_falls_back_to_direct_computation(
         self,
@@ -246,11 +243,11 @@ class TestFacadeHappyPath:
         # Make feature store fail
         mock_feature_store.get_training_data.side_effect = RuntimeError("Store failed")
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.build_training_dataset.return_value = sample_ohlcv_polars_df
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=sample_ohlcv_polars_df,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
                 symbols=["SPY"],
@@ -261,6 +258,7 @@ class TestFacadeHappyPath:
 
             # Should still return a result via fallback
             assert result is not None
+            mock_build.assert_called_once()
 
     def test_e5_facade_api_matches_legacy(self) -> None:
         """
@@ -311,11 +309,11 @@ class TestFacadeHappyPath:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.build_training_dataset.return_value = sample_ohlcv_polars_df
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=sample_ohlcv_polars_df,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
                 symbols=["SPY"],
@@ -327,6 +325,7 @@ class TestFacadeHappyPath:
             )
 
             assert isinstance(result, pl.DataFrame)
+            mock_build.assert_called_once()
 
     def test_e7_facade_pandas_output_mode(
         self,
@@ -342,11 +341,11 @@ class TestFacadeHappyPath:
         """
         import pandas as pd
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.build_training_dataset.return_value = sample_ohlcv_pandas_df
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=sample_ohlcv_pandas_df,
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
                 symbols=["SPY"],
@@ -358,6 +357,7 @@ class TestFacadeHappyPath:
             )
 
             assert isinstance(result, pd.DataFrame)
+            mock_build.assert_called_once()
 
     def test_e8_facade_threshold_bps_alias(
         self,
@@ -371,21 +371,16 @@ class TestFacadeHappyPath:
         Expected: Correctly converts basis points to decimal
 
         """
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.build_training_dataset.return_value = sample_ohlcv_polars_df
-            mock_builder_cls.return_value = mock_builder
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+        )
 
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
+        with pytest.raises(TypeError):
+            facade.build_training_dataset(
+                target_semantics=TARGET_SEMANTICS,
+                threshold_bps=10,
             )
-
-            with pytest.raises(TypeError):
-                facade.build_training_dataset(
-                    target_semantics=TARGET_SEMANTICS,
-                    threshold_bps=10,
-                )
 
 
 # =============================================================================
@@ -426,16 +421,24 @@ class TestErrorConditions:
         by returning an empty DataFrame rather than raising.
 
         """
-        # None catalog is handled gracefully by returning empty DataFrame
-        facade = TFTDatasetBuilderFacade(
-            catalog=None,  # type: ignore[arg-type]
-            symbols=["SPY"],
-        )
-        # Try to use it - should return empty, not raise
-        result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
+        import polars as pl
 
-        # Verify it returns empty DataFrame (graceful degradation)
-        assert len(result) == 0
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=pl.DataFrame(),
+        ) as mock_build:
+            # None catalog is handled gracefully by returning empty DataFrame
+            facade = TFTDatasetBuilderFacade(
+                catalog=None,  # type: ignore[arg-type]
+                symbols=["SPY"],
+            )
+            # Try to use it - should return empty, not raise
+            result = facade.build_training_dataset(target_semantics=TARGET_SEMANTICS)
+
+            # Verify it returns empty DataFrame (graceful degradation)
+            assert len(result) == 0
+            mock_build.assert_called_once()
 
     def test_e14_facade_data_store_failure_handled(
         self,
@@ -453,11 +456,11 @@ class TestErrorConditions:
         # Make data store fail
         mock_data_store.read_range.side_effect = RuntimeError("DataStore failed")
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            mock_builder.build_training_dataset.return_value = sample_ohlcv_polars_df
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=sample_ohlcv_polars_df,
+        ) as mock_build:
             # Should not raise, should fall back
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
@@ -469,6 +472,7 @@ class TestErrorConditions:
 
             # Should succeed with fallback
             assert result is not None
+            mock_build.assert_called_once()
 
     def test_e15_facade_no_data_found_error(
         self,
@@ -483,12 +487,11 @@ class TestErrorConditions:
         """
         import polars as pl
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder") as mock_builder_cls:
-            mock_builder = MagicMock()
-            # Return empty DataFrame
-            mock_builder.build_training_dataset.return_value = pl.DataFrame()
-            mock_builder_cls.return_value = mock_builder
-
+        with patch.object(
+            TFTDatasetBuilderFacade,
+            "_build_training_dataset_direct",
+            return_value=pl.DataFrame(),
+        ) as mock_build:
             facade = TFTDatasetBuilderFacade(
                 catalog=mock_parquet_catalog,
                 symbols=["NONEXISTENT_SYMBOL"],
@@ -498,6 +501,7 @@ class TestErrorConditions:
 
             # Should return empty DataFrame (not raise)
             assert len(result) == 0
+            mock_build.assert_called_once()
 
 
 # =============================================================================
@@ -519,13 +523,12 @@ class TestComponentAccess:
         """
         from ml.data.common import TimeSeriesWindowingComponent
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+        )
 
-            assert isinstance(facade.windowing_component, TimeSeriesWindowingComponent)
+        assert isinstance(facade.windowing_component, TimeSeriesWindowingComponent)
 
     def test_feature_alignment_component_accessible(
         self,
@@ -536,13 +539,12 @@ class TestComponentAccess:
         """
         from ml.data.common import FeatureAlignmentComponent
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+        )
 
-            assert isinstance(facade.feature_alignment_component, FeatureAlignmentComponent)
+        assert isinstance(facade.feature_alignment_component, FeatureAlignmentComponent)
 
     def test_target_generation_component_accessible(
         self,
@@ -553,13 +555,12 @@ class TestComponentAccess:
         """
         from ml.data.common import TargetGenerationComponent
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+        )
 
-            assert isinstance(facade.target_generation_component, TargetGenerationComponent)
+        assert isinstance(facade.target_generation_component, TargetGenerationComponent)
 
     def test_schema_validator_component_accessible(
         self,
@@ -570,13 +571,12 @@ class TestComponentAccess:
         """
         from ml.data.common import TFTSchemaValidatorComponent
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+        )
 
-            assert isinstance(facade.schema_validator_component, TFTSchemaValidatorComponent)
+        assert isinstance(facade.schema_validator_component, TFTSchemaValidatorComponent)
 
 
 # =============================================================================
@@ -596,22 +596,21 @@ class TestInitParameters:
         """
         Verify student_mode disables macro, events, L2, and earnings.
         """
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            facade = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-                student_mode=True,
-                include_macro=True,
-                include_events=True,
-                include_l2=True,
-                include_earnings=True,
-            )
+        facade = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+            student_mode=True,
+            include_macro=True,
+            include_events=True,
+            include_l2=True,
+            include_earnings=True,
+        )
 
-            # All should be disabled by student mode
-            assert facade.include_macro is False
-            assert facade.include_events is False
-            assert facade.include_l2 is False
-            assert facade.include_earnings is False
+        # All should be disabled by student mode
+        assert facade.include_macro is False
+        assert facade.include_events is False
+        assert facade.include_l2 is False
+        assert facade.include_earnings is False
 
     def test_negative_earnings_lag_raises(
         self,
@@ -636,23 +635,22 @@ class TestInitParameters:
         """
         import pytz
 
-        with patch("ml.data.tft_dataset_builder.TFTDatasetBuilder"):
-            # Test with naive datetime (should assume UTC)
-            naive_dt = datetime(2024, 1, 1, 12, 0, 0)
-            facade1 = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-                vintage_as_of=naive_dt,
-            )
-            assert facade1.vintage_as_of is not None
-            assert facade1.vintage_as_of.tzinfo is not None
+        # Test with naive datetime (should assume UTC)
+        naive_dt = datetime(2024, 1, 1, 12, 0, 0)
+        facade1 = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+            vintage_as_of=naive_dt,
+        )
+        assert facade1.vintage_as_of is not None
+        assert facade1.vintage_as_of.tzinfo is not None
 
-            # Test with aware datetime (should convert to UTC)
-            aware_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=pytz.timezone("US/Eastern"))
-            facade2 = TFTDatasetBuilderFacade(
-                catalog=mock_parquet_catalog,
-                symbols=["SPY"],
-                vintage_as_of=aware_dt,
-            )
-            assert facade2.vintage_as_of is not None
-            assert facade2.vintage_as_of.tzinfo == UTC
+        # Test with aware datetime (should convert to UTC)
+        aware_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=pytz.timezone("US/Eastern"))
+        facade2 = TFTDatasetBuilderFacade(
+            catalog=mock_parquet_catalog,
+            symbols=["SPY"],
+            vintage_as_of=aware_dt,
+        )
+        assert facade2.vintage_as_of is not None
+        assert facade2.vintage_as_of.tzinfo == UTC

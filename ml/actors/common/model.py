@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -342,6 +343,9 @@ class ModelComponent:
         else:
             raise ValueError(f"Unsupported model format: {file_ext}")
 
+        # Merge sidecar metadata (output schema, calibration, training hints)
+        self._merge_sidecar_metadata(model_path)
+
         # Security check passed
         self._security_counter.labels(result="allowed").inc()
 
@@ -502,7 +506,7 @@ class ModelComponent:
             input_names = [inp.name for inp in inputs_meta]
             output_names = [out.name for out in outputs_meta]
 
-            self._model_metadata = {
+            onnx_metadata = {
                 "input_shape": input_shape,
                 "output_shape": output_shape,
                 "framework": "ONNX",
@@ -519,9 +523,63 @@ class ModelComponent:
                     for out in outputs_meta
                 ],
             }
+            if self._model_metadata:
+                merged = dict(self._model_metadata)
+                merged.update(onnx_metadata)
+                self._model_metadata = merged
+            else:
+                self._model_metadata = onnx_metadata
 
         except Exception as e:
             self._logger.debug(f"Failed to extract ONNX metadata: {e}", exc_info=True)
+
+    def _merge_sidecar_metadata(self, model_path: Path) -> None:
+        """
+        Merge sidecar metadata into model metadata (best-effort).
+
+        Sidecars provide output schema, calibration params, and training hints
+        needed for inference parity. Existing metadata keys are preserved.
+        """
+        try:
+            from ml.common.model_sidecar import extract_inference_metadata
+            from ml.common.model_sidecar import resolve_model_sidecar_metadata
+
+            sidecar = resolve_model_sidecar_metadata(model_path)
+            if sidecar is None:
+                return
+
+            output_schema, calibration = extract_inference_metadata(sidecar)
+            if output_schema is not None and "output_schema" not in self._model_metadata:
+                self._model_metadata["output_schema"] = output_schema
+            if calibration is not None and "calibration" not in self._model_metadata:
+                self._model_metadata["calibration"] = calibration
+
+            training_meta = sidecar.get("training_metadata")
+            if (
+                "training_metadata" not in self._model_metadata
+                and isinstance(training_meta, Mapping)
+            ):
+                self._model_metadata["training_metadata"] = dict(training_meta)
+
+            for key in (
+                "size_bytes",
+                "input_shape",
+                "output_shape",
+                "input_names",
+                "output_names",
+                "model_type",
+                "version",
+                "modified_time",
+            ):
+                if key not in self._model_metadata and key in sidecar:
+                    self._model_metadata[key] = sidecar[key]
+        except Exception as exc:
+            self._logger.debug(
+                "Sidecar metadata merge failed for %s: %s",
+                model_path,
+                exc,
+                exc_info=True,
+            )
 
     def _determine_model_id(self) -> None:
         """

@@ -51,20 +51,21 @@ from nautilus_trader.model.data import Bar
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
-from ml.actors.common.signal_metadata import build_prediction_surface_metadata
+from ml.actors.common import build_prediction_surface_metadata
+from ml.actors.common.features import build_feature_dict
+from ml.actors.common.model_warmup import ModelWarmUpComponent
+from ml.common import decision_from_probability
+from ml.common import normalize_prediction_output
+from ml.common import resolve_output_is_logits
+from ml.common import resolve_positive_class_index
 from ml.common.logging_utils import log_best_effort
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
-from ml.common.prediction_surface import decision_from_probability
-from ml.common.prediction_surface import normalize_prediction_output
-from ml.common.prediction_surface import resolve_output_is_logits
-from ml.common.prediction_surface import resolve_positive_class_index
 from ml.config.names import FEATURE_TIME_BUCKETS
 
 
 if TYPE_CHECKING:
     from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
-    from ml.actors.common.model_warmup import ModelWarmUpComponent
     from ml.actors.common.performance_monitoring import PerformanceMonitoringComponent
     from ml.actors.common.prediction_buffer import PredictionBufferComponent
     from ml.actors.common.signal_strategy import SignalGenerationStrategy
@@ -627,7 +628,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             }
             decision_metadata = getattr(self, "_decision_metadata_payload", None)
             if decision_metadata is None:
-                from ml.common.decision_metadata import decision_metadata_from_model_metadata
+                from ml.common import decision_metadata_from_model_metadata
 
                 decision_metadata = decision_metadata_from_model_metadata(
                     getattr(self, "_model_metadata", None),
@@ -1127,21 +1128,15 @@ class MLSignalActorFacade(BaseMLInferenceActor):
                     self.log.exception("Failed to fetch feature names; continuing", exc)
                     names = []
 
-            if names and len(names) == features.shape[0]:
-                feature_dict: dict[str, float] = {
-                    names[i]: float(features[i]) for i in range(len(names))
-                }
-            else:
-                feature_dict = {
-                    f"feature_{i}": float(features[i]) for i in range(int(features.shape[0]))
-                }
+            feature_dict = build_feature_dict(
+                features,
+                feature_names=names if names else None,
+            )
 
             # Calculate inference time
             inference_time_ms = (time.perf_counter() - start_time) * 1000.0
 
-            # Write to model store
-            self._model_store.write_prediction(
-                model_id=self._model_id,
+            self._persist_prediction_async(
                 instrument_id=str(bar.bar_type.instrument_id),
                 prediction=float(prediction),
                 confidence=float(confidence),

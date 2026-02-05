@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import polars as pl
+import pytest
 
 from ml.tasks.datasets.splits import create_purged_splits
 
@@ -46,3 +47,36 @@ def test_create_purged_splits_embargo_ratio() -> None:
 
     splits = create_purged_splits(df, embargo_hours=48)
     assert 0 <= splits["embargo_pct"] < 0.5
+
+
+def test_create_purged_splits_embargo_pct_override() -> None:
+    timestamps = pl.datetime_range(
+        start=pl.datetime(2024, 1, 1),
+        end=pl.datetime(2024, 1, 20),
+        interval="1d",
+        eager=True,
+    )
+    df = pl.DataFrame({"timestamp": timestamps, "value": list(range(len(timestamps)))})
+
+    splits = create_purged_splits(
+        df,
+        embargo_hours=0.0,
+        embargo_pct=0.2,
+        n_splits=3,
+    )
+
+    assert splits["embargo_pct"] == pytest.approx(0.2)
+    assert len(splits["cv_splits"]) == 3
+
+
+def test_create_purged_splits_invalid_embargo_pct() -> None:
+    timestamps = pl.datetime_range(
+        start=pl.datetime(2024, 1, 1),
+        end=pl.datetime(2024, 1, 10),
+        interval="1d",
+        eager=True,
+    )
+    df = pl.DataFrame({"timestamp": timestamps})
+
+    with pytest.raises(ValueError, match="embargo_pct must be in"):
+        create_purged_splits(df, embargo_pct=1.2)

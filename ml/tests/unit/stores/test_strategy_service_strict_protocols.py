@@ -10,6 +10,7 @@ import pytest
 from ml.config.events import EventStatus, Source, Stage
 from ml.registry.dataclasses import DataContract, DatasetManifest
 from ml.registry.protocols import RegistryProtocol
+from ml.stores.base import StrategyReplaySummary
 from ml.stores.base import StrategySignal
 from ml.stores.services.strategy_services import (
     StrategyOrderEventEventService,
@@ -208,9 +209,22 @@ class _EventRegistry(RegistryProtocol):
         return []
 
 
+class _FailingEventRegistry(_EventRegistry):
+    def register_dataset(self, manifest: object) -> str:  # noqa: D401
+        raise RuntimeError("register failed")
+
+
 class _EventDeps(StrategyEventDepsStrict):
     def __init__(self) -> None:
         self._registry = _EventRegistry()
+
+    def _get_data_registry(self) -> RegistryProtocol | None:  # noqa: D401
+        return self._registry
+
+
+class _EventDepsWithRegistry(StrategyEventDepsStrict):
+    def __init__(self, registry: RegistryProtocol) -> None:
+        self._registry = registry
 
     def _get_data_registry(self) -> RegistryProtocol | None:  # noqa: D401
         return self._registry
@@ -290,3 +304,27 @@ def test_strategy_clear_and_events_strict_protocol_smoke() -> None:
 
     rses = StrategyReplaySummaryEventService(eeps, logging.getLogger(__name__))
     rses.emit_replay_summary_events([])  # no error on empty input
+
+
+def test_replay_summary_event_service_skips_when_manifest_missing() -> None:
+    registry = _FailingEventRegistry()
+    deps = _EventDepsWithRegistry(registry)
+    svc = StrategyReplaySummaryEventService(deps, logging.getLogger(__name__))
+    summary = StrategyReplaySummary(
+        run_id="run-1",
+        instrument_ids=["EURUSD"],
+        started_ns=10,
+        finished_ns=20,
+        total_orders=2,
+        total_fills=1,
+        total_halts=1,
+        total_sizing_rejects=0,
+        total_positions=1,
+        _ts_event=20,
+        _ts_init=20,
+        ingested_at_ns=21,
+    )
+
+    svc.emit_replay_summary_events([summary])
+
+    assert registry.events == []

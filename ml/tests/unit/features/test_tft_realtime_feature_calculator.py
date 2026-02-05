@@ -69,22 +69,21 @@ def _build_feature_names() -> list[str]:
         "return_1",
         "return_5",
         "return_20",
-        "volume_ratio",
+        "volume_ratio_20",
         "volatility_20",
-        "sma_5",
-        "sma_20",
-        "price_position",
+        "price_sma_5",
+        "price_sma_20",
+        "price_position_20",
         "tick_size",
-        "hour",
-        "minute",
-        "tod_sin",
-        "tod_cos",
-        "dow",
+        "hour_sin",
+        "hour_cos",
+        "minute_sin",
+        "minute_cos",
         "dow_sin",
         "dow_cos",
-        "is_market_open",
-        "is_premarket",
-        "is_aftermarket",
+        "is_market_hours",
+        "is_pre_market",
+        "is_after_hours",
     ]
 
 
@@ -147,13 +146,15 @@ def test_tft_realtime_feature_calculator_values() -> None:
     min_low = closes[-20] - 1.0
     max_high = closes[-1] + 1.0
     expected_price_position = (expected_close - min_low) / (max_high - min_low)
+    expected_tick_size = 0.01
 
     last_dt = base_dt + timedelta(minutes=24)
-    minute_of_day = last_dt.hour * 60 + last_dt.minute
-    tod_angle = 2.0 * np.pi * minute_of_day / (24.0 * 60.0)
-    expected_tod_sin = float(np.sin(tod_angle))
-    expected_tod_cos = float(np.cos(tod_angle))
-    expected_dow = float(last_dt.weekday())
+    hour_angle = 2.0 * np.pi * ((last_dt.hour + last_dt.minute / 60.0) / 24.0)
+    expected_hour_sin = float(np.sin(hour_angle))
+    expected_hour_cos = float(np.cos(hour_angle))
+    minute_angle = 2.0 * np.pi * (last_dt.minute / 60.0)
+    expected_minute_sin = float(np.sin(minute_angle))
+    expected_minute_cos = float(np.cos(minute_angle))
     dow_angle = 2.0 * np.pi * last_dt.weekday() / 7.0
     expected_dow_sin = float(np.sin(dow_angle))
     expected_dow_cos = float(np.cos(dow_angle))
@@ -166,19 +167,19 @@ def test_tft_realtime_feature_calculator_values() -> None:
     assert np.isclose(features[idx_map["return_1"]], expected_return_1)
     assert np.isclose(features[idx_map["return_5"]], expected_return_5)
     assert np.isclose(features[idx_map["return_20"]], expected_return_20)
-    assert np.isclose(features[idx_map["sma_5"]], expected_sma_5)
-    assert np.isclose(features[idx_map["sma_20"]], expected_sma_20)
+    assert np.isclose(features[idx_map["price_sma_5"]], expected_sma_5)
+    assert np.isclose(features[idx_map["price_sma_20"]], expected_sma_20)
     assert np.isclose(features[idx_map["volatility_20"]], expected_vol)
-    assert np.isclose(features[idx_map["volume_ratio"]], expected_volume_ratio)
-    assert np.isclose(features[idx_map["price_position"]], expected_price_position)
+    assert np.isclose(features[idx_map["volume_ratio_20"]], expected_volume_ratio)
+    assert np.isclose(features[idx_map["price_position_20"]], expected_price_position)
+    assert np.isclose(features[idx_map["tick_size"]], expected_tick_size)
 
-    assert np.isclose(features[idx_map["hour"]], last_dt.hour)
-    assert np.isclose(features[idx_map["minute"]], last_dt.minute)
-    assert np.isclose(features[idx_map["tod_sin"]], expected_tod_sin)
-    assert np.isclose(features[idx_map["tod_cos"]], expected_tod_cos)
-    assert np.isclose(features[idx_map["dow"]], expected_dow)
+    assert np.isclose(features[idx_map["hour_sin"]], expected_hour_sin)
+    assert np.isclose(features[idx_map["hour_cos"]], expected_hour_cos)
+    assert np.isclose(features[idx_map["minute_sin"]], expected_minute_sin)
+    assert np.isclose(features[idx_map["minute_cos"]], expected_minute_cos)
     assert np.isclose(features[idx_map["dow_sin"]], expected_dow_sin)
     assert np.isclose(features[idx_map["dow_cos"]], expected_dow_cos)
-    assert np.isclose(features[idx_map["is_market_open"]], expected_is_market_open)
-    assert np.isclose(features[idx_map["is_premarket"]], expected_is_premarket)
-    assert np.isclose(features[idx_map["is_aftermarket"]], expected_is_aftermarket)
+    assert np.isclose(features[idx_map["is_market_hours"]], expected_is_market_open)
+    assert np.isclose(features[idx_map["is_pre_market"]], expected_is_premarket)
+    assert np.isclose(features[idx_map["is_after_hours"]], expected_is_aftermarket)

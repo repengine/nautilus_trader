@@ -76,3 +76,22 @@ def test_ensure_day_skips_empty_partition(tmp_path: Path, monkeypatch: pytest.Mo
     cache.ensure_day("SPY", target_day, tmp_path)
 
     assert not partition.exists()
+
+
+def test_get_range_drops_non_canonical_columns(tmp_path: Path) -> None:
+    cache = L2MinuteCache(tmp_path)
+    target_day = date(2024, 1, 5)
+    partition = cache.path_for("SPY", target_day)
+    partition.parent.mkdir(parents=True, exist_ok=True)
+    df = _full_row(datetime(2024, 1, 5, tzinfo=UTC)).with_columns(
+        pl.lit(1.0).alias("pressure_accel_top1"),
+    )
+    df.write_parquet(partition)
+
+    start = datetime(2024, 1, 5, tzinfo=UTC)
+    end = datetime(2024, 1, 6, tzinfo=UTC)
+
+    out = cache.get_range("SPY", start=start, end=end, raw_base_dir=tmp_path)
+
+    assert "pressure_accel_top1" not in out.columns
+    assert set(out.columns) == set(L2_MINUTE_COLUMNS)

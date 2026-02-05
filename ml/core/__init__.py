@@ -132,6 +132,10 @@ def __getattr__(name: str) -> object:
     """
     Lazy import integration symbols to avoid import-time cycles.
     """
+    if name == "integration_facade":
+        import importlib
+
+        return importlib.import_module("ml.core.integration_facade")
     if name in {
         "ActorStoresRegistries",
         "MLIntegrationManager",

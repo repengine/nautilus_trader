@@ -36,16 +36,16 @@ import structlog
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common import WatermarkRegistryProtocol
+from ml.common import resolve_watermark_start_datetime
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.common.timestamps import sanitize_timestamp_ns
-from ml.common.watermark_window import WatermarkRegistryProtocol
-from ml.common.watermark_window import resolve_watermark_start_datetime
+from ml.config import WatermarkWindowConfig
+from ml.config import macro_window_defaults
 from ml.config.dataset_ids import MACRO_OBSERVATIONS_DATASET_ID
 from ml.config.dataset_ids import MACRO_RELEASES_DATASET_ID
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
-from ml.config.ingestion_windows import macro_window_defaults
 
 
 logger = structlog.get_logger(__name__)

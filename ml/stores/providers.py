@@ -718,6 +718,31 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
                     d["source"] = self.default_source
             if "source_dataset" in cols and "source_dataset" in table_columns:
                 d["source_dataset"] = _maybe(getattr(r, "source_dataset", None))
+            if "bids" in table_columns and "bids" in cols:
+                d["bids"] = _maybe(getattr(r, "bids", None))
+            if "asks" in table_columns and "asks" in cols:
+                d["asks"] = _maybe(getattr(r, "asks", None))
+            if "bid_counts" in table_columns and "bid_counts" in cols:
+                d["bid_counts"] = _maybe(getattr(r, "bid_counts", None))
+            if "ask_counts" in table_columns and "ask_counts" in cols:
+                d["ask_counts"] = _maybe(getattr(r, "ask_counts", None))
+            if "action" in table_columns and "action" in cols:
+                d["action"] = _maybe(getattr(r, "action", None))
+            if "order_payload" in table_columns:
+                if "order_payload" in cols:
+                    d["order_payload"] = _maybe(getattr(r, "order_payload", None))
+                elif "order" in cols:
+                    d["order_payload"] = _maybe(getattr(r, "order", None))
+            if "flags" in table_columns:
+                if "flags" in cols:
+                    d["flags"] = _maybe(getattr(r, "flags", None))
+                else:
+                    d["flags"] = 0
+            if "sequence" in table_columns:
+                if "sequence" in cols:
+                    d["sequence"] = _maybe(getattr(r, "sequence", None))
+                else:
+                    d["sequence"] = 0
             return d
 
         def _write_records(conn: Connection, records: list[dict[str, object]]) -> None:

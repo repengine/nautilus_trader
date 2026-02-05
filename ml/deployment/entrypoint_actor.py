@@ -16,15 +16,15 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TraderId
 
-from ml.actors.multi_signal import MultiInstrumentSignalActor
 from ml.actors.multi_signal import MultiInstrumentSignalActorConfig
 from ml.actors.recorder import RecorderActor
+from ml.actors.signal import create_signal_actor
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.common.subprocess_utils import SubprocessExecutionError
@@ -39,8 +39,6 @@ from ml.registry.base import DummyRegistry
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores import DataStore
-from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.writers import CatalogWriteFacade
 from ml.stores.writers import LiveDataRecorder
 from ml.stores.writers import ParquetCatalogMarketDataWriter
@@ -54,7 +52,7 @@ from nautilus_trader.live.node import TradingNode
 logger = logging.getLogger(__name__)
 
 # Backwards compatibility for legacy import paths used in tests and scripts.
-MLSignalActor = MultiInstrumentSignalActor
+MLSignalActor = create_signal_actor
 MLSignalActorConfig = MultiInstrumentSignalActorConfig
 
 
@@ -187,6 +185,14 @@ class MLSignalActorNode:
             "log_predictions": _get_bool("LOG_PREDICTIONS", True),
             "use_dummy_stores": use_dummy_stores,
             "enable_health_monitoring": True,
+            "enable_async_persistence": _get_bool("ML_ENABLE_ASYNC_PERSISTENCE", True),
+            "allow_sync_persistence_fallback": _get_bool(
+                "ML_ALLOW_SYNC_PERSISTENCE_FALLBACK",
+                True,
+            ),
+            "persistence_queue_size": _get_int("ML_PERSISTENCE_QUEUE_SIZE", 10000),
+            "persistence_flush_interval": _get_float("ML_PERSISTENCE_FLUSH_INTERVAL_S", 1.0),
+            "persistence_batch_size": _get_int("ML_PERSISTENCE_BATCH_SIZE", 100),
         }
         if not use_dummy_stores:
             actor_kwargs["db_connection"] = db_connection
@@ -352,10 +358,7 @@ class MLSignalActorNode:
                 )
                 if mgr.data_store is None:
                     raise RuntimeError("DataStore not initialized")
-                data_store = cast(
-                    DataStore | DataStoreFacadeProtocol,
-                    mgr.data_store,
-                )
+                data_store = mgr.data_store
                 data_registry = mgr.data_registry
                 if data_registry is None or isinstance(data_registry, DummyRegistry):
                     raise RuntimeError("DataRegistry not initialized")

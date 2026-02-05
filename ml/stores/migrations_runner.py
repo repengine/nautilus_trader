@@ -728,6 +728,14 @@ def verify_market_data_schema(
                 config.mbp1_table,
                 ("instrument_id", "ts_event", "ts_init", "bid", "ask", "bid_size", "ask_size"),
             ),
+            (
+                config.mbp10_table,
+                ("instrument_id", "ts_event", "ts_init", "bids", "asks", "bid_counts", "ask_counts"),
+            ),
+            (
+                config.mbo_table,
+                ("instrument_id", "ts_event", "ts_init", "action", "order_payload"),
+            ),
             (config.trade_tick_table, ("instrument_id", "ts_event", "ts_init", "last")),
         )
         for table_name, required_columns in expectations:

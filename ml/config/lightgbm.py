@@ -14,6 +14,7 @@ from typing import Any
 
 import msgspec
 
+from ml.common.validation_strategies import DEFAULT_CV_STRATEGY
 from ml.config._env_utils import ensure_env as _ensure_env
 from ml.config._env_utils import env_non_negative_int as _env_non_negative_int
 from ml.config._env_utils import env_positive_float as _env_positive_float
@@ -485,6 +486,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
             "ML_TRAIN_CV_STRATEGY",
             "ML_TRAIN_CV_FOLDS",
             "ML_TRAIN_PURGE_GAP",
+            "ML_TRAIN_EMBARGO_PCT",
             "ML_TRAIN_EXPORT_ONNX",
             "ML_TRAIN_ONNX_OUTPUT_PATH",
             "ML_TRAIN_ENABLE_MONITORING",
@@ -521,7 +523,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         """
         Cross-validation strategy.
         """
-        return self.advanced_config.cv_strategy if self.advanced_config else "time_series"
+        return self.advanced_config.cv_strategy if self.advanced_config else DEFAULT_CV_STRATEGY
 
     @property
     def cv_folds(self) -> int:
@@ -536,6 +538,13 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         Gap between train/test in purged cross-validation.
         """
         return self.advanced_config.purge_gap if self.advanced_config else 10
+
+    @property
+    def embargo_pct(self) -> float:
+        """
+        Percentage of samples to embargo after each validation fold.
+        """
+        return self.advanced_config.embargo_pct if self.advanced_config else 0.0
 
     @property
     def export_onnx(self) -> bool:

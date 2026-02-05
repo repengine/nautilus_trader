@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from ml.common.validation_strategies import require_holdout_strategy
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -85,7 +86,7 @@ class ChronosEvaluationConfig(NautilusConfig, kw_only=True, frozen=True):
         Whether to drop constant numeric features.
     filter_market_hours : bool, default True
         Whether to filter to market hours before splitting.
-    market_hours_column : str, default "is_market_open"
+    market_hours_column : str, default "is_market_hours"
         Column used for market hours filtering.
     market_hours_value : bool, default True
         Value indicating a row is within market hours.
@@ -93,6 +94,20 @@ class ChronosEvaluationConfig(NautilusConfig, kw_only=True, frozen=True):
         Subdirectory used for evaluation reports.
     report_filename : str, default "chronos_evaluation.json"
         Filename used for evaluation reports.
+    validation_strategy : str, default "time_window"
+        Validation strategy ("time_window" or "purged").
+    purge_gap : NonNegativeInt, default 0
+        Gap between train/validation folds for purged splits.
+    embargo_pct : NonNegativeFloat, default 0.0
+        Embargo percentage for purged validation splits.
+    cv_splits : PositiveInt, default 5
+        Number of purged splits to compute when validation_strategy is "purged".
+
+    Notes
+    -----
+    When ``validation_strategy="purged"``, ``train_fraction`` and ``val_fraction``
+    are ignored and the last purged split is used for train/validation. The
+    ``test_fraction`` still controls the holdout window.
     """
 
     train_fraction: NonNegativeFloat = 0.7
@@ -104,15 +119,19 @@ class ChronosEvaluationConfig(NautilusConfig, kw_only=True, frozen=True):
     timestamp_column: str = "ts_event"
     target_column: str = "forward_return"
     baseline_strategy: ChronosBaselineStrategy = "per_item_mean"
-    feature_exclude_columns: tuple[str, ...] = ("is_weekend", "is_market_open")
+    feature_exclude_columns: tuple[str, ...] = ("is_weekend", "is_market_hours")
     feature_exclude_suffixes: tuple[str, ...] = ("_vintage_ts",)
     drop_non_numeric_features: bool = True
     drop_constant_features: bool = True
     filter_market_hours: bool = True
-    market_hours_column: str = "is_market_open"
+    market_hours_column: str = "is_market_hours"
     market_hours_value: bool = True
     report_dir_name: str = "reports"
     report_filename: str = "chronos_evaluation.json"
+    validation_strategy: str = "time_window"
+    purge_gap: NonNegativeInt = 0
+    embargo_pct: NonNegativeFloat = 0.0
+    cv_splits: PositiveInt = 5
 
     def __post_init__(self) -> None:
         """Validate split fractions and column names."""
@@ -131,6 +150,11 @@ class ChronosEvaluationConfig(NautilusConfig, kw_only=True, frozen=True):
             raise ValueError("val_fraction must be > 0")
         if float(self.test_fraction) <= 0.0:
             raise ValueError("test_fraction must be > 0")
+        normalized_strategy = require_holdout_strategy(str(self.validation_strategy))
+        if normalized_strategy == "purged" and int(self.cv_splits) < 2:
+            raise ValueError("cv_splits must be >= 2 for purged validation")
+        if float(self.embargo_pct) < 0.0 or float(self.embargo_pct) >= 1.0:
+            raise ValueError("embargo_pct must be in [0.0, 1.0)")
 
 
 class ChronosOnnxDistillationConfig(NautilusConfig, kw_only=True, frozen=True):

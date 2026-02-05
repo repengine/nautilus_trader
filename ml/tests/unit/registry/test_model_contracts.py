@@ -423,7 +423,7 @@ def create_valid_student_manifest(teacher_id: str) -> ModelManifest:
         "close": "float32",
         "volume": "float32",
         "rsi": "float32",
-        "sma_20": "float32",
+        "price_sma_20": "float32",
         "ema_10": "float32",
         # L1-only features
         **{f"ta_feature_{i}": "float32" for i in range(10)},

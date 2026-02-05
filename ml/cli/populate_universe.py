@@ -133,7 +133,7 @@ class DataLevel:
     _SCHEMA_MAP: ClassVar[dict[str, str]] = {
         L0: "ohlcv-1m",
         L1: "trades",  # Quotes handled separately via bbo-1s
-        L2: "mbp-10",
+        L2: "mbp-1",
         L3: "mbo",
     }
 

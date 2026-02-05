@@ -26,19 +26,20 @@ def _truthy(name: str, default: bool = False) -> bool:
 @dataclass(frozen=True)
 class ActorBusConfig:
     """
-    Resolved actor-side bus configuration.
+    Resolved bus bridge configuration for hot-path components.
 
-    Exactly one of `from_actor` or `from_store` should be enabled.
-
+    Exactly one of `from_actor`, `from_strategy`, or `from_store` should be enabled.
     """
 
     from_actor: bool
+    from_strategy: bool
     from_store: bool
     scheme: TopicScheme
     prefix: str
     throttle_enabled: bool
     throttle_rate_per_sec: float
     throttle_burst: int
+    max_queue: int
 
     @staticmethod
     def from_env() -> ActorBusConfig:
@@ -46,6 +47,7 @@ class ActorBusConfig:
         Create configuration from environment variables.
         """
         from_actor = _truthy("ML_BUS_FROM_ACTOR", default=False)
+        from_strategy = _truthy("ML_BUS_FROM_STRATEGY", default=False)
         from_store = _truthy("ML_BUS_FROM_STORE", default=False)
 
         scheme_raw = (os.getenv("ML_BUS_SCHEME") or "domain_op").strip().lower()
@@ -62,19 +64,30 @@ class ActorBusConfig:
         except ValueError:
             throttle_burst = 100
 
-        # Exclusive path validation (not fatal): prefer actor if both set
-        if from_actor and from_store:
-            # Prefer actor to avoid store hot-path I/O; disable store path
+        try:
+            max_queue = int(os.getenv("ML_BUS_MAX_QUEUE", "4096"))
+        except ValueError:
+            max_queue = 4096
+        if max_queue <= 0:
+            max_queue = 4096
+
+        # Exclusive path validation (not fatal): prefer actor > strategy > store
+        if from_actor:
+            from_strategy = False
+            from_store = False
+        elif from_strategy:
             from_store = False
 
         return ActorBusConfig(
             from_actor=from_actor,
+            from_strategy=from_strategy,
             from_store=from_store,
             scheme=scheme,
             prefix=prefix,
             throttle_enabled=throttle_enabled,
             throttle_rate_per_sec=throttle_rate,
             throttle_burst=throttle_burst,
+            max_queue=max_queue,
         )
 
 

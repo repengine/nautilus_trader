@@ -220,7 +220,7 @@ class TestRegistryBehaviors:
             control_manifest = RegistryBuilder.model_manifest(
                 model_id="control_model",
                 architecture="LightGBM",
-                feature_schema={"close": "float32", "sma_20": "float32"},
+                feature_schema={"close": "float32", "price_sma_20": "float32"},
                 feature_schema_hash="control_hash",
                 performance_metrics={"accuracy": 0.88},
                 version="1.0.0",
@@ -235,7 +235,7 @@ class TestRegistryBehaviors:
             treatment_manifest = RegistryBuilder.model_manifest(
                 model_id="treatment_model",
                 architecture="XGBoost",
-                feature_schema={"close": "float32", "sma_20": "float32", "rsi_14": "float32"},
+                feature_schema={"close": "float32", "price_sma_20": "float32", "rsi_14": "float32"},
                 feature_schema_hash="treatment_hash",
                 performance_metrics={"accuracy": 0.90},  # Claims to be better
                 version="1.0.0",

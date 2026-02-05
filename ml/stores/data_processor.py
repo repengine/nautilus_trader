@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from sqlalchemy import text
 
+from ml.common import normalize_decision_metadata
 from ml.common.db_utils import get_or_create_engine
-from ml.common.decision_metadata import normalize_decision_metadata
 from ml.common.timestamps import sanitize_timestamp_ns
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction

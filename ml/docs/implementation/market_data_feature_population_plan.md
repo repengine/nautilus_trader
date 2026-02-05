@@ -310,9 +310,9 @@ Definition of Done
 ### 3) Parquet Backup and Rehydration
 - [x] Confirm raw writer is enabled for market data and feature datasets where
       backup is required.
-- [x] Configure dataset-type identifier templates so MBP1 uses a dedicated
-      Parquet identifier suffix (e.g., `mbp1={instrument_id}-MBP1`) to avoid
-      quote-tick overlap.
+- [x] Standardize identifier templates on schema registry defaults (bars use
+      bar-type identifiers; TBBO/Trades/MBP use raw `instrument_id`) and remove
+      suffix overrides that create catalog drift.
 - [x] Validate catalog rehydration routes each schema to the correct table.
 - [x] Ensure rehydration emits registry events and updates watermarks.
 - [x] Add a toggle to disable source reingest during coverage restore when only

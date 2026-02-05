@@ -233,6 +233,26 @@ class ModelRegistryFacade(MLComponentMixin):
         with self._persistence._lock:
             # Validate inputs
             self._validate_registration_inputs(model_path, manifest)
+            # Optional: ingest output schema + calibration from sidecar metadata
+            if manifest.output_schema is None or manifest.calibration is None:
+                try:
+                    from ml.common.model_sidecar import extract_inference_metadata
+                    from ml.common.model_sidecar import resolve_model_sidecar_metadata
+
+                    sidecar = resolve_model_sidecar_metadata(model_path)
+                    if sidecar is not None:
+                        output_schema, calibration = extract_inference_metadata(sidecar)
+                        if manifest.output_schema is None and output_schema is not None:
+                            manifest.output_schema = output_schema
+                        if manifest.calibration is None and calibration is not None:
+                            manifest.calibration = calibration
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to ingest sidecar metadata for %s: %s",
+                        model_path,
+                        exc,
+                        exc_info=True,
+                    )
 
             # Calculate SHA-256 digest for ONNX files
             if model_path.suffix == SUFFIX_ONNX:

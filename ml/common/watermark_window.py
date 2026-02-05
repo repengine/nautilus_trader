@@ -13,8 +13,8 @@ from datetime import timedelta
 from datetime import tzinfo
 from typing import Protocol, runtime_checkable
 
+from ml.config import WatermarkWindowConfig
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
 from ml.registry.watermark import Watermark
 
 

@@ -19,10 +19,10 @@ from typing import Any, cast
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.common.timestamps import sanitize_timestamp_ns
+from ml.config import WatermarkWindowConfig
+from ml.config import events_window_defaults
 from ml.config.dataset_ids import EVENTS_CALENDAR_DATASET_ID
 from ml.config.events import Source
-from ml.config.ingestion_windows import WatermarkWindowConfig
-from ml.config.ingestion_windows import events_window_defaults
 from ml.data.coverage.types import GLOBAL_ENTITY_ID
 from ml.ml_types import PolarsDF
 from ml.stores.protocols import DataStoreFacadeProtocol

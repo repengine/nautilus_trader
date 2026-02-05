@@ -9,10 +9,10 @@ import argparse
 import os
 from pathlib import Path
 
+from ml.config import FeatureStoreMirrorBackfillConfig
+from ml.config import FeatureStoreMirrorConfig
 from ml.config._env_utils import resolve_db_connection
-from ml.config.feature_store_mirror import FeatureStoreMirrorBackfillConfig
-from ml.config.feature_store_mirror import FeatureStoreMirrorConfig
-from ml.stores.feature_store_mirror_backfill import backfill_feature_store_mirror
+from ml.stores import backfill_feature_store_mirror
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

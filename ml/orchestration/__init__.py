@@ -71,6 +71,7 @@ from ml.orchestration.training_coordinator import TrainingCoordinator
 
 # Vintage policy enforcement
 from ml.orchestration.vintage import VintagePolicy
+from ml.orchestration.vintage import VintageWindowPolicy
 
 # Configuration loading utilities
 from . import config_loader
@@ -103,6 +104,7 @@ __all__ = [
     "TrainingCoordinator",
     "TrainingStageConfig",
     "VintagePolicy",
+    "VintageWindowPolicy",
     "compute_next_run",
     "compute_pipeline_signature",
     "config_loader",

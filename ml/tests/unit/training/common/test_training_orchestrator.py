@@ -18,6 +18,7 @@ Following the test design in reports/tests/phase_3_8_test_design_report.md.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,8 @@ from ml.training.common.training_orchestrator import (
     TrainerProtocol,
     TrainingOrchestratorComponent,
 )
+from ml.training.datasets.target_generator import build_target_semantics_metadata
+from ml.tests.utils.targets import build_default_target_semantics
 
 
 # ============================================================================
@@ -234,6 +237,62 @@ class TestableTrainer:
     def _end_mlflow_run(self) -> None:
         """Mock implementation of _end_mlflow_run."""
         self._call_log.append("_end_mlflow_run")
+
+
+# ============================================================================
+# Target Semantics Helpers
+# ============================================================================
+
+
+def _write_metadata(
+    tmp_path: Path,
+    *,
+    target_semantics: dict[str, Any] | None,
+) -> Path:
+    payload: dict[str, Any] = {
+        "dataset_id": "dataset",
+        "build_ts": "2025-01-01T00:00:00Z",
+    }
+    if target_semantics is not None:
+        payload["target_semantics"] = target_semantics
+    metadata_path = tmp_path / "dataset_metadata.json"
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+    return metadata_path
+
+
+def test_training_orchestrator_requires_target_semantics_metadata(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    _write_metadata(tmp_path, target_semantics=None)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match="dataset metadata missing target_semantics"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_target_col_declared(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="missing_target",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match="target_col 'missing_target'"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
 
 
 # ============================================================================

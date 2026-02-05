@@ -10,6 +10,7 @@ provides the canonical ModelRegistry API.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -188,6 +189,45 @@ class TestCoreModelOperations:
         assert model_info is not None
         assert model_info.manifest.artifact_sha256_digest == expected_digest
         assert len(model_info.manifest.artifact_sha256_digest) == 64  # SHA-256 hex length
+
+    def test_register_model_ingests_sidecar_metadata(
+        self,
+        facade: ModelRegistryFacade,
+        sample_onnx_model: tuple[Path, str],
+    ) -> None:
+        """Verify registration ingests output schema + calibration from sidecar."""
+        model_path, _ = sample_onnx_model
+        sidecar_path = model_path.with_suffix(".meta.json")
+        sidecar_payload = {
+            "output_schema": {"kind": "binary_proba", "shape": [None, 1]},
+            "calibrator_kind": "platt",
+            "calibrator_params": {"coef": 1.1, "intercept": -0.2},
+        }
+        sidecar_path.write_text(json.dumps(sidecar_payload), encoding="utf-8")
+
+        manifest = ModelManifest(
+            model_id="sidecar_model",
+            role=ModelRole.INFERENCE,
+            data_requirements=DataRequirements.L1_ONLY,
+            architecture="LightGBM",
+            feature_schema={"price": "float64"},
+            feature_schema_hash="hash_sidecar",
+            version="1.0.0",
+            created_at=time.time(),
+            last_modified=time.time(),
+            serveable=True,
+            artifact_format="onnx",
+        )
+
+        facade.register_model(model_path, manifest)
+        model_info = facade.get_model(manifest.model_id)
+
+        assert model_info is not None
+        assert model_info.manifest.output_schema == {"kind": "binary_proba", "shape": [None, 1]}
+        assert model_info.manifest.calibration == {
+            "kind": "platt",
+            "params": {"coef": 1.1, "intercept": -0.2},
+        }
 
     def test_register_model_auto_generates_id(
         self,
