@@ -22,6 +22,7 @@ from ml.actors.base import BaseMLInferenceActor as CurrentActor
 from ml.actors.signal import MLSignal
 from nautilus_trader.common.enums import ComponentState
 from ml.config.base import CircuitBreakerConfig
+from ml.tests.utils.model_artifacts import ensure_strict_onnx_sidecar
 
 if TYPE_CHECKING:
     from nautilus_trader.model.data import Bar
@@ -140,6 +141,7 @@ def dummy_onnx_model(tmp_path: Path) -> Path:
     # Save to file
     model_path = tmp_path / "test_model.onnx"
     onnx.save(model, str(model_path))
+    ensure_strict_onnx_sidecar(model_path)
 
     return model_path
 

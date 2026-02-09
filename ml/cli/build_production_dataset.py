@@ -11,8 +11,8 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
-from ml.tasks.datasets import ProductionDatasetConfig
-from ml.tasks.datasets import build_production_dataset
+from ml.data import ProductionDatasetConfig
+from ml.data import build_production_dataset
 
 
 __all__ = ["main"]

@@ -661,6 +661,139 @@ class TestGradualRollout:
         assert result is False
 
 
+class TestDeploymentDataclasses:
+    """Direct branch tests for deployment dataclasses used by the manager."""
+
+    def test_canary_should_promote_reason_paths(self) -> None:
+        not_active = CanaryDeployment(
+            deployment_id="canary-not-active",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=1),
+            status="promoted",
+        )
+        should_promote, reason = not_active.should_promote()
+        assert should_promote is False
+        assert reason == "not_active"
+
+        high_error_rate = CanaryDeployment(
+            deployment_id="canary-high-error",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=2, error_rate_threshold=0.1),
+        )
+        high_error_rate.record_metric(0.0, error_occurred=True)
+        high_error_rate.record_metric(0.0, error_occurred=True)
+        should_promote, reason = high_error_rate.should_promote()
+        assert should_promote is False
+        assert reason == "high_error_rate"
+
+        below_baseline = CanaryDeployment(
+            deployment_id="canary-below-baseline",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=2, baseline_threshold=0.95),
+            baseline_performance=1.0,
+        )
+        below_baseline.record_metric(0.4)
+        below_baseline.record_metric(0.5)
+        should_promote, reason = below_baseline.should_promote()
+        assert should_promote is False
+        assert reason == "performance_below_baseline"
+
+        monitoring_in_progress = CanaryDeployment(
+            deployment_id="canary-monitoring",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=2, monitoring_duration_hours=24.0),
+        )
+        monitoring_in_progress.record_metric(0.9)
+        monitoring_in_progress.record_metric(0.8)
+        should_promote, reason = monitoring_in_progress.should_promote()
+        assert should_promote is False
+        assert reason == "monitoring_in_progress"
+
+    def test_canary_should_rollback_and_summary_paths(self) -> None:
+        not_active = CanaryDeployment(
+            deployment_id="canary-rollback-not-active",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=1),
+            status="rolled_back",
+        )
+        should_rollback, reason = not_active.should_rollback()
+        assert should_rollback is False
+        assert reason == "not_active"
+
+        insufficient_samples = CanaryDeployment(
+            deployment_id="canary-rollback-insufficient",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=40),
+        )
+        insufficient_samples.record_metric(0.9)
+        should_rollback, reason = insufficient_samples.should_rollback()
+        assert should_rollback is False
+        assert reason == "insufficient_samples"
+
+        no_success_metrics = CanaryDeployment(
+            deployment_id="canary-rollback-no-success",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=5, error_rate_threshold=1.1),
+        )
+        for _ in range(5):
+            no_success_metrics.record_metric(0.0, error_occurred=True)
+        should_rollback, reason = no_success_metrics.should_rollback()
+        assert should_rollback is False
+        assert reason == "metrics_acceptable"
+
+        performance_degradation = CanaryDeployment(
+            deployment_id="canary-rollback-degradation",
+            model_id="model_1",
+            target="ml_signal_actor",
+            config=CanaryConfig(min_samples=10, baseline_threshold=0.95, error_rate_threshold=1.1),
+            baseline_performance=1.0,
+        )
+        for _ in range(10):
+            performance_degradation.record_metric(0.5, latency_ms=2.0)
+        should_rollback, reason = performance_degradation.should_rollback()
+        assert should_rollback is True
+        assert reason == "performance_degradation"
+
+        summary = performance_degradation.get_status_summary()
+        assert summary["deployment_id"] == "canary-rollback-degradation"
+        assert summary["sample_count"] == 10
+        assert summary["average_latency_ms"] == 2.0
+        assert summary["relative_performance"] < 0.95
+        assert summary["should_rollback"] is True
+        assert summary["rollback_reason"] == "performance_degradation"
+
+    def test_rollout_plan_full_traffic_and_completion_paths(self) -> None:
+        full_traffic = RolloutPlan(
+            rollout_id="rollout-full",
+            current_model_id="model_0",
+            new_model_id="model_1",
+            target="ml_signal_actor",
+            stages=[0.2, 0.6],
+            stage_duration_minutes=15,
+            current_stage=2,
+        )
+        assert full_traffic.get_current_traffic_split() == 1.0
+
+        rollout = RolloutPlan(
+            rollout_id="rollout-progressive",
+            current_model_id="model_0",
+            new_model_id="model_1",
+            target="ml_signal_actor",
+            stages=[0.25, 1.0],
+            stage_duration_minutes=30,
+        )
+        assert rollout.is_complete() is False
+        assert rollout.advance_stage() is True
+        assert rollout.is_complete() is True
+
+
 # ============================================================================
 # Error Condition Tests
 # ============================================================================

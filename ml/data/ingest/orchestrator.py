@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
@@ -31,6 +32,7 @@ from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.market_bindings import resolve_market_dataset_bindings
+from ml.data.ingest.nautilus_adapters import to_df_bars
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.resume import IngestState
 from ml.data.ingest.service import DatabentoIngestionService
@@ -48,6 +50,12 @@ from ml.stores.writers import FanoutMarketDataWriter
 
 
 DAY_NS: Final[int] = 86_400_000_000_000
+
+
+if TYPE_CHECKING:  # pragma: no cover - import for typing only
+    from nautilus_trader.model.data import Bar as NautilusBar
+
+    from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 class BackfillWindowList(list[tuple[int, int]]):
@@ -96,6 +104,88 @@ class BackfillWindowList(list[tuple[int, int]]):
             f"frames_written={self.frames_written}, "
             f"rows_written={self.rows_written})"
         )
+
+
+class CatalogBackfillClient:
+    """
+    Databento-like client backed by ``ParquetDataCatalog`` bar queries.
+
+    This adapter is intended for offline backfills when direct Databento API access is
+    unavailable.
+    """
+
+    def __init__(self, catalog_path: str) -> None:
+        from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+        self._catalog: ParquetDataCatalog = ParquetDataCatalog(catalog_path)
+
+    def get_data(
+        self,
+        dataset: str,
+        symbols: list[str],
+        schema: str,
+        start: str | datetime,
+        end: str | datetime,
+        **_: object,
+    ) -> pd.DataFrame:
+        """
+        Return a pandas frame for the first requested instrument symbol.
+        """
+        del dataset
+        del schema
+        if not symbols:
+            return pd.DataFrame()
+
+        instrument_id = symbols[0]
+        start_value: int | str | float
+        end_value: int | str | float
+
+        if isinstance(start, datetime):
+            from ml.common.timestamps import sanitize_timestamp_ns
+
+            start_value = sanitize_timestamp_ns(
+                int(start.timestamp() * 1e9),
+                context="cli.ingest_backfill:start",
+            )
+        else:
+            start_value = start
+
+        if isinstance(end, datetime):
+            from ml.common.timestamps import sanitize_timestamp_ns
+
+            end_value = sanitize_timestamp_ns(
+                int(end.timestamp() * 1e9),
+                context="cli.ingest_backfill:end",
+            )
+        else:
+            end_value = end
+
+        from nautilus_trader.model.data import Bar as NautilusBar
+
+        data: list[NautilusBar] = self._catalog.query(
+            data_cls=NautilusBar,
+            identifiers=[instrument_id],
+            start=start_value,
+            end=end_value,
+        )
+        return to_df_bars(data)
+
+
+@dataclass(frozen=True, slots=True)
+class BackfillExecutionSummary:
+    """
+    Result metadata for a multi-instrument backfill execution.
+
+    Parameters
+    ----------
+    total_windows
+        Total number of requested windows across all instruments.
+    processed_bindings
+        Ordered binding identifiers processed during the run.
+    """
+
+    total_windows: int
+    processed_bindings: tuple[str, ...]
 
 
 def _coalesce_gap_windows(
@@ -674,14 +764,25 @@ class IngestionOrchestrator:
         """
         Ensure ts_event/ts_init columns are nanosecond integers.
         """
+        def _to_ns_int(series: pd.Series) -> pd.Series | None:
+            numeric = pd.to_numeric(series, errors="coerce")
+            if numeric.notna().all():
+                return numeric.astype("int64")
+
+            converted = pd.to_datetime(series, utc=True, errors="coerce")
+            if converted.notna().all():
+                return converted.astype("int64")
+
+            return None
+
         working = frame.copy()
         if "ts_event" not in working.columns:
             if "timestamp" in working.columns:
                 ts_series = pd.to_datetime(working["timestamp"], utc=True, errors="coerce")
                 if ts_series.notna().all():
-                    working.loc[:, "ts_event"] = ts_series.astype("int64")
+                    working = working.assign(ts_event=ts_series.astype("int64"))
             elif "ts_exchange" in working.columns:
-                working.loc[:, "ts_event"] = working["ts_exchange"]
+                working = working.assign(ts_event=working["ts_exchange"])
             index_name = working.index.name
             if isinstance(working.index, pd.DatetimeIndex) and index_name in {"ts_event", "ts"}:
                 working = working.reset_index()
@@ -692,25 +793,17 @@ class IngestionOrchestrator:
         if "ts_event" in working.columns:
             event_series = working["ts_event"]
             if not pd.api.types.is_integer_dtype(event_series):
-                converted = pd.to_datetime(event_series, utc=True, errors="coerce")
-                if pd.api.types.is_datetime64_any_dtype(converted) and converted.notna().all():
-                    working.loc[:, "ts_event"] = converted.astype("int64")
-                else:
-                    numeric = pd.to_numeric(event_series, errors="coerce")
-                    if numeric.notna().all():
-                        working.loc[:, "ts_event"] = numeric.astype("int64")
+                normalized_event = _to_ns_int(event_series)
+                if normalized_event is not None:
+                    working = working.assign(ts_event=normalized_event)
         if "ts_init" in working.columns:
             init_series = working["ts_init"]
             if not pd.api.types.is_integer_dtype(init_series):
-                converted_init = pd.to_datetime(init_series, utc=True, errors="coerce")
-                if pd.api.types.is_datetime64_any_dtype(converted_init) and converted_init.notna().all():
-                    working.loc[:, "ts_init"] = converted_init.astype("int64")
-                else:
-                    numeric_init = pd.to_numeric(init_series, errors="coerce")
-                    if numeric_init.notna().all():
-                        working.loc[:, "ts_init"] = numeric_init.astype("int64")
+                normalized_init = _to_ns_int(init_series)
+                if normalized_init is not None:
+                    working = working.assign(ts_init=normalized_init)
         elif "ts_event" in working.columns:
-            working.loc[:, "ts_init"] = working["ts_event"]
+            working = working.assign(ts_init=working["ts_event"])
         return working
 
 
@@ -739,6 +832,123 @@ class DomainWindowLoaderProtocol(Protocol):
         start_ns: int,
         end_ns: int,
     ) -> list[Any]: ...
+
+
+def execute_backfill_plan(
+    *,
+    orchestrator: IngestionOrchestrator,
+    dataset_id: str,
+    schema: str,
+    instruments: Sequence[str],
+    lookback_days: int,
+    binding_dataset_id: str,
+    market_inputs: Sequence[MarketDatasetInput] | None,
+    state: IngestState | None,
+    emit: Callable[[str], None] | None = None,
+) -> BackfillExecutionSummary:
+    """
+    Execute backfill planning/execution across one or more instruments.
+
+    Parameters
+    ----------
+    orchestrator
+        Ingestion orchestrator used to execute gap backfills.
+    dataset_id
+        Dataset identifier for direct (non-binding) backfill runs.
+    schema
+        Schema identifier for direct (non-binding) backfill runs.
+    instruments
+        Instrument identifiers to backfill.
+    lookback_days
+        Lookback window in days.
+    binding_dataset_id
+        Dataset id used when resolving market feed bindings.
+    market_inputs
+        Optional market descriptor overrides used for binding resolution.
+    state
+        Optional ingestion state for resume semantics.
+    emit
+        Optional output callback for user-visible progress lines.
+
+    Returns
+    -------
+    BackfillExecutionSummary
+        Aggregated execution metadata.
+    """
+    emit_fn = emit
+
+    def _emit(message: str) -> None:
+        if emit_fn is not None:
+            emit_fn(message)
+
+    use_bindings = bool(market_inputs or binding_dataset_id != dataset_id)
+    resolved_bindings: tuple[ResolvedMarketBinding, ...] = ()
+    binding_lookup: dict[str, ResolvedMarketBinding] = {}
+    binding_ids_seen: set[str] = set()
+    processed_binding_ids: list[str] = []
+
+    if use_bindings:
+        base_symbols = sorted({instrument.split(".")[0].upper() for instrument in instruments})
+        resolved_bindings = IngestionOrchestrator.resolve_market_bindings(
+            symbols=base_symbols,
+            instrument_ids=tuple(instruments),
+            market_dataset_id=binding_dataset_id,
+            market_inputs=market_inputs,
+        )
+        binding_lookup = {
+            resolved_binding.symbol.upper(): resolved_binding
+            for resolved_binding in resolved_bindings
+        }
+        for resolved_binding in resolved_bindings:
+            for instrument_id in resolved_binding.instrument_ids:
+                binding_lookup.setdefault(instrument_id.upper(), resolved_binding)
+
+    total_windows = 0
+    for instrument_id in instruments:
+        binding: ResolvedMarketBinding | None = None
+        if use_bindings:
+            symbol_key = instrument_id.split(".")[0].upper()
+            binding = binding_lookup.get(instrument_id.upper()) or binding_lookup.get(symbol_key)
+
+        if binding is not None:
+            if binding.binding_id in binding_ids_seen:
+                continue
+            binding_results = orchestrator.backfill_binding(
+                binding=binding,
+                lookback_days=int(lookback_days),
+                state=state,
+            )
+            binding_ids_seen.add(binding.binding_id)
+            processed_binding_ids.append(binding.binding_id)
+            for resolved_instrument_id, windows in binding_results.items():
+                window_count = len(windows)
+                total_windows += window_count
+                _emit(
+                    f"{resolved_instrument_id}: planned {window_count} day window(s) via binding"
+                    f" {binding.binding_id}",
+                )
+            continue
+
+        windows = orchestrator.backfill_gaps(
+            dataset_id=dataset_id,
+            schema=schema,
+            instrument_id=instrument_id,
+            lookback_days=int(lookback_days),
+            state=state,
+        )
+        if use_bindings:
+            _emit(
+                "Warning: no binding resolved for"
+                f" {instrument_id}; using legacy dataset {dataset_id}/{schema}",
+            )
+        window_count = len(windows)
+        total_windows += window_count
+        _emit(f"{instrument_id}: planned {window_count} day window(s)")
+
+    return BackfillExecutionSummary(
+        total_windows=total_windows,
+        processed_bindings=tuple(processed_binding_ids),
+    )
 
 
 def _schema_to_dataset_type(schema: str) -> DatasetType:

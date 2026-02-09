@@ -18,6 +18,10 @@ from ml.config.base import MLActorConfig
 from ml.config.base import MLInferenceConfig
 from ml.config.base import MLStrategyConfig
 from ml.config.runtime import OnnxRuntimeConfig
+from ml.config.policy import CausalityMonotonicEnforcement
+from ml.config.policy import DriftActionPolicy
+from ml.config.policy import InferenceTimeoutAction
+from ml.config.policy import MLFailureAction
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.tests.utils.db import build_postgres_url
 
@@ -28,7 +32,7 @@ def _target_semantics_json() -> str:
     """
     return json.dumps(
         {
-            "version": "v1",
+            "version": "epoch-1",
             "horizons": [{"minutes": 15}],
             "primary_target": "target_bin_15m",
         },
@@ -116,6 +120,73 @@ def test_ml_actor_config_from_env_requires_instrument() -> None:
     )
     with pytest.raises(ValueError):
         MLActorConfig.from_env(env=env)
+
+
+def test_ml_actor_config_from_env_parses_remediation_policy_controls() -> None:
+    env = _mapping(
+        {
+            "MODEL_PATH": "/tmp/models/test_model.onnx",
+            "MODEL_ID": "signal-model-v2",
+            "MODEL_REGISTRY_DIR": "/tmp/registry",
+            "INSTRUMENT_ID": "SPY.EQUS",
+            "BAR_TYPE": "SPY.EQUS-1-MINUTE-LAST-EXTERNAL",
+            "ML_ENABLE_INFERENCE_DEADLINE_GUARD": "true",
+            "ML_INFERENCE_TIMEOUT_ACTION": "halt",
+            "ML_DRIFT_ACTION_POLICY": "degraded",
+            "ML_CAUSALITY_MONOTONIC_ENFORCEMENT": "reset",
+            "ML_FAILURE_ACTION": "halt",
+            "ML_DETERMINISTIC_MODE": "true",
+        },
+    )
+    cfg = MLActorConfig.from_env(env=env)
+    assert cfg.remediation_policy.enable_inference_deadline_guard is True
+    assert cfg.remediation_policy.inference_timeout_action == InferenceTimeoutAction.HALT
+    assert cfg.remediation_policy.drift_action_policy == DriftActionPolicy.DEGRADED
+    assert (
+        cfg.remediation_policy.causality_monotonic_enforcement
+        == CausalityMonotonicEnforcement.RESET
+    )
+    assert cfg.remediation_policy.ml_failure_action == MLFailureAction.HALT
+    assert cfg.remediation_policy.deterministic_mode is True
+
+
+def test_ml_actor_config_from_env_production_defaults_enable_strict_remediation() -> None:
+    env = _mapping(
+        {
+            "MODEL_PATH": "/tmp/models/test_model.onnx",
+            "MODEL_ID": "signal-model-v3",
+            "MODEL_REGISTRY_DIR": "/tmp/registry",
+            "INSTRUMENT_ID": "SPY.EQUS",
+            "BAR_TYPE": "SPY.EQUS-1-MINUTE-LAST-EXTERNAL",
+            "ML_ENV": "production",
+        },
+    )
+    cfg = MLActorConfig.from_env(env=env)
+
+    assert cfg.remediation_policy.enable_inference_deadline_guard is True
+    assert cfg.remediation_policy.inference_timeout_action == InferenceTimeoutAction.HALT
+    assert cfg.remediation_policy.ml_failure_action == MLFailureAction.HALT
+
+
+def test_ml_actor_config_from_env_production_respects_explicit_permissive_overrides() -> None:
+    env = _mapping(
+        {
+            "MODEL_PATH": "/tmp/models/test_model.onnx",
+            "MODEL_ID": "signal-model-v4",
+            "MODEL_REGISTRY_DIR": "/tmp/registry",
+            "INSTRUMENT_ID": "SPY.EQUS",
+            "BAR_TYPE": "SPY.EQUS-1-MINUTE-LAST-EXTERNAL",
+            "ML_ENV": "production",
+            "ML_ENABLE_INFERENCE_DEADLINE_GUARD": "false",
+            "ML_INFERENCE_TIMEOUT_ACTION": "drop",
+            "ML_FAILURE_ACTION": "log_only",
+        },
+    )
+    cfg = MLActorConfig.from_env(env=env)
+
+    assert cfg.remediation_policy.enable_inference_deadline_guard is False
+    assert cfg.remediation_policy.inference_timeout_action == InferenceTimeoutAction.DROP
+    assert cfg.remediation_policy.ml_failure_action == MLFailureAction.LOG_ONLY
 
 
 def test_ml_strategy_config_from_env_parses_values() -> None:

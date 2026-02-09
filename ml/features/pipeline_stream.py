@@ -190,8 +190,8 @@ class PipelineStreamExecutor:
 
         Args:
             current_bar: Dict with OHLCV values for the current bar.
-            timestamp_ns: Optional nanosecond timestamp. Required for calendar
-                and event schedule transforms.
+            timestamp_ns: Optional nanosecond timestamp. Required for macro,
+                calendar, and event schedule transforms.
 
         Returns:
             Feature array aligned to ``feature_names``.
@@ -212,18 +212,26 @@ class PipelineStreamExecutor:
         if self._calculator_indices:
             output[self._calculator_indices] = features
 
+        require_timestamp = bool(self._macro_indices or self._calendar_indices or self._event_indices)
+        resolved_timestamp_ns = (
+            self._require_timestamp(timestamp_ns, include_macro=bool(self._macro_indices))
+            if require_timestamp
+            else None
+        )
+
         if self._macro_indices and self._macro_transform is not None:
-            macro_features = self._macro_transform.compute_realtime()
+            assert resolved_timestamp_ns is not None
+            macro_features = self._macro_transform.compute_realtime(ts_event=resolved_timestamp_ns)
             self._fill_from_mapping(output, self._macro_names, macro_features)
 
         if self._calendar_indices:
-            ts_value = self._require_timestamp(timestamp_ns)
-            calendar_features = self._calendar_feature_map(ts_value)
+            assert resolved_timestamp_ns is not None
+            calendar_features = self._calendar_feature_map(resolved_timestamp_ns)
             self._fill_from_mapping(output, self._calendar_names, calendar_features)
 
         if self._event_indices:
-            ts_value = self._require_timestamp(timestamp_ns)
-            event_features = self._event_feature_map(ts_value)
+            assert resolved_timestamp_ns is not None
+            event_features = self._event_feature_map(resolved_timestamp_ns)
             self._fill_from_mapping(output, self._event_names, event_features)
 
         return output
@@ -337,9 +345,18 @@ class PipelineStreamExecutor:
             except Exception:
                 output[idx] = 0.0
 
-    def _require_timestamp(self, timestamp_ns: int | None) -> int:
+    def _require_timestamp(
+        self,
+        timestamp_ns: int | None,
+        *,
+        include_macro: bool = False,
+    ) -> int:
         if timestamp_ns is None:
-            msg = "timestamp_ns is required for calendar/event transforms"
+            msg = (
+                "timestamp_ns is required for macro/calendar/event transforms"
+                if include_macro
+                else "timestamp_ns is required for calendar/event transforms"
+            )
             raise ValueError(msg)
         return self._coerce_timestamp_ns(timestamp_ns)
 

@@ -13,12 +13,20 @@ Consolidation performed on 2025-08-25.
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.strategy_registry import StrategyManifest
 from ml.registry.strategy_registry import MarketRegime
 from ml.registry.strategy_registry import StrategyInfo
 from ml.registry.strategy_registry import StrategyRegistry
@@ -266,6 +274,162 @@ def test_list_strategies_returns_registered_entries(tmp_path: Path) -> None:
     strategies = reg.list_strategies()
     strategy_ids = {info.manifest.strategy_id for info in strategies}
     assert "list_strategy" in strategy_ids
+
+
+def test_strategy_manifest_round_trip_and_strategy_info_to_dict() -> None:
+    manifest = RegistryBuilder.strategy_manifest(
+        strategy_id="strategy_manifest_roundtrip",
+        strategy_type=StrategyType.MOMENTUM,
+        version="1.0.0",
+        suitable_regimes=[MarketRegime.TRENDING_UP],
+        timeframe_range=("1m", "5m"),
+    )
+    payload = manifest.to_dict()
+    payload["timeframe_range"] = ["1m", "5m"]
+    rebuilt = StrategyManifest.from_dict(payload)
+
+    assert rebuilt.timeframe_range == ("1m", "5m")
+    assert rebuilt.strategy_type == StrategyType.MOMENTUM
+
+    info_payload = StrategyInfo(manifest=rebuilt, file_path=Path("/tmp/strategy.py")).to_dict()
+    assert info_payload["manifest"]["strategy_id"] == "strategy_manifest_roundtrip"
+    assert info_payload["file_path"] == "/tmp/strategy.py"
+
+
+def test_postgres_session_none_paths_return_defaults(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    registry.backend = BackendType.POSTGRES
+    registry.persistence = SimpleNamespace(get_session=lambda: None)
+
+    manifest = RegistryBuilder.strategy_manifest(
+        strategy_id="session_none_strategy",
+        strategy_type=StrategyType.TREND_FOLLOWING,
+        version="1.0.0",
+    )
+
+    assert registry.get_strategy("missing") is None
+    assert registry.list_strategies() == []
+    assert registry.is_registered("missing") is False
+    assert registry._health_snapshot() == (0, None)
+    registry._save_strategy_to_db(manifest, tmp_path / "missing.py")
+
+
+def test_postgres_health_snapshot_returns_count_and_latest(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    registry.backend = BackendType.POSTGRES
+
+    session = MagicMock()
+    count_query = MagicMock()
+    count_query.count.return_value = 3
+    latest_query = MagicMock()
+    latest_ts = datetime(2025, 1, 2, tzinfo=UTC)
+    latest_query.order_by.return_value.first.return_value = (latest_ts,)
+    session.query.side_effect = [count_query, latest_query]
+    registry.persistence = SimpleNamespace(get_session=lambda: session)
+
+    count, last_modified = registry._health_snapshot()
+    assert count == 3
+    assert last_modified == latest_ts.timestamp()
+    session.close.assert_called_once()
+
+
+def test_postgres_health_snapshot_returns_none_when_latest_missing(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    registry.backend = BackendType.POSTGRES
+
+    session = MagicMock()
+    count_query = MagicMock()
+    count_query.count.return_value = 1
+    latest_query = MagicMock()
+    latest_query.order_by.return_value.first.return_value = None
+    session.query.side_effect = [count_query, latest_query]
+    registry.persistence = SimpleNamespace(get_session=lambda: session)
+
+    assert registry._health_snapshot() == (1, None)
+    session.close.assert_called_once()
+
+
+def test_db_to_strategy_info_parses_defaults_and_metadata_path(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    db_strategy = SimpleNamespace(
+        strategy_id="db_strategy",
+        strategy_type=StrategyType.ARBITRAGE.value,
+        version="2.0.0",
+        required_models=None,
+        required_features=["feat_a"],
+        suitable_regimes=[MarketRegime.VOLATILE.value],
+        instrument_types=["FX"],
+        timeframe_range="1m,1h",
+        max_position_size=1.5,
+        max_leverage=2.0,
+        max_drawdown=0.3,
+        stop_loss_type="fixed",
+        min_sharpe_ratio=1.1,
+        min_win_rate=0.55,
+        max_correlation_with_portfolio=0.7,
+        parent_strategy_id=None,
+        incompatible_strategies=["legacy"],
+        config_schema={"lookback": "int"},
+        default_config={"lookback": 14},
+        backtest_metrics={"sharpe": 1.2},
+        live_metrics={"sharpe": 1.1},
+        created_at=None,
+        last_modified=None,
+        author="db-author",
+        description="db-desc",
+        extra_metadata={"file_path": str(tmp_path / "db_strategy.py")},
+    )
+
+    info = registry._db_to_strategy_info(db_strategy)
+    assert info.manifest.strategy_id == "db_strategy"
+    assert info.manifest.strategy_type == StrategyType.ARBITRAGE
+    assert info.manifest.timeframe_range == ("1m", "1h")
+    assert info.file_path == tmp_path / "db_strategy.py"
+
+
+def test_save_strategy_to_db_handles_update_insert_and_errors(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    registry.backend = BackendType.POSTGRES
+    manifest = RegistryBuilder.strategy_manifest(
+        strategy_id="persisted_strategy",
+        strategy_type=StrategyType.MEAN_REVERSION,
+        version="1.2.3",
+        suitable_regimes=[MarketRegime.RANGING],
+        instrument_types=["EQUITY"],
+        timeframe_range=("5m", "1h"),
+    )
+    strategy_file = tmp_path / "persisted_strategy.py"
+
+    existing_row = SimpleNamespace()
+    update_session = MagicMock()
+    update_session.query.return_value.filter_by.return_value.first.return_value = existing_row
+    registry.persistence = SimpleNamespace(get_session=lambda: update_session)
+    registry._save_strategy_to_db(manifest, strategy_file)
+
+    assert existing_row.version == "1.2.3"
+    assert existing_row.timeframe_range == "5m,1h"
+    update_session.commit.assert_called_once()
+    update_session.close.assert_called_once()
+
+    insert_session = MagicMock()
+    insert_session.query.return_value.filter_by.return_value.first.return_value = None
+    registry.persistence = SimpleNamespace(get_session=lambda: insert_session)
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to save strategy to database: 'extra_metadata' is an invalid keyword argument for StrategyTable",
+    ):
+        registry._save_strategy_to_db(manifest, strategy_file)
+    insert_session.rollback.assert_called_once()
+    insert_session.close.assert_called_once()
+
+    failing_session = MagicMock()
+    failing_session.query.return_value.filter_by.return_value.first.return_value = SimpleNamespace()
+    failing_session.commit.side_effect = RuntimeError("database down")
+    registry.persistence = SimpleNamespace(get_session=lambda: failing_session)
+    with pytest.raises(RuntimeError, match="Failed to save strategy to database: database down"):
+        registry._save_strategy_to_db(manifest, strategy_file)
+    failing_session.rollback.assert_called_once()
+    failing_session.close.assert_called_once()
 
 
 class TestStrategyRegistry:
@@ -680,6 +844,161 @@ class TestStrategyRegistry:
             assert lineage[0].manifest.strategy_id == "parent_strategy"
             assert lineage[1].manifest.strategy_id == "child_strategy"
             assert lineage[2].manifest.strategy_id == "grandchild_strategy"
+
+
+def _db_strategy_row(
+    strategy_id: str,
+    *,
+    timeframe_range: str | None = "1m,5m",
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        strategy_id=strategy_id,
+        strategy_type=StrategyType.MOMENTUM.value,
+        version="1.0.0",
+        required_models=["model_a"],
+        required_features=["feature_a"],
+        suitable_regimes=[MarketRegime.TRENDING_UP.value],
+        instrument_types=["FX"],
+        timeframe_range=timeframe_range,
+        max_position_size=1.0,
+        max_leverage=1.0,
+        max_drawdown=0.1,
+        stop_loss_type="fixed",
+        min_sharpe_ratio=0.5,
+        min_win_rate=0.5,
+        max_correlation_with_portfolio=0.8,
+        parent_strategy_id=None,
+        incompatible_strategies=[],
+        config_schema={},
+        default_config={},
+        backtest_metrics={},
+        live_metrics=None,
+        created_at=None,
+        last_modified=None,
+        author="tester",
+        description="db strategy",
+        extra_metadata={"file_path": "/tmp/db_strategy.py"},
+    )
+
+
+def test_strategy_manifest_from_dict_keeps_tuple_timeframe_range() -> None:
+    payload = RegistryBuilder.strategy_manifest(
+        strategy_id="tuple_timeframe",
+        strategy_type=StrategyType.MOMENTUM,
+        version="1.0.0",
+        suitable_regimes=[MarketRegime.TRENDING_UP],
+        timeframe_range=("1m", "15m"),
+    ).to_dict()
+    payload["timeframe_range"] = ("1m", "15m")
+
+    rebuilt = StrategyManifest.from_dict(payload)
+
+    assert rebuilt.timeframe_range == ("1m", "15m")
+
+
+def test_strategy_registry_initialization_with_explicit_json_config(tmp_path: Path) -> None:
+    config = PersistenceConfig(backend=BackendType.JSON, json_path=tmp_path / "explicit_json")
+    registry = StrategyRegistry(tmp_path, persistence_config=config)
+    assert registry.backend == BackendType.JSON
+
+
+def test_register_strategy_uses_postgres_save_path(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    registry.backend = BackendType.POSTGRES
+    registry.persistence = SimpleNamespace(log_audit=lambda **_: None)
+
+    strategy_path = tmp_path / "postgres_strategy.py"
+    _write_dummy_strategy(strategy_path)
+    manifest = RegistryBuilder.strategy_manifest(
+        strategy_id="postgres_save_strategy",
+        strategy_type=StrategyType.TREND_FOLLOWING,
+        version="1.0.0",
+    )
+
+    with patch.object(registry, "_save_strategy_to_db") as save_to_db_mock:
+        strategy_id = registry.register_strategy(strategy_path, manifest)
+
+    assert strategy_id == "postgres_save_strategy"
+    save_to_db_mock.assert_called_once()
+
+
+def test_postgres_query_paths_for_get_list_and_is_registered(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    registry.backend = BackendType.POSTGRES
+
+    session_get = MagicMock()
+    session_get.query.return_value.filter_by.return_value.first.return_value = _db_strategy_row(
+        "db_strategy_get",
+    )
+    registry.persistence = SimpleNamespace(get_session=lambda: session_get)
+    fetched = registry.get_strategy("db_strategy_get")
+    assert fetched is not None
+    assert fetched.manifest.strategy_id == "db_strategy_get"
+    session_get.close.assert_called_once()
+
+    session_list = MagicMock()
+    session_list.query.return_value.order_by.return_value.all.return_value = [
+        _db_strategy_row("db_strategy_list", timeframe_range=None),
+    ]
+    registry.persistence = SimpleNamespace(get_session=lambda: session_list)
+    listed = registry.list_strategies()
+    assert len(listed) == 1
+    assert listed[0].manifest.timeframe_range == ("", "")
+    session_list.close.assert_called_once()
+
+    session_is_registered_true = MagicMock()
+    session_is_registered_true.query.return_value.filter_by.return_value.first.return_value = (
+        _db_strategy_row("db_strategy_true")
+    )
+    registry.persistence = SimpleNamespace(get_session=lambda: session_is_registered_true)
+    assert registry.is_registered("db_strategy_true") is True
+    session_is_registered_true.close.assert_called_once()
+
+    session_is_registered_false = MagicMock()
+    session_is_registered_false.query.return_value.filter_by.return_value.first.return_value = None
+    registry.persistence = SimpleNamespace(get_session=lambda: session_is_registered_false)
+    assert registry.is_registered("db_strategy_missing") is False
+    session_is_registered_false.close.assert_called_once()
+
+
+def test_missing_strategy_paths_for_metrics_requirements_and_compatibility(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+
+    with pytest.raises(ValueError, match="Strategy missing not found"):
+        registry.update_live_metrics("missing", {"sharpe_ratio": 1.2})
+
+    assert registry.validate_requirements("missing", [], []) is False
+    assert registry.check_compatibility("missing", ["active_strategy"]) is False
+
+
+def test_json_health_snapshot_handles_manifest_errors_and_empty_registry(tmp_path: Path) -> None:
+    registry = StrategyRegistry(tmp_path)
+    broken_manifest_dir = registry.strategies_dir / "broken"
+    broken_manifest_dir.mkdir(parents=True, exist_ok=True)
+    broken_manifest_path = broken_manifest_dir / "manifest.json"
+    broken_manifest_path.write_text("{invalid_json")
+
+    registry._save_registry(
+        {
+            "broken_strategy": {
+                "manifest_path": str(broken_manifest_path),
+                "file_path": str(broken_manifest_dir / "broken.py"),
+                "registered_at": 1.0,
+            },
+        },
+    )
+
+    count, last_modified = registry._health_snapshot()
+    assert count == 1
+    assert last_modified is None
+
+    registry.registry_file.unlink()
+    assert registry._load_registry() == {}
+
+    registry.backend = BackendType.POSTGRES
+    with patch.object(registry, "_json_save") as json_save_mock:
+        registry._save_registry({"ignored": {}})
+    json_save_mock.assert_not_called()
 
 
 # Run tests

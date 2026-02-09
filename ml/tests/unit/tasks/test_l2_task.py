@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import importlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ml.tasks.ingest import PopulateL2TaskConfig
-from ml.tasks.ingest import populate_l2_efficient
+from ml.data.ingest.l2_efficient import PopulateL2TaskConfig
+from ml.data.ingest.l2_efficient import populate_l2_efficient
 
 pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
 
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.usefixtures(
 
 @pytest.fixture(autouse=True)
 def _stub_service(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("ml.tasks.ingest.l2.ensure_service", lambda: object())
+    monkeypatch.setattr("ml.data.ingest.api.ensure_service", lambda: object())
 
 
 def test_populate_l2_efficient_builds_loader_config(
@@ -37,7 +38,7 @@ def test_populate_l2_efficient_builds_loader_config(
 
         return L2PopulateResult(total_records=0, total_size_mb=0.0, symbols_processed=1)
 
-    monkeypatch.setattr("ml.tasks.ingest.l2.populate_l2_data", _fake_populate)
+    monkeypatch.setattr("ml.data.ingest.l2_efficient.populate_l2_data", _fake_populate)
     config = PopulateL2TaskConfig(
         data_dir=tmp_path,
         progress_file=tmp_path / "progress.json",
@@ -55,3 +56,8 @@ def test_populate_l2_efficient_builds_loader_config(
     assert recorded["config"].symbols == tuple(tier1_symbol_loader_stub)
     assert recorded["config"].rate_limit == 30
     assert recorded["config"].shuffle is True
+
+
+def test_task_l2_module_is_retired() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("ml.tasks.ingest.l2")

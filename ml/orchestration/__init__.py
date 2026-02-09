@@ -61,8 +61,10 @@ from ml.orchestration.registry_synchronizer import RegistrySynchronizer
 from ml.orchestration.runtime_attacher import RuntimeAttacher
 
 # Scheduling utilities
+from ml.orchestration.scheduler import PipelineScheduleConfig
 from ml.orchestration.scheduler import compute_next_run
 from ml.orchestration.scheduler import run_forever
+from ml.orchestration.scheduler import run_pipeline_schedule
 
 # Pipeline signature validation
 from ml.orchestration.signature import PipelineSignatureValidator
@@ -93,6 +95,7 @@ __all__ = [
     "OrchestratorRunConfig",
     "PipelineCheckpoint",
     "PipelineCheckpointProtocol",
+    "PipelineScheduleConfig",
     "PipelineSignatureValidator",
     "PreIngestionOptions",
     "PromotionsConfig",
@@ -113,5 +116,6 @@ __all__ = [
     "register_and_promote_model",
     "register_or_refresh_features",
     "run_forever",
+    "run_pipeline_schedule",
     "to_pipeline_args",
 ]

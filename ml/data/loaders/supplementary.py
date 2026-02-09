@@ -85,6 +85,28 @@ class SupplementaryDataConfig:
     synthetic_years: int = 2
 
 
+@dataclass(slots=True, frozen=True)
+class PopulateSupplementaryTaskConfig:
+    """
+    Arguments accepted by :func:`populate_supplementary_data`.
+    """
+
+    output_dir: Path
+    base_symbols: tuple[str, ...] = DEFAULT_BASE_SYMBOLS
+    synthetic_years: int = 2
+
+
+@dataclass(slots=True, frozen=True)
+class PopulateYahooDataTaskConfig:
+    """
+    Arguments accepted by :func:`populate_yahoo_data`.
+    """
+
+    output_dir: Path
+    categories: Sequence[str] | None = None
+    synthetic_years: int = 2
+
+
 def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     delta = prices.diff()
     gain = delta.clip(lower=0.0).rolling(window=period).mean()
@@ -261,15 +283,73 @@ def write_supplementary_outputs(
     )
 
 
+def populate_supplementary_data(config: PopulateSupplementaryTaskConfig) -> SupplementaryOutputs:
+    """
+    Generate synthetic supplementary data and persist parquet outputs.
+    """
+    data_config = SupplementaryDataConfig(
+        output_dir=config.output_dir,
+        base_symbols=config.base_symbols,
+        synthetic_years=config.synthetic_years,
+    )
+    data = create_synthetic_supplementary_data(data_config)
+    if data.empty:
+        raise ValueError("Supplementary data generation produced no rows")
+
+    correlations = calculate_correlations(data, data_config.base_symbols)
+    spreads = calculate_spreads(data, data_config.spread_definitions)
+    return write_supplementary_outputs(data, correlations, spreads, data_config)
+
+
+def _select_yahoo_symbols(categories: Sequence[str] | None) -> tuple[str, ...]:
+    if not categories:
+        symbols: list[str] = []
+        for values in SUPPLEMENTARY_SYMBOLS.values():
+            symbols.extend(values)
+        return tuple(symbols)
+
+    invalid_categories = [category for category in categories if category not in SUPPLEMENTARY_SYMBOLS]
+    if invalid_categories:
+        raise ValueError(f"Unknown Yahoo categories: {', '.join(invalid_categories)}")
+
+    selected_symbols: list[str] = []
+    for category in categories:
+        selected_symbols.extend(SUPPLEMENTARY_SYMBOLS[category])
+    return tuple(selected_symbols)
+
+
+def populate_yahoo_data(config: PopulateYahooDataTaskConfig) -> SupplementaryOutputs:
+    """
+    Generate Yahoo-style supplementary data and persist parquet outputs.
+    """
+    symbols = _select_yahoo_symbols(config.categories)
+    data_config = SupplementaryDataConfig(
+        output_dir=config.output_dir,
+        synthetic_years=config.synthetic_years,
+    )
+    data = create_synthetic_supplementary_data(data_config)
+    data = data[data["symbol"].isin(symbols)].reset_index(drop=True)
+    if data.empty:
+        raise ValueError("No synthetic Yahoo data generated for requested categories")
+
+    correlations = calculate_correlations(data, data_config.base_symbols)
+    spreads = calculate_spreads(data, data_config.spread_definitions)
+    return write_supplementary_outputs(data, correlations, spreads, data_config)
+
+
 __all__ = [
     "DEFAULT_BASE_SYMBOLS",
     "DEFAULT_SPREADS",
     "SUPPLEMENTARY_SYMBOLS",
+    "PopulateSupplementaryTaskConfig",
+    "PopulateYahooDataTaskConfig",
     "SpreadDefinition",
     "SupplementaryDataConfig",
     "SupplementaryOutputs",
     "calculate_correlations",
     "calculate_spreads",
     "create_synthetic_supplementary_data",
+    "populate_supplementary_data",
+    "populate_yahoo_data",
     "write_supplementary_outputs",
 ]

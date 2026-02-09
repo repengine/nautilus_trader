@@ -28,6 +28,8 @@ from ml.registry import DataRequirements
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
@@ -289,6 +291,12 @@ class TestModelRegistryProperties:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             registry = ModelRegistry(Path(tmpdir))
+            feature_schema_hash = "test_hash"
+            feature_set_id = register_feature_set_for_schema(
+                registry_path=Path(tmpdir),
+                schema_hash=feature_schema_hash,
+                feature_set_id="property_registry_ordering_features",
+            )
 
             # Register models
             versions = []
@@ -303,7 +311,9 @@ class TestModelRegistryProperties:
                     data_requirements=DataRequirements.L1_ONLY,
                     architecture="TestModel",
                     feature_schema={"test": "float32"},
-                    feature_schema_hash="test_hash",
+                    feature_schema_hash=feature_schema_hash,
+                    feature_set_id=feature_set_id,
+                    output_schema=default_output_schema(),
                     version=str(i),
                     performance_metrics={"accuracy": metrics[i]},
                 )
@@ -337,6 +347,12 @@ class TestModelRegistryProperties:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             registry = ModelRegistry(Path(tmpdir))
+            feature_schema_hash = "test_hash"
+            feature_set_id = register_feature_set_for_schema(
+                registry_path=Path(tmpdir),
+                schema_hash=feature_schema_hash,
+                feature_set_id="property_registry_isolation_features",
+            )
 
             model_versions = {}
 
@@ -359,7 +375,9 @@ class TestModelRegistryProperties:
                     data_requirements=DataRequirements.L1_ONLY,
                     architecture=safe_name,
                     feature_schema={"test": "float32"},
-                    feature_schema_hash="test_hash",
+                    feature_schema_hash=feature_schema_hash,
+                    feature_set_id=feature_set_id,
+                    output_schema=default_output_schema(),
                     version="1.0.0",
                     performance_metrics={"score": np.random.random()},
                 )

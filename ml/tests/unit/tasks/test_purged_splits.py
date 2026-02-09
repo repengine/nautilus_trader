@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib
+
 import polars as pl
 import pytest
 
-from ml.tasks.datasets.splits import create_purged_splits
+from ml.training.common.cross_validation import create_purged_splits
 
 
 def test_create_purged_splits_basic() -> None:
@@ -80,3 +82,8 @@ def test_create_purged_splits_invalid_embargo_pct() -> None:
 
     with pytest.raises(ValueError, match="embargo_pct must be in"):
         create_purged_splits(df, embargo_pct=1.2)
+
+
+def test_task_purged_splits_module_is_retired() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("ml.tasks.datasets.splits")

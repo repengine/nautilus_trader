@@ -20,6 +20,23 @@ from ml.registry import DeploymentStatus
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
+
+
+def _apply_strict_serveable_fields(
+    *,
+    manifest: ModelManifest,
+    registry_path: Path,
+) -> None:
+    """Populate strict-valid feature linkage and output semantics fields."""
+    manifest.feature_set_id = register_feature_set_for_schema(
+        registry_path=registry_path,
+        schema_hash=manifest.feature_schema_hash,
+    )
+    manifest.output_schema = default_output_schema()
+    manifest.calibration = default_calibration()
 
 
 @pytest.mark.parallel_safe
@@ -51,6 +68,10 @@ class TestRegistryDeployment:
                 version="1.0.0",
                 created_at=time.time(),
                 last_modified=time.time(),
+            )
+            _apply_strict_serveable_fields(
+                manifest=manifest,
+                registry_path=registry_path,
             )
 
             # Register model
@@ -105,6 +126,10 @@ class TestRegistryDeployment:
                 created_at=time.time(),
                 last_modified=time.time(),
             )
+            _apply_strict_serveable_fields(
+                manifest=manifest_v1,
+                registry_path=registry_path,
+            )
 
             model_v1 = registry.register_model(
                 model_path=model_v1_path,
@@ -121,11 +146,15 @@ class TestRegistryDeployment:
                 role=ModelRole.INFERENCE,
                 data_requirements=DataRequirements.L1_ONLY,
                 architecture="TestModel",
-                feature_schema={"sma_10": "float32", "rsi_14": "float32"},
-                feature_schema_hash="v2_hash",
+                feature_schema={"sma_10": "float32"},
+                feature_schema_hash="v1_hash",
                 version="2.0.0",
                 created_at=time.time(),
                 last_modified=time.time(),
+            )
+            _apply_strict_serveable_fields(
+                manifest=manifest_v2,
+                registry_path=registry_path,
             )
 
             model_v2 = registry.register_model(
@@ -171,6 +200,10 @@ class TestRegistryDeployment:
                 feature_schema_hash="current_hash",
                 version="1.0.0",
             )
+            _apply_strict_serveable_fields(
+                manifest=manifest_current,
+                registry_path=registry_path,
+            )
 
             current_id = registry.register_model(
                 model_path=model_current_path,
@@ -188,6 +221,10 @@ class TestRegistryDeployment:
                 feature_schema={"sma_10": "float32"},
                 feature_schema_hash="current_hash",  # Same schema for compatibility
                 version="2.0.0",
+            )
+            _apply_strict_serveable_fields(
+                manifest=manifest_new,
+                registry_path=registry_path,
             )
 
             new_id = registry.register_model(

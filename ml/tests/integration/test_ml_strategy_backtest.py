@@ -26,6 +26,7 @@ import pytest
 from ml._imports import HAS_NAUTILUS_CORE
 from ml._imports import HAS_XGBOOST
 from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+from ml.tests.utils.model_artifacts import write_stub_onnx_artifact
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -55,11 +56,10 @@ def _configure_mock_onnx_session(
 
 
 def _write_stub_model(tmp_path: Path, filename: str = "model.onnx") -> Path:
-    """Create a placeholder ONNX artifact to satisfy file lookups."""
+    """Create a placeholder ONNX artifact plus sidecar digest metadata."""
 
     model_path = tmp_path / filename
-    model_path.write_bytes(b"mock-onnx")
-    return model_path
+    return write_stub_onnx_artifact(model_path)
 
 if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
     pytest.skip(

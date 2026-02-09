@@ -489,6 +489,123 @@ class TestPostgresBackend:
                     status=EventStatus.SUCCESS,
                 )
 
+    def test_emit_event_postgres_falls_back_to_legacy_function_when_extended_fails(self) -> None:
+        """Verify fallback to emit_data_event when emit_data_event_ext fails."""
+        from types import SimpleNamespace
+
+        from ml.registry.common.event_emission import EventEmissionComponent
+
+        session = MagicMock()
+        session.execute.side_effect = [RuntimeError("ext failed"), None]
+        persistence = SimpleNamespace(
+            _lock=threading.RLock(),
+            backend=BackendType.POSTGRES,
+            persistence=SimpleNamespace(get_session=lambda: session),
+        )
+        component = EventEmissionComponent(persistence=persistence)  # type: ignore[arg-type]
+
+        with patch("ml.registry.common.event_emission.set_instrumentation_search_path", lambda _: None):
+            component.emit_event(
+                dataset_id="test_dataset",
+                instrument_id="EUR/USD",
+                stage=Stage.CATALOG_WRITTEN,
+                source=Source.HISTORICAL,
+                run_id="run_1",
+                ts_min=10,
+                ts_max=20,
+                count=7,
+                status=EventStatus.SUCCESS,
+                metadata={"trace_id": "t1"},
+            )
+
+        assert session.execute.call_count == 2
+        fallback_statement = str(session.execute.call_args_list[1].args[0])
+        assert "emit_data_event(" in fallback_statement
+        assert session.rollback.call_count == 1
+        session.commit.assert_called_once()
+        session.close.assert_not_called()
+
+    def test_emit_event_postgres_falls_back_to_insert_when_sql_functions_fail(self) -> None:
+        """Verify direct INSERT fallback when both SQL function calls fail."""
+        from types import SimpleNamespace
+
+        from ml.registry.common.event_emission import EventEmissionComponent
+
+        session = MagicMock()
+        session.execute.side_effect = [
+            RuntimeError("ext failed"),
+            RuntimeError("legacy failed"),
+            None,
+        ]
+        persistence = SimpleNamespace(
+            _lock=threading.RLock(),
+            backend=BackendType.POSTGRES,
+            persistence=SimpleNamespace(get_session=lambda: session),
+        )
+        component = EventEmissionComponent(persistence=persistence)  # type: ignore[arg-type]
+
+        with patch("ml.registry.common.event_emission.set_instrumentation_search_path", lambda _: None):
+            component.emit_event(
+                dataset_id="test_dataset",
+                instrument_id="EUR/USD",
+                stage=Stage.CATALOG_WRITTEN,
+                source=Source.HISTORICAL,
+                run_id="run_2",
+                ts_min=30,
+                ts_max=40,
+                count=8,
+                status=EventStatus.SUCCESS,
+            )
+
+        assert session.execute.call_count == 3
+        fallback_insert = str(session.execute.call_args_list[2].args[0])
+        assert "INSERT INTO ml_data_events" in fallback_insert
+        assert session.rollback.call_count == 2
+        session.commit.assert_called_once()
+        session.close.assert_called_once()
+
+    def test_emit_event_postgres_raises_when_insert_fallback_fails(self) -> None:
+        """Verify insert fallback re-raises and logs with traceback context."""
+        from types import SimpleNamespace
+
+        from ml.registry.common.event_emission import EventEmissionComponent
+
+        session = MagicMock()
+        session.execute.side_effect = [
+            RuntimeError("ext failed"),
+            RuntimeError("legacy failed"),
+            RuntimeError("insert failed"),
+        ]
+        persistence = SimpleNamespace(
+            _lock=threading.RLock(),
+            backend=BackendType.POSTGRES,
+            persistence=SimpleNamespace(get_session=lambda: session),
+        )
+        component = EventEmissionComponent(persistence=persistence)  # type: ignore[arg-type]
+
+        with (
+            patch("ml.registry.common.event_emission.set_instrumentation_search_path", lambda _: None),
+            patch("ml.registry.common.event_emission.logger.error") as logger_error,
+            pytest.raises(RuntimeError, match="insert failed"),
+        ):
+            component.emit_event(
+                dataset_id="test_dataset",
+                instrument_id="EUR/USD",
+                stage=Stage.CATALOG_WRITTEN,
+                source=Source.HISTORICAL,
+                run_id="run_3",
+                ts_min=50,
+                ts_max=60,
+                count=9,
+                status=EventStatus.FAILED,
+                error="failed",
+            )
+
+        assert session.rollback.call_count == 3
+        session.close.assert_called_once()
+        logger_error.assert_called_once()
+        assert logger_error.call_args.kwargs["exc_info"] is True
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

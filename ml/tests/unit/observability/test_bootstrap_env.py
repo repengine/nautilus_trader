@@ -4,6 +4,9 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+from unittest.mock import patch
+
+import pytest
 
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.core.integration import MLIntegrationManager
@@ -36,3 +39,25 @@ def test_auto_start_if_configured_starts_flusher(tmp_path: Path) -> None:
         auto_start_if_configured(mgr)
         assert getattr(mgr, "_obs_flusher", None) is not None
         MLIntegrationManager.stop_observability_flush(mgr)
+
+
+def test_auto_start_if_configured_noop_without_relevant_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mgr = build_integration_manager_stub()
+    for key in ("ML_OBS_SINK", "ML_OBS_DB_URL", "ML_OBS_BASE_PATH"):
+        monkeypatch.delenv(key, raising=False)
+
+    auto_start_if_configured(mgr)
+    assert getattr(mgr, "_obs_flusher", None) is None
+
+
+def test_auto_start_if_configured_swallows_configuration_errors() -> None:
+    mgr = build_integration_manager_stub()
+    with env_vars({"ML_OBS_SINK": "db"}):
+        with patch(
+            "ml.config.observability.ObservabilityConfig.from_env",
+            side_effect=RuntimeError("bad config"),
+        ):
+            auto_start_if_configured(mgr)
+    assert getattr(mgr, "_obs_flusher", None) is None

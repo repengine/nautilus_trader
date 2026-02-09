@@ -14,6 +14,8 @@ from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
 
 
 def test_model_registry_resolves_feature_registry_sibling(
@@ -59,6 +61,8 @@ def test_model_registry_resolves_feature_registry_sibling(
         feature_set_id=feature_set_id,
         pipeline_signature=None,
         pipeline_version=None,
+        output_schema=default_output_schema(),
+        calibration=default_calibration(),
     )
     model_registry.register_model(model_path=model_path, manifest=manifest, auto_deploy=False)
 

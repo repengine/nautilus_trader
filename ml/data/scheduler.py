@@ -53,7 +53,9 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.schema import DATASET_TYPE_IDENTIFIER_DEFAULTS
 from ml.schema import map_schema_to_dataset_type
+from ml.schema import validate_dataset_type_templates
 from ml.stores.io_raw import FilteredRawWriter
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
@@ -320,18 +322,23 @@ class DataScheduler:
             for dataset_type, enabled in dual_write_dataset_types.items():
                 base_dual_write[dataset_type] = bool(enabled)
         self._dual_write_dataset_types = base_dual_write
-        # Identifier template overrides are deprecated; enforce registry defaults.
+        default_templates: dict[DatasetType, str] = dict(DATASET_TYPE_IDENTIFIER_DEFAULTS)
+        # Identifier template overrides are deprecated.
+        # We still validate inputs for contract safety, then keep schema defaults.
         if dataset_type_identifier_templates:
+            validated_overrides = validate_dataset_type_templates(
+                dataset_type_identifier_templates,
+            )
             logger.warning(
                 "Ignoring deprecated dataset_type_identifier_templates overrides; "
                 "schema registry defaults are enforced",
                 extra={
                     "dataset_types": sorted(
-                        dt.value for dt in dataset_type_identifier_templates
+                        dataset_type.value for dataset_type in validated_overrides
                     ),
                 },
             )
-        self._dataset_type_identifier_templates: Mapping[DatasetType, str] | None = None
+        self._dataset_type_identifier_templates: Mapping[DatasetType, str] = default_templates
 
         # Scheduling state
         self.enabled = True

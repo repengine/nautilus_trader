@@ -10,6 +10,7 @@ fixtures to the dedicated modules under ``ml.tests.fixtures``.
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import warnings
@@ -336,6 +337,8 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> 
         db_fixtures.release_db_lock(fh)
 
     _EngineManager.dispose_all()
+    if "database" in item.keywords or "serial" in item.keywords:
+        gc.collect()
     _db_fixtures()._SCHEMA_INITIALIZED.clear()
 
 
@@ -431,17 +434,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
     import logging
 
-    previous_disable = logging.root.manager.disable
     logging.disable(logging.CRITICAL)
-    try:
-        _EngineManager.dispose_all()
-    finally:
-        logging.disable(previous_disable)
+    _EngineManager.dispose_all()
+    gc.collect()
 
     _db_fixtures()._SCHEMA_INITIALIZED.clear()
-
-    logger = logging.getLogger(__name__)
-    try:
-        logger.info("Test session completed with exit status: %s", exitstatus)
-    except ValueError:
-        pass

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Thin wrapper delegating ML integration health aggregation to tasks.
+Thin wrapper delegating ML integration health aggregation to canonical services.
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ import argparse
 import json
 from collections.abc import Sequence
 
+from ml.core.common.health_monitoring import aggregate_integration_health
 from ml.core.integration import HealthSummary
-from ml.tasks.monitoring import aggregate_integration_health
 
 
 __all__ = ["main"]

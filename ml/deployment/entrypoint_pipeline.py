@@ -1695,9 +1695,9 @@ class PipelineRunner:
         max_workers = max(1, self._get_int_env("MAX_WORKERS", 4))
 
         if label == "micro":
-            from ml.tasks.caches import MicroCacheHydrationConfig
-            from ml.tasks.caches import hydrate_micro_caches
-            from ml.tasks.caches import ingest_micro_cache_partitions
+            from ml.data.rehydration import MicroCacheHydrationConfig
+            from ml.data.rehydration import hydrate_micro_caches
+            from ml.data.rehydration import ingest_micro_cache_partitions
 
             cfg_micro = MicroCacheHydrationConfig(
                 symbols=symbols,
@@ -1718,9 +1718,9 @@ class PipelineRunner:
                 run_id=f"coverage_micro_{int(time.time())}",
             )
         else:
-            from ml.tasks.caches import L2CacheHydrationConfig
-            from ml.tasks.caches import hydrate_l2_caches
-            from ml.tasks.caches import ingest_l2_cache_partitions
+            from ml.data.rehydration import L2CacheHydrationConfig
+            from ml.data.rehydration import hydrate_l2_caches
+            from ml.data.rehydration import ingest_l2_cache_partitions
 
             cfg_l2 = L2CacheHydrationConfig(
                 symbols=symbols,

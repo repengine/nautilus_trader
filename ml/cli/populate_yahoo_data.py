@@ -12,10 +12,10 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.data.ingest import PopulateYahooDataTaskConfig
+from ml.data.ingest import populate_yahoo_data
 from ml.data.loaders.supplementary import SUPPLEMENTARY_SYMBOLS
 from ml.data.loaders.supplementary import SupplementaryOutputs
-from ml.tasks.ingest import PopulateYahooDataTaskConfig
-from ml.tasks.ingest import populate_yahoo_data
 
 
 __all__ = ["main"]

@@ -2,7 +2,7 @@
 """
 CLI wrapper for ML database migrations.
 
-Delegates planning/execution to :mod:`ml.tasks.db` so this module remains a
+Delegates planning/execution to canonical store migration modules so this module remains a
 lightweight entry point with predictable typing.
 
 """
@@ -18,12 +18,12 @@ import structlog
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
 from ml.common.db_connections import select_first_working_connection
-from ml.tasks.db import MigrationResult
-from ml.tasks.db import MigrationSchema
-from ml.tasks.db import apply_database_migrations
-from ml.tasks.db import apply_migration_files as apply_files
-from ml.tasks.db import build_migration_plan
-from ml.tasks.db import split_sql_statements as _split_statements
+from ml.stores.common.sql_splitter import split_sql_statements as _split_statements
+from ml.stores.migrations_runner import MigrationResult
+from ml.stores.migrations_runner import MigrationSchema
+from ml.stores.migrations_runner import apply_database_migrations
+from ml.stores.migrations_runner import apply_migration_files as apply_files
+from ml.stores.migrations_runner import build_migration_plan
 
 
 # Backwards compatibility for tests importing from the CLI module

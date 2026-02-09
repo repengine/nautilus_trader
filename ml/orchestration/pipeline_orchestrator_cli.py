@@ -46,6 +46,8 @@ from ml.data import DatasetValidationConfig
 from ml.data.ingest.databento_adapter import DatabentoAPIClient
 from ml.data.ingest.discovery import DatasetDiscoveryService
 from ml.data.ingest.discovery import DiscoveryPolicy
+from ml.data.ingest.l2_efficient import PopulateL2TaskConfig
+from ml.data.ingest.l2_efficient import populate_l2_efficient
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
@@ -84,8 +86,6 @@ from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import FanoutMarketDataWriter
 from ml.stores.writers import ParquetCatalogMarketDataWriter
-from ml.tasks.ingest import PopulateL2TaskConfig
-from ml.tasks.ingest import populate_l2_efficient
 
 
 load_market_feed_descriptors = _load_market_feed_descriptors
@@ -1030,13 +1030,11 @@ def _execute_with_namespace(
                 "--ingest requested but DATABENTO_API_KEY is missing; skipping",
             )
 
-    from ml.tasks.datasets import tft_cli as build_cli
+    from ml.cli.build_tft_dataset import main as build_main
     from ml.training.teacher.tft_cli import main as teacher_main
 
-    build_main = build_cli.main
-
     try:
-        from ml.tasks.training import hpo_tft as _hpo_task
+        from ml.training.teacher import hpo_tft as _hpo_task
 
         hpo_main_cli: _CliMain | None = partial(
             _hpo_task.main,

@@ -21,6 +21,16 @@ from nautilus_trader.model.objects import Quantity
 pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
 
 
+def _counter_value(
+    registry: Any,
+    *,
+    name: str,
+    labels: dict[str, str],
+) -> float:
+    sample = registry.get_sample_value(name, labels=labels)
+    return float(sample) if sample is not None else 0.0
+
+
 @dataclass
 class DummyPosition:
     instrument_id: InstrumentId
@@ -69,6 +79,12 @@ class DummyPriceProvider:
 def test_resolve_position_value_prefers_quote_mid_when_available(
     isolated_prometheus_registry: Any,
 ) -> None:
+    registry = isolated_prometheus_registry.registry
+    before = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
+        labels={"reason": "price_missing"},
+    )
     position = DummyPosition(
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
         quantity=Quantity.from_str("2"),
@@ -96,16 +112,23 @@ def test_resolve_position_value_prefers_quote_mid_when_available(
     value = rm._resolve_position_value(position)
 
     assert value == pytest.approx(408.0)
-    degraded = isolated_prometheus_registry.registry.get_sample_value(
-        "ml_positions_exposure_degraded_total",
+    after = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
         labels={"reason": "price_missing"},
     )
-    assert degraded is None
+    assert after - before == pytest.approx(0.0)
 
 
 def test_resolve_position_value_falls_back_to_position_avg_when_quote_missing(
     isolated_prometheus_registry: Any,
 ) -> None:
+    registry = isolated_prometheus_registry.registry
+    before = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
+        labels={"reason": "price_missing"},
+    )
     position = DummyPosition(
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
         quantity=Quantity.from_str("2"),
@@ -128,16 +151,23 @@ def test_resolve_position_value_falls_back_to_position_avg_when_quote_missing(
     value = rm._resolve_position_value(position)
 
     assert value == pytest.approx(396.0)
-    degraded = isolated_prometheus_registry.registry.get_sample_value(
-        "ml_positions_exposure_degraded_total",
+    after = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
         labels={"reason": "price_missing"},
     )
-    assert degraded is None
+    assert after - before == pytest.approx(0.0)
 
 
 def test_resolve_position_value_falls_back_to_cache_last_when_position_price_missing(
     isolated_prometheus_registry: Any,
 ) -> None:
+    registry = isolated_prometheus_registry.registry
+    before = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
+        labels={"reason": "price_missing"},
+    )
     position = DummyPosition(
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
         quantity=Quantity.from_str("3"),
@@ -160,16 +190,23 @@ def test_resolve_position_value_falls_back_to_cache_last_when_position_price_mis
     value = rm._resolve_position_value(position)
 
     assert value == pytest.approx(330.0)
-    degraded = isolated_prometheus_registry.registry.get_sample_value(
-        "ml_positions_exposure_degraded_total",
+    after = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
         labels={"reason": "price_missing"},
     )
-    assert degraded is None
+    assert after - before == pytest.approx(0.0)
 
 
 def test_resolve_position_value_uses_notional_when_price_available(
     isolated_prometheus_registry: Any,
 ) -> None:
+    registry = isolated_prometheus_registry.registry
+    before = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
+        labels={"reason": "price_missing"},
+    )
     rm = RiskManager()
     position = DummyPosition(
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
@@ -181,16 +218,23 @@ def test_resolve_position_value_uses_notional_when_price_available(
     value = rm._resolve_position_value(position)
 
     assert value == pytest.approx(400.0)
-    degraded = isolated_prometheus_registry.registry.get_sample_value(
-        "ml_positions_exposure_degraded_total",
+    after = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
         labels={"reason": "price_missing"},
     )
-    assert degraded is None
+    assert after - before == pytest.approx(0.0)
 
 
 def test_resolve_position_value_emits_degraded_metric_when_price_missing(
     isolated_prometheus_registry: Any,
 ) -> None:
+    registry = isolated_prometheus_registry.registry
+    before = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
+        labels={"reason": "price_missing"},
+    )
     rm = RiskManager()
     position = DummyPosition(
         instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
@@ -200,8 +244,9 @@ def test_resolve_position_value_emits_degraded_metric_when_price_missing(
     value = rm._resolve_position_value(position)
 
     assert value == pytest.approx(3.0)
-    degraded = isolated_prometheus_registry.registry.get_sample_value(
-        "ml_positions_exposure_degraded_total",
+    after = _counter_value(
+        registry,
+        name="ml_positions_exposure_degraded_total",
         labels={"reason": "price_missing"},
     )
-    assert degraded == 1.0
+    assert after - before == pytest.approx(1.0)

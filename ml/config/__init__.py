@@ -113,6 +113,12 @@ from ml.config.loader import merge_env
 from ml.config.observability import ObservabilityConfig
 from ml.config.playground import LiquidityScalingDefaults
 from ml.config.playground import ThreeDRiskBacktestDefaults
+from ml.config.policy import ActorRemediationPolicyConfig
+from ml.config.policy import CausalityMonotonicEnforcement
+from ml.config.policy import DriftActionPolicy
+from ml.config.policy import InferenceTimeoutAction
+from ml.config.policy import MLFailureAction
+from ml.config.policy import RegistryCompatibilityPolicyConfig
 from ml.config.registry import ModelRegistryConfig
 from ml.config.registry import RegistryPolicyConfig
 from ml.config.replay import LiveReplayConfig
@@ -272,14 +278,17 @@ __all__ = [
     "MACRO_OBSERVATIONS_DATASET_ID",
     "MACRO_RELEASES_DATASET_ID",
     "MICRO_MINUTE_DATASET_ID",
+    "ActorRemediationPolicyConfig",
     "ActorReplayConfig",
     "AdvancedTrainingConfig",
     "BaseGPUConfig",
     "BinaryTargetConfig",
     "CanaryDeploymentConfig",
+    "CausalityMonotonicEnforcement",
     "CircuitBreakerConfig",
     "DatabentoConfig",
     "DatasetServiceConfig",
+    "DriftActionPolicy",
     "EdgarSmokeTestConfig",
     "EventSource",
     "EventStage",
@@ -290,12 +299,14 @@ __all__ = [
     "FeatureStoreMirrorBackfillConfig",
     "FeatureStoreMirrorConfig",
     "IndicatorNames",
+    "InferenceTimeoutAction",
     "LightGBMGPUConfig",
     "LightGBMTrainingConfig",
     "LiquidityScalingDefaults",
     "LiveReplayConfig",
     "MLActorConfig",
     "MLConstants",
+    "MLFailureAction",
     "MLFeatureConfig",
     "MLInferenceConfig",
     "MLSignalActorConfig",
@@ -314,6 +325,7 @@ __all__ = [
     "OptimizationConfig",
     "OptunaConfig",
     "ParquetLiveReplayHarnessConfig",
+    "RegistryCompatibilityPolicyConfig",
     "RegistryPolicyConfig",
     "RegressionTargetConfig",
     "SchedulerConfig",

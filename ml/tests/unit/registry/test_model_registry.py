@@ -13,6 +13,9 @@ from ml.registry import DataRequirements
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 @pytest.mark.skipif(not (HAS_ONNX and HAS_ONNX_CORE), reason="ONNX/ONNX Runtime not installed")
@@ -52,6 +55,12 @@ def test_model_registry_register_load_deploy_lineage() -> None:
             parent_id="teacher_model_001",  # Add parent_id for student model
             performance_metrics={"inference_latency_ms": 1.2},
         )
+        manifest.feature_set_id = register_feature_set_for_schema(
+            registry_path=base,
+            schema_hash=manifest.feature_schema_hash,
+        )
+        manifest.output_schema = default_output_schema()
+        manifest.calibration = default_calibration()
 
         mid = registry.register_model(
             model_path=onnx_path,

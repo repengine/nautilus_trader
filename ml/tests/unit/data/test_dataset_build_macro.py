@@ -25,7 +25,7 @@ from ml.data.validation import DatasetValidationError
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.registry.feature_registry import FeatureRegistry
-from ml.tasks.datasets import TFTDatasetTaskConfig
+from ml.data import TFTDatasetTaskConfig
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
@@ -400,7 +400,7 @@ def test_tft_dataset_task_config_overrides_base_dirs(
     tmp_path: Path,
     patch_dataset_bars,
 ) -> None:
-    from ml.tasks.datasets import build_tft_dataset as build_task_dataset
+    from ml.data import build_tft_dataset_from_task_config as build_task_dataset
 
     builder_records: dict[str, object] = {}
     patch_dataset_bars()

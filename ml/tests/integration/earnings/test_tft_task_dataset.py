@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from ml.data import DatasetBuildConfig
+from ml.data import DatasetValidationConfig
 from ml.data import build_tft_dataset
 from ml.tests.utils.earnings_facade import build_test_data_store
 from ml.tests.utils.targets import build_default_target_semantics
@@ -95,6 +96,11 @@ def test_task_builds_dataset_with_earnings_columns(
         earnings_lag_days=0,
         target_semantics=build_default_target_semantics(horizon_minutes=1, threshold=0.0),
         lookback_periods=1,
+        validation=DatasetValidationConfig(
+            min_positive_rate=None,
+            max_positive_rate=None,
+            min_feature_coverage=0.0,
+        ),
     )
 
     result = build_tft_dataset(cfg, data_store=store)

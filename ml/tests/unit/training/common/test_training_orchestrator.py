@@ -29,6 +29,9 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from ml.config.targets import HORIZON_RESOLUTION_WALL_CLOCK
+from ml.config.targets import TARGET_SEMANTICS_CONTRACT_ID
+from ml.config.targets import TARGET_SEMANTICS_CONTRACT_MAJOR
 from ml.training.common.training_orchestrator import (
     TrainerProtocol,
     TrainingOrchestratorComponent,
@@ -71,6 +74,7 @@ class MockConfig:
     optuna_config: Any = None
     mlflow_config: Any = None
     export_onnx: bool = False
+    target_semantics: Any = None
 
 
 class TestableTrainer:
@@ -292,6 +296,151 @@ def test_training_orchestrator_requires_target_col_declared(tmp_path: Path) -> N
     orchestrator = TrainingOrchestratorComponent(trainer)
 
     with pytest.raises(ValueError, match="target_col 'missing_target'"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_target_semantics_contract(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    semantics.pop("contract", None)
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match="missing required keys"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_declared_contract_capabilities(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    contract = semantics["contract"]
+    assert isinstance(contract, dict)
+    contract["capabilities"] = ["horizons_declared"]
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match="missing required capabilities"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_canonical_contract_id(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    contract = semantics["contract"]
+    assert isinstance(contract, dict)
+    contract["id"] = f"{TARGET_SEMANTICS_CONTRACT_ID}_invalid"
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match=r"contract\.id mismatch"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_canonical_contract_major(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    contract = semantics["contract"]
+    assert isinstance(contract, dict)
+    contract["major"] = TARGET_SEMANTICS_CONTRACT_MAJOR + 1
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match=r"contract\.major mismatch"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_canonical_semantics_version(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    semantics.pop("version", None)
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match="version mismatch"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_horizon_mode_match_with_config(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+            target_semantics={
+                "horizon_resolution_mode": HORIZON_RESOLUTION_WALL_CLOCK,
+                "wall_clock_timestamp_column": "timestamp",
+                "horizons": [{"minutes": 15, "label": "15m"}],
+            },
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match="horizon_resolution_mode mismatch"):
+        orchestrator.train(np.zeros((2, 2), dtype=np.float64))
+
+
+def test_training_orchestrator_requires_execution_contract_match_with_config(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "dataset.parquet"
+    dataset_path.write_text("data", encoding="utf-8")
+    semantics = build_target_semantics_metadata(build_default_target_semantics())
+    _write_metadata(tmp_path, target_semantics=semantics)
+
+    trainer = TestableTrainer(
+        config=MockConfig(
+            data_source=str(dataset_path),
+            target_column="target_bin_15m",
+            target_semantics={
+                "execution_latency_bars": 1,
+            },
+        ),
+    )
+    orchestrator = TrainingOrchestratorComponent(trainer)
+
+    with pytest.raises(ValueError, match=r"execution\.latency_bars mismatch"):
         orchestrator.train(np.zeros((2, 2), dtype=np.float64))
 
 

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import structlog
 
+from ml._imports import check_ml_dependencies
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
 from ml.data.feature_columns import DEFAULT_FEATURE_EXCLUDE_COLUMNS
@@ -468,3 +472,266 @@ def validate_dataset(
         _VALIDATION_COUNTER.labels(status=status).inc()
         _VALIDATION_SECONDS.labels(status=status).observe(duration)
         raise
+
+
+@dataclass(slots=True, frozen=True)
+class DatasetReportConfig:
+    """Configuration for dataset quality report generation."""
+
+    dataset_path: Path
+    output_json: Path | None = None
+    output_markdown: Path | None = None
+
+
+@dataclass(slots=True)
+class DatasetReport:
+    """Structured dataset report payload with optional markdown rendering."""
+
+    data: dict[str, Any]
+    markdown: str | None = None
+
+    def to_json(self) -> str:
+        """Serialize report data to stable JSON."""
+        return json.dumps(self.data, indent=2, sort_keys=True)
+
+
+def _infer_report_macro_columns(columns: Iterable[str]) -> list[str]:
+    known = {
+        "DGS1",
+        "DGS2",
+        "DGS10",
+        "DGS30",
+        "FEDFUNDS",
+        "SOFR",
+        "VIXCLS",
+        "GDP",
+        "GDPC1",
+        "CPIAUCSL",
+        "CPILFESL",
+        "PCEPI",
+        "UNRATE",
+        "PAYEMS",
+        "CIVPART",
+        "UMCSENT",
+        "RSXFS",
+        "HOUST",
+    }
+    cols = list(columns)
+    present = [column for column in cols if column in known]
+    if present:
+        return sorted(present)
+
+    import re
+
+    pattern = re.compile(r"^[A-Z0-9_]{3,}$")
+    return sorted(column for column in cols if pattern.match(column))
+
+
+def _infer_report_feature_columns(columns: Iterable[str]) -> list[str]:
+    exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
+    return [column for column in columns if column not in exclude]
+
+
+def _compute_report_macro_null_rates(df_any: Any, macro_cols: list[str]) -> dict[str, float]:
+    if not macro_cols:
+        return {}
+    if pl is not None and isinstance(df_any, pl.DataFrame):
+        total = df_any.height or 1
+        return {
+            col: float(df_any.select(pl.col(col).is_null().sum().alias("n")).item()) / float(total)
+            for col in macro_cols
+            if col in df_any.columns
+        }
+    if pd is not None and isinstance(df_any, pd.DataFrame):
+        total = len(df_any) or 1
+        return {
+            col: float(df_any[col].isna().sum()) / float(total)
+            for col in macro_cols
+            if col in df_any.columns
+        }
+    check_ml_dependencies(["polars", "pandas"])
+    raise RuntimeError("No dataframe engine available")
+
+
+def _compute_report_feature_coverage(df_any: Any, feature_cols: list[str]) -> dict[str, Any]:
+    if not feature_cols:
+        return {"overall": {}, "by_symbol": {}}
+    by_symbol: dict[str, dict[str, float]] = {}
+    if pl is not None and isinstance(df_any, pl.DataFrame):
+        total = df_any.height or 1
+        overall = {
+            col: float(df_any.select(pl.col(col).is_null().not_().sum().alias("n")).item())
+            / float(total)
+            for col in feature_cols
+            if col in df_any.columns
+        }
+        if "instrument_id" in df_any.columns:
+            grouped = (
+                df_any.lazy()
+                .group_by("instrument_id")
+                .agg(
+                    [
+                        pl.col(col).is_null().not_().sum().alias(col)
+                        for col in feature_cols
+                        if col in df_any.columns
+                    ],
+                )
+                .collect()
+            )
+            counts = df_any.lazy().group_by("instrument_id").agg(pl.len().alias("count")).collect()
+            count_map = {str(row[0]): int(row[1]) or 1 for row in counts.iter_rows()}
+            for row in grouped.iter_rows(named=True):
+                instrument = str(row["instrument_id"])
+                denom = count_map.get(instrument, 1)
+                by_symbol[instrument] = {
+                    key: float(value) / float(denom)
+                    for key, value in row.items()
+                    if key != "instrument_id"
+                }
+        return {"overall": overall, "by_symbol": by_symbol}
+    if pd is not None and isinstance(df_any, pd.DataFrame):
+        total = len(df_any) or 1
+        overall = {
+            col: float(df_any[col].notna().sum()) / float(total)
+            for col in feature_cols
+            if col in df_any.columns
+        }
+        by_symbol = {}
+        if "instrument_id" in df_any.columns:
+            for instrument, subset in df_any.groupby("instrument_id"):
+                denom = len(subset) or 1
+                by_symbol[str(instrument)] = {
+                    col: float(subset[col].notna().sum()) / float(denom)
+                    for col in feature_cols
+                    if col in subset.columns
+                }
+        return {"overall": overall, "by_symbol": by_symbol}
+    check_ml_dependencies(["polars", "pandas"])
+    raise RuntimeError("No dataframe engine available")
+
+
+def _compute_report_target_stats(df_any: Any) -> dict[str, Any]:
+    if pl is not None and isinstance(df_any, pl.DataFrame):
+        if "y" not in df_any.columns:
+            return {}
+        total = df_any.height
+        positives = int(df_any.select(pl.col("y").sum().alias("p")).item()) if total > 0 else 0
+        overall = {
+            "total": int(total),
+            "positives": positives,
+            "positive_rate": float(positives) / float(total) if total else 0.0,
+        }
+        by_symbol = {}
+        if "instrument_id" in df_any.columns and total > 0:
+            grouped = (
+                df_any.lazy()
+                .group_by("instrument_id")
+                .agg([pl.col("y").sum().alias("positives"), pl.len().alias("total")])
+                .collect()
+            )
+            for row in grouped.iter_rows(named=True):
+                instrument_total = int(row["total"]) or 1
+                positives_sym = int(row["positives"])
+                instrument = str(row["instrument_id"])
+                by_symbol[instrument] = {
+                    "total": int(row["total"]),
+                    "positives": positives_sym,
+                    "positive_rate": float(positives_sym) / float(instrument_total),
+                }
+        return {"overall": overall, "by_symbol": by_symbol}
+    if pd is not None and isinstance(df_any, pd.DataFrame):
+        if "y" not in df_any.columns:
+            return {}
+        total = len(df_any)
+        positives = int(df_any["y"].sum()) if total > 0 else 0
+        overall = {
+            "total": total,
+            "positives": positives,
+            "positive_rate": float(positives) / float(total) if total else 0.0,
+        }
+        by_symbol = {}
+        if "instrument_id" in df_any.columns and total > 0:
+            grouped = df_any.groupby("instrument_id")["y"].agg(["sum", "count"]).reset_index()
+            for _, row in grouped.iterrows():
+                total_sym = int(row["count"]) or 1
+                positives_sym = int(row["sum"])
+                instrument = str(row["instrument_id"])
+                by_symbol[instrument] = {
+                    "total": int(row["count"]),
+                    "positives": positives_sym,
+                    "positive_rate": float(positives_sym) / float(total_sym),
+                }
+        return {"overall": overall, "by_symbol": by_symbol}
+    check_ml_dependencies(["polars", "pandas"])
+    raise RuntimeError("No dataframe engine available")
+
+
+def _render_dataset_report_markdown(report: dict[str, Any]) -> str:
+    lines: list[str] = ["# Dataset Report"]
+    macro = report.get("macro_null_rates", {})
+    if macro:
+        lines.append("\n## Macro Null Rates")
+        for key, value in sorted(macro.items()):
+            lines.append(f"- {key}: {value:.4f}")
+    target = report.get("target", {})
+    if target:
+        overall = target.get("overall", {})
+        lines.append("\n## Target Distribution")
+        lines.append(
+            "- total: {total}; positives: {positives}; rate: {rate:.4f}".format(
+                total=overall.get("total", 0),
+                positives=overall.get("positives", 0),
+                rate=overall.get("positive_rate", 0.0),
+            ),
+        )
+    return "\n".join(lines) + "\n"
+
+
+def generate_dataset_report(config: DatasetReportConfig) -> DatasetReport:
+    """Generate a quality report for a persisted dataset artifact."""
+    if not config.dataset_path.exists():
+        raise FileNotFoundError(f"Dataset not found: {config.dataset_path}")
+
+    df_any: Any
+    suffix = config.dataset_path.suffix.lower()
+    if pl is not None and suffix == ".parquet":
+        df_any = pl.read_parquet(str(config.dataset_path))
+    elif pl is not None and suffix == ".csv":
+        df_any = pl.read_csv(str(config.dataset_path))
+    elif pd is not None:
+        if suffix == ".parquet":
+            df_any = pd.read_parquet(str(config.dataset_path))
+        else:
+            df_any = pd.read_csv(str(config.dataset_path))
+    else:
+        check_ml_dependencies(["polars", "pandas"])
+        raise RuntimeError("Unable to load dataset: no dataframe engine available")
+
+    if pl is not None and isinstance(df_any, pl.DataFrame):
+        columns = list(df_any.columns)
+        row_count = int(df_any.height)
+    else:
+        if pd is None:
+            raise RuntimeError("pandas is required to compute dataset columns")
+        columns = list(df_any.columns)
+        row_count = len(df_any)
+
+    macro_cols = _infer_report_macro_columns(columns)
+    feature_cols = _infer_report_feature_columns(columns)
+
+    report_data = {
+        "shape": [row_count, len(columns)],
+        "macro_null_rates": _compute_report_macro_null_rates(df_any, macro_cols),
+        "feature_coverage": _compute_report_feature_coverage(df_any, feature_cols),
+        "target": _compute_report_target_stats(df_any),
+    }
+
+    markdown = _render_dataset_report_markdown(report_data)
+    report = DatasetReport(data=report_data, markdown=markdown)
+
+    if config.output_json is not None:
+        config.output_json.write_text(report.to_json() + "\n", encoding="utf-8")
+    if config.output_markdown is not None:
+        config.output_markdown.write_text(markdown, encoding="utf-8")
+
+    return report

@@ -2,7 +2,7 @@
 """
 Simple HPO sweep for TFT teacher (BCE).
 
-Thin CLI wrapper delegating to :mod:`ml.tasks.training.hpo_tft`.
+Thin CLI wrapper delegating to canonical training helpers.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ml._imports import HAS_OPTUNA
-from ml.tasks.training import hpo_tft as _task
+from ml.training.teacher import hpo_tft as _hpo
 
 
 try:
@@ -30,7 +30,7 @@ def teacher_main(args: list[str] | None = None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint delegating to the shared task helper."""
-    return _task.main(argv, teacher_main=teacher_main, has_optuna=HAS_OPTUNA)
+    return _hpo.main(argv, teacher_main=teacher_main, has_optuna=HAS_OPTUNA)
 
 
 __all__ = ["HAS_OPTUNA", "main", "teacher_main"]

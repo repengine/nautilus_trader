@@ -403,8 +403,8 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
                         exc_info=True,
                     )
 
-        # Default: import and call the shared task entrypoint (tests monkeypatch this call)
-        from ml.tasks.datasets.tft_cli import main as build_main
+        # Default: call the canonical CLI adapter entrypoint.
+        from ml.cli.build_tft_dataset import main as build_main
 
         return int(build_main(args))
 

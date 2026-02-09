@@ -23,6 +23,9 @@ from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
 from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest
 from ml.tests.unit.registry.test_model_contracts import create_valid_teacher_manifest
@@ -68,6 +71,20 @@ class TestUnifiedRegistry:
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
+    def _prepare_strict_manifest(self, manifest: ModelManifest) -> ModelManifest:
+        """Attach strict-valid serveable metadata before registration."""
+        if not manifest.serveable:
+            return manifest
+        manifest.feature_set_id = register_feature_set_for_schema(
+            registry_path=self.registry_path,
+            schema_hash=manifest.feature_schema_hash,
+        )
+        if manifest.output_schema is None:
+            manifest.output_schema = default_output_schema()
+        if manifest.calibration is None:
+            manifest.calibration = default_calibration()
+        return manifest
+
     def test_register_teacher_model(self) -> None:
         """
         Test registering a teacher model with manifest.
@@ -83,7 +100,7 @@ class TestUnifiedRegistry:
         # Register with manifest
         model_id = self.registry.register_model(
             model_path=model_path,
-            manifest=manifest,
+            manifest=self._prepare_strict_manifest(manifest),
         )
 
         assert model_id == manifest.model_id
@@ -106,7 +123,7 @@ class TestUnifiedRegistry:
 
         teacher_id = self.registry.register_model(
             model_path=teacher_path,
-            manifest=teacher_manifest,
+            manifest=self._prepare_strict_manifest(teacher_manifest),
         )
 
         # Register student
@@ -116,7 +133,7 @@ class TestUnifiedRegistry:
 
         student_id = self.registry.register_model(
             model_path=student_path,
-            manifest=student_manifest,
+            manifest=self._prepare_strict_manifest(student_manifest),
         )
 
         # Verify lineage
@@ -142,14 +159,20 @@ class TestUnifiedRegistry:
             teacher_manifest.model_id = f"teacher_{i}"
             teacher_path = self.registry_path / f"teacher_{i}.onnx"
             teacher_path.write_bytes(b"ONNX_TEACHER_PLACEHOLDER")
-            self.registry.register_model(teacher_path, teacher_manifest)
+            self.registry.register_model(
+                teacher_path,
+                self._prepare_strict_manifest(teacher_manifest),
+            )
 
         for i in range(2):
             student_manifest = create_valid_student_manifest("teacher_0")
             student_manifest.model_id = f"student_{i}"
             student_path = self.registry_path / f"student_{i}.onnx"
             student_path.write_bytes(b"ONNX_STUDENT_PLACEHOLDER")
-            self.registry.register_model(student_path, student_manifest)
+            self.registry.register_model(
+                student_path,
+                self._prepare_strict_manifest(student_manifest),
+            )
 
         # Query by role
         teachers = self.registry.get_models_by_role(ModelRole.TEACHER)
@@ -168,13 +191,19 @@ class TestUnifiedRegistry:
         l1_manifest = create_valid_student_manifest("teacher_001")
         l1_path = self.registry_path / "l1_model.onnx"
         l1_path.write_bytes(b"ONNX_L1_MODEL")
-        self.registry.register_model(l1_path, l1_manifest)
+        self.registry.register_model(
+            l1_path,
+            self._prepare_strict_manifest(l1_manifest),
+        )
 
         # Register L2/L3 model
         l3_manifest = create_valid_teacher_manifest()
         l3_path = self.registry_path / "l3_model.onnx"
         l3_path.write_bytes(b"ONNX_L3_MODEL")
-        self.registry.register_model(l3_path, l3_manifest)
+        self.registry.register_model(
+            l3_path,
+            self._prepare_strict_manifest(l3_manifest),
+        )
 
         # Query by data requirements
         l1_models = self.registry.get_models_by_data_requirements(
@@ -198,21 +227,30 @@ class TestUnifiedRegistry:
         grandparent_manifest.model_id = "grandparent"
         grandparent_path = self.registry_path / "grandparent.onnx"
         grandparent_path.write_bytes(b"ONNX_GRANDPARENT")
-        self.registry.register_model(grandparent_path, grandparent_manifest)
+        self.registry.register_model(
+            grandparent_path,
+            self._prepare_strict_manifest(grandparent_manifest),
+        )
 
         parent_manifest = create_valid_teacher_manifest()
         parent_manifest.model_id = "parent"
         parent_manifest.parent_id = "grandparent"
         parent_path = self.registry_path / "parent.onnx"
         parent_path.write_bytes(b"ONNX_PARENT")
-        self.registry.register_model(parent_path, parent_manifest)
+        self.registry.register_model(
+            parent_path,
+            self._prepare_strict_manifest(parent_manifest),
+        )
 
         for i in range(2):
             child_manifest = create_valid_student_manifest("parent")
             child_manifest.model_id = f"child_{i}"
             child_path = self.registry_path / f"child_{i}.onnx"
             child_path.write_bytes(b"ONNX_CHILD")
-            self.registry.register_model(child_path, child_manifest)
+            self.registry.register_model(
+                child_path,
+                self._prepare_strict_manifest(child_manifest),
+            )
 
         # Get lineage from parent
         lineage = self.registry.get_model_lineage("parent")
@@ -236,7 +274,10 @@ class TestUnifiedRegistry:
             manifest.model_id = f"model_{i}"
             model_path = self.registry_path / f"model_{i}.onnx"
             model_path.write_bytes(b"ONNX_MODEL")
-            self.registry.register_model(model_path, manifest)
+            self.registry.register_model(
+                model_path,
+                self._prepare_strict_manifest(manifest),
+            )
 
         # Load all models (they'll fail to parse as ONNX but will be cached)
         for i in range(7):
@@ -267,7 +308,10 @@ class TestUnifiedRegistry:
         new_manifest.model_id = "model_new"
         new_path = self.registry_path / "model_new.onnx"
         new_path.write_bytes(b"ONNX_NEW_MODEL")
-        self.registry.register_model(new_path, new_manifest)
+        self.registry.register_model(
+            new_path,
+            self._prepare_strict_manifest(new_manifest),
+        )
         self.registry.load_model("model_new")
 
         # model_3 should be evicted (LRU), not model_2
@@ -283,7 +327,10 @@ class TestUnifiedRegistry:
         teacher_manifest = create_valid_teacher_manifest()
         teacher_path = self.registry_path / "teacher.onnx"
         teacher_path.write_bytes(b"ONNX_TEACHER_PLACEHOLDER")
-        teacher_id = self.registry.register_model(teacher_path, teacher_manifest)
+        teacher_id = self.registry.register_model(
+            teacher_path,
+            self._prepare_strict_manifest(teacher_manifest),
+        )
 
         student_manifest = create_valid_student_manifest(teacher_id)
         student_path = self.registry_path / "student.onnx"
@@ -291,7 +338,7 @@ class TestUnifiedRegistry:
 
         student_id = self.registry.register_model(
             model_path=student_path,
-            manifest=student_manifest,
+            manifest=self._prepare_strict_manifest(student_manifest),
             auto_deploy=True,  # Enable auto-deploy
         )
 
@@ -310,7 +357,7 @@ class TestUnifiedRegistry:
 
         bad_id = self.registry.register_model(
             model_path=bad_student_path,
-            manifest=bad_student_manifest,
+            manifest=self._prepare_strict_manifest(bad_student_manifest),
             auto_deploy=True,
         )
 
@@ -327,7 +374,10 @@ class TestUnifiedRegistry:
         model_path = self.registry_path / "model.onnx"
         model_path.write_bytes(b"ONNX_MODEL")
 
-        model_id = self.registry.register_model(model_path, manifest)
+        model_id = self.registry.register_model(
+            model_path,
+            self._prepare_strict_manifest(manifest),
+        )
 
         # Track performance metrics
         for i in range(3):
@@ -407,7 +457,7 @@ class TestUnifiedRegistry:
 
         model_id = self.registry.register_model(
             model_path=model_path,
-            manifest=manifest,
+            manifest=self._prepare_strict_manifest(manifest),
         )
 
         # Verify

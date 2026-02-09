@@ -159,7 +159,10 @@ from __future__ import annotations
 # Dataset build orchestration (cold path)
 from ml.data.build import BuildResult
 from ml.data.build import DatasetBuildConfig
+from ml.data.build import FeatureRoleName
+from ml.data.build import TFTDatasetTaskConfig
 from ml.data.build import build_tft_dataset
+from ml.data.build import build_tft_dataset_from_task_config
 from ml.data.build import compute_dataset_pipeline_signature
 
 # Core data conversion utilities
@@ -169,6 +172,9 @@ from ml.data.catalog_utils import trades_to_dataframe
 
 # High-level orchestrators and builders
 from ml.data.collector import DataCollector
+from ml.data.collectors import ProductionDataCollector
+from ml.data.collectors import ProductionDatasetConfig
+from ml.data.collectors import build_production_dataset
 
 # Fixtures and testing utilities
 from ml.data.fixtures import FixtureManifest
@@ -199,7 +205,10 @@ from ml.data.metadata import DatasetMetadataExpectations
 from ml.data.metadata import MarketBindingMetadata
 from ml.data.metadata import build_metadata_expectations
 from ml.data.metadata import load_dataset_metadata
+from ml.data.metadata import require_reproducibility_metadata
 from ml.data.metadata import require_target_column_in_semantics
+from ml.data.metadata import require_target_semantics_contract
+from ml.data.metadata import require_target_semantics_horizon_mode
 from ml.data.metadata import require_target_semantics_metadata
 from ml.data.metadata import resolve_target_col_from_metadata
 from ml.data.metadata import validate_dataset_metadata_expectations
@@ -228,9 +237,12 @@ from ml.data.sources.events import MockEventSource
 from ml.data.sources.metadata import DatabentoMetadataSource
 from ml.data.sources.metadata import NautilusMetadataSource
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.data.validation import DatasetReport
+from ml.data.validation import DatasetReportConfig
 from ml.data.validation import DatasetValidationConfig
 from ml.data.validation import DatasetValidationError
 from ml.data.validation import DatasetValidationResult
+from ml.data.validation import generate_dataset_report
 from ml.data.validation import validate_dataset
 from ml.data.vintage import VintagePolicy  # noqa: F401
 
@@ -249,6 +261,8 @@ __all__ = [
     "DatasetBuildConfig",
     "DatasetMetadata",
     "DatasetMetadataExpectations",
+    "DatasetReport",
+    "DatasetReportConfig",
     "DatasetValidationConfig",
     "DatasetValidationError",
     "DatasetValidationResult",
@@ -256,6 +270,7 @@ __all__ = [
     "FREDConfig",
     "FREDDataLoader",
     "FREDIndicator",
+    "FeatureRoleName",
     "FileEventSource",
     "FixtureManifest",
     "IngestState",
@@ -272,23 +287,33 @@ __all__ = [
     "MockEventSource",
     "NautilusMetadataSource",
     "PandasCalendarSource",
+    "ProductionDataCollector",
+    "ProductionDatasetConfig",
     "RateLimiter",
     "SimpleCalendarSource",
     "StaticDataProvider",
     "SymbolIngestionSummary",
     "TFTDatasetBuilder",
+    "TFTDatasetTaskConfig",
     "TimeSeriesProvider",
     "bars_to_dataframe",
     "build_metadata_expectations",
+    "build_production_dataset",
     "build_tft_dataset",
+    "build_tft_dataset_from_task_config",
     "compute_dataset_pipeline_signature",
     "compute_schema_hash",
+    "generate_dataset_report",
     "load_dataset_metadata",
+    "load_market_feed_descriptors",
     "make_mbp10_fixture",
     "make_tbbo_fixture",
     "make_trades_fixture",
     "quotes_to_dataframe",
+    "require_reproducibility_metadata",
     "require_target_column_in_semantics",
+    "require_target_semantics_contract",
+    "require_target_semantics_horizon_mode",
     "require_target_semantics_metadata",
     "resolve_target_col_from_metadata",
     "trades_to_dataframe",
@@ -317,4 +342,8 @@ def __getattr__(name: str) -> object:
         from ml.data.sources import events as _events
 
         return getattr(_events, name)
+    if name == "load_market_feed_descriptors":
+        from ml.config import market_data as _market_data
+
+        return getattr(_market_data, name)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

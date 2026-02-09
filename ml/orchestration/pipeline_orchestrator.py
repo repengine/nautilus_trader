@@ -8,6 +8,7 @@ compatibility while keeping a single runtime path.
 
 from __future__ import annotations
 
+from ml.data.ingest.l2_efficient import populate_l2_efficient
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.ingest.subscription import SubscriptionPolicy as CoveragePolicy
@@ -16,7 +17,6 @@ from ml.orchestration.config_loader import IngestionStageConfig
 from ml.orchestration.config_types import AutoFillUniverseConfig
 from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator_facade import MLPipelineOrchestratorFacade
-from ml.tasks.ingest import populate_l2_efficient
 
 
 MLPipelineOrchestrator = MLPipelineOrchestratorFacade

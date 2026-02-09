@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Thin wrapper delegating to :mod:`ml.tasks.dev.sanity_check`.
+Thin wrapper delegating to :mod:`ml.tools.sanity_check`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ml.tasks.dev.sanity_check import main as sanity_main
+from ml.tools.sanity_check import main as sanity_main
 
 
 __all__ = ["main"]

@@ -12,7 +12,9 @@ import pytest
 
 from ml.actors.base import CircuitBreakerState, MLSignal
 from ml.actors.signal import MLSignalActor, MLSignalActorConfig
+from ml.config.actor_bus import ActorBusConfig
 from ml.config.base import CircuitBreakerConfig
+from ml.config.bus import MessageBusConfig
 from nautilus_trader.model.data import Bar
 
 
@@ -115,6 +117,29 @@ def test_actor_bus_scheme_prefix_integration(
     def fake_factory(_cfg: Any) -> Any:
         return _Pub()
 
+    class _SyncBridge:
+        def __init__(
+            self,
+            publisher: Any,
+            *,
+            max_queue: int = 4096,
+            throttler: Any = None,
+            per_topic_throttles: dict[str, Any] | None = None,
+            component_id: str = "ml_actor",
+        ) -> None:
+            _ = max_queue, throttler, per_topic_throttles, component_id
+            self._publisher = publisher
+
+        def start(self) -> None:
+            return None
+
+        def stop(self, *, drain: bool = True, timeout: float | None = 1.0) -> None:
+            _ = drain, timeout
+            return None
+
+        def publish(self, topic: str, payload: dict[str, Any]) -> bool:
+            return bool(self._publisher.publish(topic, payload))
+
     with env(
         {
             "ML_BUS_FROM_ACTOR": "1",
@@ -123,7 +148,37 @@ def test_actor_bus_scheme_prefix_integration(
             "ML_BUS_TOPIC_PREFIX": "events.ml.qa",
         },
     ):
+        monkeypatch.setattr(
+            ActorBusConfig,
+            "from_env",
+            staticmethod(
+                lambda: ActorBusConfig(
+                    from_actor=True,
+                    from_strategy=False,
+                    from_store=False,
+                    scheme="stage_first",
+                    prefix="events.ml.qa",
+                    throttle_enabled=False,
+                    throttle_rate_per_sec=100.0,
+                    throttle_burst=100,
+                    max_queue=4096,
+                ),
+            ),
+        )
+        monkeypatch.setattr(
+            MessageBusConfig,
+            "from_env",
+            staticmethod(
+                lambda: MessageBusConfig(
+                    enabled=True,
+                    backend="noop",
+                    scheme="stage_first",
+                    topic_prefix="events.ml.qa",
+                ),
+            ),
+        )
         monkeypatch.setattr("ml.actors.ml_domain_events.publisher_from_config", fake_factory)
+        monkeypatch.setattr("ml.actors.ml_domain_events.DomainEventBridge", _SyncBridge)
         actor = MLSignalActor(base_signal_config)
         # Avoid double publish to Nautilus path (actor is unregistered in tests).
         base_cls = next(
@@ -143,6 +198,7 @@ def test_actor_bus_scheme_prefix_integration(
         actor._publish_signal(sig)
         _time.sleep(0.05)
         bridge = getattr(actor, "_actor_bus_bridge", None)
+        assert bridge is not None
         if bridge is not None:
             bridge.stop(drain=True, timeout=1.0)
 

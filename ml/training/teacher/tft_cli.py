@@ -43,7 +43,7 @@ from ml.data import require_target_semantics_metadata
 from ml.data import validate_dataset_metadata_expectations
 from ml.data.vintage import VintagePolicy
 from ml.registry.feature_registry import FeatureRegistry
-from ml.tasks.datasets.splits import create_purged_splits
+from ml.training.common.cross_validation import create_purged_splits
 from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
 
@@ -96,7 +96,7 @@ def _resolve_tft_feature_columns(
 
         if pd.api.types.is_datetime64_any_dtype(series):
             converted = pd.to_datetime(series, errors="coerce")
-            values = converted.view("int64").astype("float64")
+            values = converted.astype("int64", copy=False).astype("float64")
             values[converted.isna()] = np.nan
             df[name] = values
             numeric_cols.append(name)

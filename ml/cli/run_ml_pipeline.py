@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Thin CLI wrapper for the ML pipeline runner tasks."""
+"""Thin CLI wrapper for the ML pipeline runner."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import uuid as _uuid
 import click
 
 from ml.common.logging_config import bind_log_context
-from ml.tasks.pipelines.runner import PipelineRunConfig
-from ml.tasks.pipelines.runner import run_pipeline
-from ml.tasks.pipelines.runner import setup_logging
+from ml.orchestration.pipeline_runner import PipelineRunConfig
+from ml.orchestration.pipeline_runner import run_pipeline
+from ml.orchestration.pipeline_runner import setup_logging
 
 
 @click.command()

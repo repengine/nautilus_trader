@@ -19,6 +19,7 @@ from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml._imports import xgb
+from ml.common.reproducibility import resolve_configured_seed
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.training.base import BaseMLTrainer
 from ml.training.export import DEFAULT_ONNX_OPSET
@@ -262,7 +263,10 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                 **kwargs,
             )
 
-        optimizer = XGBoostOptunaOptimizer(optuna_cfg)
+        optimizer = XGBoostOptunaOptimizer(
+            optuna_cfg,
+            sampler_seed=self._resolve_training_seed(),
+        )
         metric_name = self._resolve_optuna_metric_name(y_train, optuna_cfg)
         metric_direction = self._optuna_direction_for_metric(metric_name)
         opt_kwargs = dict(kwargs)
@@ -377,6 +381,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             Default XGBoost parameters.
 
         """
+        seed_value = self._resolve_training_seed()
         params = {
             "objective": self._xgb_config.objective,
             "eval_metric": self._xgb_config.eval_metric,
@@ -388,7 +393,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             "reg_alpha": self._xgb_config.reg_alpha,
             "reg_lambda": self._xgb_config.reg_lambda,
             "min_child_weight": self._xgb_config.min_child_weight,
-            "seed": 42,
+            "seed": seed_value,
         }
 
         # Add scale_pos_weight for imbalanced data
@@ -404,6 +409,17 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
         params = {k: v for k, v in params.items() if v is not None}
 
         return params
+
+    def _resolve_training_seed(self) -> int:
+        """Resolve the canonical deterministic seed for trainer/HPO paths."""
+        seed_value = resolve_configured_seed(
+            primary_seed=self._xgb_config.random_seed,
+            required=True,
+            context="xgboost random seed",
+        )
+        if seed_value is None:  # pragma: no cover - required=True guarantees non-None
+            raise ValueError("xgboost random seed must be configured")
+        return seed_value
 
     def _suggest_hyperparameters(self, trial: optuna.Trial) -> dict[str, Any]:
         """

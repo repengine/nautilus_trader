@@ -13,11 +13,13 @@ Thread-safety: All operations are thread-safe via component locks.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from ml.common.metrics import registry_compatibility_migration_bypass_total
+from ml.common.metrics import registry_unsigned_artifact_override_total
+from ml.common.output_semantics import validate_output_semantics
 from ml.common.protocols import MLComponentMixin
 from ml.config.constants import SUFFIX_ONNX
 from ml.config.registry import RegistryPolicyConfig
@@ -123,7 +125,7 @@ class ModelRegistryFacade(MLComponentMixin):
         self.registry_path.mkdir(parents=True, exist_ok=True)
         self.cache_size = cache_size
         self.batch_save_interval = batch_save_interval
-        self._policy = policy_config or RegistryPolicyConfig()
+        self._policy = policy_config or RegistryPolicyConfig.from_env()
         self._onnx_rt = onnx_runtime_config or OnnxRuntimeConfig()
 
         # Store absolute path for security validation
@@ -253,6 +255,8 @@ class ModelRegistryFacade(MLComponentMixin):
                         exc,
                         exc_info=True,
                     )
+
+            self._validate_output_semantics_policy(manifest, operation="registration")
 
             # Calculate SHA-256 digest for ONNX files
             if model_path.suffix == SUFFIX_ONNX:
@@ -454,6 +458,7 @@ class ModelRegistryFacade(MLComponentMixin):
             if model_info is None:
                 return None
 
+            self._validate_output_semantics_policy(model_info.manifest, operation="load")
             model_path = model_info.model_path
 
             # Validate path security
@@ -469,8 +474,16 @@ class ModelRegistryFacade(MLComponentMixin):
             try:
                 if model_path.suffix == SUFFIX_ONNX:
                     # Verify artifact integrity before loading
-                    expected_digest = model_info.manifest.artifact_sha256_digest
-                    self._persistence.verify_artifact_integrity(model_path, expected_digest)
+                    expected_digest = self._normalize_expected_digest(
+                        model_info.manifest.artifact_sha256_digest,
+                    )
+                    self._enforce_registry_digest_policy(
+                        model_id=model_id,
+                        model_path=model_path,
+                        expected_digest=expected_digest,
+                    )
+                    if expected_digest is not None:
+                        self._persistence.verify_artifact_integrity(model_path, expected_digest)
 
                     if not HAS_ONNX:
                         check_ml_dependencies(["onnxruntime"])
@@ -708,6 +721,8 @@ class ModelRegistryFacade(MLComponentMixin):
         bool
             True if successful.
         """
+        if self._policy.compatibility_policy.strict_model_compatibility:
+            self._enforce_hot_reload_compatibility(target=target, new_model_id=new_model_id)
         return self._deployment.hot_reload_model(target, new_model_id)
 
     # =========================================================================
@@ -1244,7 +1259,7 @@ class ModelRegistryFacade(MLComponentMixin):
 
         # Feature parity validation
         if getattr(manifest, "serveable", True):
-            strict_parity = os.getenv("ML_STRICT_FEATURE_PARITY", "0") == "1"
+            strict_compatibility = self._policy.compatibility_policy.strict_model_compatibility
             feature_registry_root = self.registry_path
             feature_registry_file = feature_registry_root / "feature_registry.json"
             if not feature_registry_file.exists():
@@ -1255,37 +1270,195 @@ class ModelRegistryFacade(MLComponentMixin):
                     feature_registry_file = sibling_file
 
             if not manifest.feature_set_id:
-                msg = "feature_set_id is missing for serveable model"
-                if strict_parity:
-                    raise ValueError(
-                        "feature_set_id is required for serveable models to ensure feature parity"
-                    )
-                logger.warning(msg)
+                self._handle_compatibility_violation(
+                    message="feature_set_id is required for serveable models to ensure feature parity",
+                    reason="missing_feature_set_id",
+                    model_id=manifest.model_id,
+                    strict_gate=strict_compatibility,
+                )
             elif not feature_registry_file.exists():
-                msg = "FeatureRegistry not found alongside ModelRegistry"
-                if strict_parity:
-                    raise ValueError(msg)
-                logger.warning(msg)
+                self._handle_compatibility_violation(
+                    message="FeatureRegistry not found alongside ModelRegistry",
+                    reason="feature_registry_missing",
+                    model_id=manifest.model_id,
+                    strict_gate=strict_compatibility,
+                )
             else:
                 from ml.registry.feature_registry import FeatureRegistry
 
                 freg = FeatureRegistry(feature_registry_root)
                 finfo = freg.get_feature_set(manifest.feature_set_id)
                 if finfo is None:
-                    msg = f"feature_set_id {manifest.feature_set_id} not found"
-                    if strict_parity:
-                        raise ValueError(msg)
-                    logger.warning(msg)
+                    self._handle_compatibility_violation(
+                        message=f"feature_set_id {manifest.feature_set_id} not found",
+                        reason="feature_set_id_not_found",
+                        model_id=manifest.model_id,
+                        strict_gate=strict_compatibility,
+                    )
                 else:
                     if finfo.manifest.schema_hash != manifest.feature_schema_hash:
-                        msg = "feature_schema_hash mismatch"
-                        if strict_parity:
-                            raise ValueError(msg)
-                        logger.warning(msg)
+                        self._handle_compatibility_violation(
+                            message="feature_schema_hash mismatch",
+                            reason="feature_schema_hash_mismatch",
+                            model_id=manifest.model_id,
+                            strict_gate=strict_compatibility,
+                        )
                     if not manifest.pipeline_signature:
                         manifest.pipeline_signature = finfo.manifest.pipeline_signature
                     if not manifest.pipeline_version:
                         manifest.pipeline_version = finfo.manifest.pipeline_version
+
+    def _validate_output_semantics_policy(
+        self,
+        manifest: ModelManifest,
+        *,
+        operation: str,
+    ) -> None:
+        """Validate output semantics with policy-driven strictness."""
+        if not getattr(manifest, "serveable", True):
+            return
+
+        compatibility_policy = self._policy.compatibility_policy
+        require_output_semantics = (
+            compatibility_policy.require_output_semantics
+            or compatibility_policy.strict_model_compatibility
+        )
+        strict_gate = (
+            compatibility_policy.strict_model_compatibility
+            or require_output_semantics
+        )
+        validation = validate_output_semantics(
+            output_schema=manifest.output_schema,
+            calibration=manifest.calibration,
+            require_output_semantics=require_output_semantics,
+        )
+        if validation.is_valid:
+            if validation.normalized_output_schema is not None:
+                manifest.output_schema = validation.normalized_output_schema
+            if validation.normalized_calibration is not None:
+                manifest.calibration = validation.normalized_calibration
+            return
+
+        self._handle_compatibility_violation(
+            message=(
+                f"Output semantics validation failed during {operation} for model "
+                f"{manifest.model_id or '<pending>'}: {'; '.join(validation.errors)}"
+            ),
+            reason="output_semantics_validation_failed",
+            model_id=manifest.model_id,
+            strict_gate=strict_gate,
+            allow_migration_override=False,
+        )
+
+    def _normalize_expected_digest(self, expected_digest: str | None) -> str | None:
+        """Normalize digest payloads read from persisted manifests."""
+        if expected_digest is None:
+            return None
+        normalized = expected_digest.strip()
+        if not normalized:
+            return None
+        return normalized
+
+    def _enforce_registry_digest_policy(
+        self,
+        *,
+        model_id: str,
+        model_path: Path,
+        expected_digest: str | None,
+    ) -> None:
+        """Apply policy for missing digest metadata on registry load path."""
+        if expected_digest is not None:
+            return
+
+        compatibility_policy = self._policy.compatibility_policy
+        message = (
+            f"No SHA-256 digest available for {model_id} ({model_path.name}); "
+            "artifact integrity verification is unavailable"
+        )
+
+        if compatibility_policy.allow_unsigned_artifacts:
+            registry_unsigned_artifact_override_total.labels(
+                model_id=model_id,
+                reason="missing_digest",
+            ).inc()
+            logger.warning("%s; allowing load due unsigned artifact override policy", message)
+            return
+
+        self._handle_compatibility_violation(
+            message=message,
+            reason="missing_digest",
+            model_id=model_id,
+            strict_gate=compatibility_policy.strict_model_compatibility,
+            allow_migration_override=False,
+        )
+
+    def _handle_compatibility_violation(
+        self,
+        *,
+        message: str,
+        reason: str,
+        model_id: str | None,
+        strict_gate: bool,
+        allow_migration_override: bool = True,
+    ) -> None:
+        """Raise, warn, or bypass compatibility violations based on policy flags."""
+        if not strict_gate:
+            logger.warning(message)
+            return
+
+        if (
+            allow_migration_override
+            and self._policy.compatibility_policy.allow_compatibility_migration_override
+        ):
+            model_label = model_id or "pending"
+            registry_compatibility_migration_bypass_total.labels(
+                model_id=model_label,
+                reason=reason,
+            ).inc()
+            logger.warning("%s; bypassed due compatibility migration override policy", message)
+            return
+
+        raise ValueError(message)
+
+    def _enforce_hot_reload_compatibility(self, *, target: str, new_model_id: str) -> None:
+        """Validate strict compatibility before delegating hot reload operations."""
+        current_model_id: str | None = None
+        current_schema_hash: str | None = None
+        new_schema_hash: str | None = None
+
+        with self._persistence._lock:
+            new_model = self._persistence.get_model(new_model_id)
+            if new_model is None:
+                return
+            new_schema_hash = new_model.manifest.feature_schema_hash
+
+            for candidate_id in list(self._persistence.models.keys()):
+                candidate_info = self._persistence.get_model(candidate_id)
+                if candidate_info is None:
+                    continue
+                if candidate_info.deployment_status != DeploymentStatus.ACTIVE:
+                    continue
+                if target not in candidate_info.deployed_to:
+                    continue
+                current_model_id = candidate_id
+                current_schema_hash = candidate_info.manifest.feature_schema_hash
+                break
+
+        if current_model_id is None or current_schema_hash is None or new_schema_hash is None:
+            return
+        if current_schema_hash == new_schema_hash:
+            return
+
+        self._handle_compatibility_violation(
+            message=(
+                f"Feature schema mismatch during hot reload for target={target}: "
+                f"current={current_schema_hash}, new={new_schema_hash}"
+            ),
+            reason="hot_reload_feature_schema_hash_mismatch",
+            model_id=new_model_id,
+            strict_gate=True,
+            allow_migration_override=False,
+        )
 
     def _apply_quality_gates(
         self,

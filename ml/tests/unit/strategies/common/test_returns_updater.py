@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 
@@ -296,3 +297,254 @@ def test_returns_updater_respects_update_mode() -> None:
 
     assert updater.should_update_from_signal() is True
     assert updater.should_update_from_bar() is False
+
+
+def test_returns_updater_uses_signal_bar_close_and_bar_spec_metadata() -> None:
+    instrument_id = InstrumentId.from_str("FFF.SIM")
+    cfg = ReturnsConfig(
+        source_priority=[ReturnsPriceSource.BAR_CLOSE],
+    )
+    updater = ReturnsUpdater(config=cfg)
+
+    first = MLSignal(
+        instrument_id=instrument_id,
+        model_id="model",
+        prediction=0.5,
+        confidence=0.9,
+        ts_event=1_000_000_000,
+        ts_init=1_000_000_000,
+        metadata={"bar_close": 100.0, "bar_spec": "1-MINUTE-LAST"},
+    )
+    second = MLSignal(
+        instrument_id=instrument_id,
+        model_id="model",
+        prediction=0.5,
+        confidence=0.9,
+        ts_event=61_000_000_000,
+        ts_init=61_000_000_000,
+        metadata={"bar_close": 110.0},
+    )
+
+    first_result = updater.update_from_signal(first, cache=None, reference_ts=first.ts_event)
+    second_result = updater.update_from_signal(second, cache=None, reference_ts=second.ts_event)
+
+    assert first_result.updated is True
+    assert first_result.return_pct is None
+    assert second_result.updated is True
+    assert second_result.return_pct == pytest.approx(0.1)
+
+
+def test_returns_updater_returns_price_unavailable_when_cache_missing() -> None:
+    instrument_id = InstrumentId.from_str("GGG.SIM")
+    cfg = ReturnsConfig(
+        source_priority=[ReturnsPriceSource.QUOTE_MID, ReturnsPriceSource.LAST_TRADE],
+    )
+    updater = ReturnsUpdater(config=cfg)
+
+    result = updater.update_from_signal(
+        _signal(instrument_id, ts_event=1_000),
+        cache=None,
+        reference_ts=1_000,
+    )
+
+    assert result.updated is False
+    assert result.reason == "price_unavailable"
+
+
+def test_returns_updater_falls_back_from_invalid_quote_to_trade() -> None:
+    instrument_id = InstrumentId.from_str("HHH.SIM")
+    cache = _Cache(
+        quote=_QuoteTick(
+            bid_price=_Px(101.0),
+            ask_price=_Px(100.0),
+            ts_event=1_000,
+        ),
+        trade=_TradeTick(price=_Px(100.0), ts_event=1_000),
+    )
+    cfg = ReturnsConfig(
+        source_priority=[ReturnsPriceSource.QUOTE_MID, ReturnsPriceSource.LAST_TRADE],
+    )
+    updater = ReturnsUpdater(config=cfg)
+
+    result = updater.update_from_signal(
+        _signal(instrument_id, ts_event=1_000),
+        cache=cache,
+        reference_ts=1_000,
+    )
+
+    assert result.updated is True
+    assert result.source is ReturnsPriceSource.LAST_TRADE
+    assert result.reason is None
+
+
+def test_returns_updater_returns_price_unavailable_when_trade_stale() -> None:
+    instrument_id = InstrumentId.from_str("III.SIM")
+    cache = _Cache(trade=_TradeTick(price=_Px(100.0), ts_event=1))
+    cfg = ReturnsConfig(
+        source_priority=[ReturnsPriceSource.LAST_TRADE],
+        max_price_age_ms=1,
+    )
+    updater = ReturnsUpdater(config=cfg)
+
+    result = updater.update_from_signal(
+        _signal(instrument_id, ts_event=10_000_000),
+        cache=cache,
+        reference_ts=10_000_000,
+    )
+
+    assert result.updated is False
+    assert result.reason == "price_unavailable"
+
+
+def test_returns_updater_handles_metric_and_annualization_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ml.strategies.common import returns_updater as module
+
+    @dataclass(slots=True)
+    class _Logger:
+        debug_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(default_factory=list)
+
+        def debug(self, *args: Any, **kwargs: Any) -> None:
+            self.debug_calls.append((args, kwargs))
+
+    class _BrokenMetric:
+        def labels(self, **kwargs: Any) -> Any:
+            del kwargs
+            raise RuntimeError("metric error")
+
+    class _BrokenSizer:
+        def update_market_data(self, return_pct: float) -> None:
+            del return_pct
+
+        def set_annualization_factor(self, factor: float) -> None:
+            del factor
+            raise RuntimeError("sizer annualization failed")
+
+    class _BrokenPortfolio:
+        def update_returns(self, instrument: Any, return_pct: float) -> None:
+            del instrument, return_pct
+
+        def set_annualization_factor(self, factor: float) -> None:
+            del factor
+            raise RuntimeError("portfolio annualization failed")
+
+    logger = _Logger()
+    updater = ReturnsUpdater(
+        config=ReturnsConfig(annualization_factor=12.0),
+        position_sizer=_BrokenSizer(),
+        portfolio_manager=_BrokenPortfolio(),
+        log=logger,
+        strategy_id="strategy",
+    )
+
+    broken_metric = _BrokenMetric()
+    monkeypatch.setattr(module, "returns_update_total", broken_metric)
+    monkeypatch.setattr(module, "returns_update_skipped_total", broken_metric)
+    monkeypatch.setattr(module, "returns_update_fallback_total", broken_metric)
+
+    updater._emit_update(ReturnsPriceSource.BAR_CLOSE)
+    updater._emit_skipped("reason")
+    updater._emit_fallback(ReturnsPriceSource.QUOTE_MID, "fallback")
+
+    assert logger.debug_calls
+
+
+def test_returns_updater_private_helpers_cover_reference_and_price_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instrument_id = InstrumentId.from_str("JJJ.SIM")
+    updater = ReturnsUpdater(config=ReturnsConfig())
+
+    signal = MLSignal(
+        instrument_id=instrument_id,
+        model_id="model",
+        prediction=0.5,
+        confidence=0.9,
+        ts_event=123,
+        ts_init=123,
+    )
+    assert updater._resolve_reference_ts(signal, reference_ts=None) == 123
+
+    monkeypatch.setattr("ml.strategies.common.returns_updater.time.time_ns", lambda: 456)
+    zero_ts_signal = MLSignal(
+        instrument_id=instrument_id,
+        model_id="model",
+        prediction=0.5,
+        confidence=0.9,
+        ts_event=0,
+        ts_init=0,
+    )
+    assert updater._resolve_reference_ts(zero_ts_signal, reference_ts=None) == 456
+    assert updater._resolve_reference_ts(signal, reference_ts=789) == 789
+
+    class _FloatOnly:
+        def __float__(self) -> float:
+            return 7.5
+
+    class _Broken:
+        def as_double(self) -> float:
+            raise RuntimeError("bad as_double")
+
+        def __float__(self) -> float:
+            raise TypeError("bad float")
+
+    assert updater._price_to_float(_FloatOnly()) == pytest.approx(7.5)
+    assert updater._price_to_float(_Broken()) is None
+
+    cadence_ns, annualization = updater._resolve_bar_spec("invalid")
+    assert cadence_ns is None
+    assert annualization is None
+
+
+def test_returns_updater_bar_path_returns_price_unavailable_when_bar_close_invalid() -> None:
+    instrument_id = InstrumentId.from_str("KKK.SIM")
+    cfg = ReturnsConfig(source_priority=[ReturnsPriceSource.BAR_CLOSE])
+    updater = ReturnsUpdater(config=cfg)
+
+    bar = _bar(instrument_id, close=-1.0, ts_event=1_000_000_000)
+    result = updater.update_from_bar(bar, cache=None, reference_ts=bar.ts_event)
+
+    assert result.updated is False
+    assert result.reason == "price_unavailable"
+
+
+def test_returns_updater_resolve_annualization_and_max_age_invalid_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ml.strategies.common import returns_updater as module
+
+    updater = ReturnsUpdater(config=ReturnsConfig())
+
+    class _BrokenSpec:
+        @staticmethod
+        def from_str(value: str) -> object:
+            del value
+            raise RuntimeError("parse failed")
+
+    monkeypatch.setattr(module, "BarSpecification", _BrokenSpec)
+    assert updater._resolve_annualization_factor(ReturnsConfig(bar_spec="bad")) is None
+
+    class _ZeroInterval:
+        @staticmethod
+        def from_str(value: str) -> object:
+            del value
+
+            class _Spec:
+                @staticmethod
+                def get_interval_ns() -> int:
+                    return 0
+
+            return _Spec()
+
+    monkeypatch.setattr(module, "BarSpecification", _ZeroInterval)
+    assert updater._resolve_annualization_factor(ReturnsConfig(bar_spec="still-bad")) is None
+
+    assert updater._resolve_max_age_ns(ReturnsConfig(max_price_age_ms="oops")) is None  # type: ignore[arg-type]
+    assert updater._resolve_max_age_ns(ReturnsConfig(max_price_age_ms=0)) is None
+
+
+def test_returns_updater_emit_fallback_skips_when_reason_missing() -> None:
+    updater = ReturnsUpdater(config=ReturnsConfig())
+    updater._emit_fallback(ReturnsPriceSource.QUOTE_MID, None)
+    assert updater._price_to_float(None) is None

@@ -848,19 +848,41 @@ def test_build_teacher_uses_loss_configuration(tmp_path: Path) -> None:
 def test_worker_seed_application(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     worker_config = StreamingWorkerConfig(worker_seed=123)
     worker = LightningStreamingWorker(worker_config, output_dir=tmp_path)
+    recorded: dict[str, object] = {}
+
+    def _record_seed(seed: int, *, include_torch: bool) -> None:
+        recorded["seed"] = seed
+        recorded["include_torch"] = include_torch
+
+    monkeypatch.setattr("ml.training.event_driven.worker.apply_reproducibility_seed", _record_seed)
+    applied = worker._apply_worker_seed(dataset_seed=None)
+    assert applied == 123
+    assert recorded["seed"] == 123
+    assert isinstance(recorded["include_torch"], bool)
+
+
+def test_worker_seed_application_uses_dataset_seed_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    worker = LightningStreamingWorker(StreamingWorkerConfig(worker_seed=None), output_dir=tmp_path)
     recorded: dict[str, int] = {}
 
-    def _record_random(value: int) -> None:
-        recorded["random"] = value
+    def _record_seed(seed: int, *, include_torch: bool) -> None:
+        del include_torch
+        recorded["seed"] = seed
 
-    def _record_numpy(value: int) -> None:
-        recorded["numpy"] = value
+    monkeypatch.setattr("ml.training.event_driven.worker.apply_reproducibility_seed", _record_seed)
+    applied = worker._apply_worker_seed(dataset_seed=41)
 
-    monkeypatch.setattr("ml.training.event_driven.worker.random.seed", _record_random)
-    monkeypatch.setattr("ml.training.event_driven.worker.np.random.seed", _record_numpy)
-    worker._apply_worker_seed()
-    assert recorded["random"] == 123
-    assert recorded["numpy"] == 123
+    assert applied == 41
+    assert recorded["seed"] == 41
+
+
+def test_worker_seed_application_when_seed_missing_is_noop(tmp_path: Path) -> None:
+    worker = LightningStreamingWorker(StreamingWorkerConfig(worker_seed=None), output_dir=tmp_path)
+    applied = worker._apply_worker_seed(dataset_seed=None)
+    assert applied is None
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="torch dependency required for streaming worker")

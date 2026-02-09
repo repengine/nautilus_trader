@@ -27,10 +27,6 @@ from ml.common.validation_strategies import HOLDOUT_STRATEGIES
 __all__ = ["main"]
 
 
-# Ensure parquet fallback is enabled
-os.environ.setdefault("ML_TFT_ALLOW_PARQUET_FALLBACK", "1")
-
-
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -379,6 +375,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Configure logging
     verbosity = min(args.verbose + 2, 3)  # 2=INFO, 3=DEBUG
     configure_logging(level="DEBUG" if verbosity >= 3 else "INFO")
+
+    # Enable parquet fallback only for explicit CLI execution.
+    os.environ.setdefault("ML_TFT_ALLOW_PARQUET_FALLBACK", "1")
 
     # Import here to avoid slow startup
     from ml.experiments.chronos_training_experiment import main as run_experiment

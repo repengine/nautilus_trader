@@ -197,7 +197,7 @@ ml/tests/                              [492 test files total]
 | **ml/monitoring** | 2 | - | - | Collectors tested; missing comprehensive metric validation suite |
 | **ml/core** | 7 | - | 1 | EngineManager basics ✅; lacks stress testing (pool exhaustion, failover) |
 | **ml/cli** | 6 | 2 | - | NEW streaming worker ✅; lacks coverage for all CLI entrypoints |
-| **ml/tasks** | 7 | - | - | Dataset/training tasks tested; lacks orchestration integration |
+| **ml/orchestration + canonical domains** | 7 | - | - | Legacy task-layer tests migrated; continue expanding orchestration integration coverage |
 
 ### Limited Coverage (20-40%, basic tests only)
 
@@ -577,7 +577,7 @@ def database_session(database_session_factory) -> Generator[Session, None, None]
 | `mock_redis` | Function | Mock Redis client | 12+ tests |
 | `test_config` | Function | Populated TestConfig instance | 35+ tests |
 | `signal_actor_harness` | Function | SignalActorHarness for hot-path testing | 18+ tests |
-| `datastore_module` | Function | Parametrized DataStore (legacy/component toggle) | 25+ tests |
+| `datastore_module` | Function | Component DataStore module | 25+ tests |
 
 ### Cleanup Strategies
 
@@ -597,26 +597,25 @@ def database_session(database_session_factory) -> Generator[Session, None, None]
 
 **Disable per-test cleanup**: `export TEST_DB_SKIP_TRUNCATE=1`
 
-### DataStore Component/Legacy Toggle
+### DataStore Component Fixture
 
-**Parametrized fixture** for testing both DataStore implementations:
+**Component-only fixture** for the canonical DataStore facade:
 
 ```python
-@pytest.fixture(params=[False, True], ids=["legacy", "component"])
-def datastore_module(request, component_data_store_factory):
-    """Yield DataStore module configured for legacy or component mode"""
-    use_component = bool(request.param)
-    with component_data_store_factory(use_component=use_component) as module:
+@pytest.fixture
+def datastore_module(component_data_store_factory):
+    """Yield DataStore module (component facade)."""
+    with component_data_store_factory() as module:
         yield module
 
 def test_data_store_behavior(datastore_module):
-    """Test runs twice: once with legacy, once with component DataStore"""
+    """Test runs against the canonical DataStore implementation."""
     DataStore = datastore_module.DataStore
     store = DataStore(connection_string=...)
-    # Test logic runs for both implementations
+    # Test logic runs for the component facade
 ```
 
-**Impact**: 25+ tests validate both DataStore modes automatically
+**Impact**: 25+ tests validate the canonical DataStore facade
 
 ## Running Tests
 

@@ -19,6 +19,7 @@ import logging
 import tempfile
 from collections.abc import Callable
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -26,6 +27,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+import ml.orchestration.config_loader as _config_loader
 from ml.common.event_emitter import emit_dataset_event as _emit_dataset_event
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
@@ -90,6 +92,17 @@ class _Metrics:
         )
 
 
+@dataclass(slots=True, frozen=True)
+class PipelineScheduleConfig:
+    """Configuration for invoking the pipeline scheduler."""
+
+    schedule_time: str | None = None
+    interval_minutes: int | None = None
+    config_path: str | None = None
+    dry_run: bool = False
+    force: bool = False
+
+
 def compute_next_run(
     schedule_time: str | None,
     interval_min: int | None,
@@ -132,6 +145,47 @@ def compute_next_run(
         return base + timedelta(minutes=int(interval_min))
 
     raise ValueError("Either schedule_time or interval_min must be provided")
+
+
+def run_pipeline_schedule(
+    config: PipelineScheduleConfig,
+    *,
+    invoke_pipeline: Callable[[Sequence[str] | None], int],
+    sleep_fn: Callable[[float], None],
+) -> None:
+    """Run the orchestrator scheduler with explicit configuration."""
+    import os
+
+    if config.schedule_time and config.interval_minutes is not None:
+        raise ValueError("Specify either schedule_time or interval_minutes, not both")
+
+    env_updates: dict[str, str] = {}
+    if config.schedule_time:
+        env_updates["ORCH_SCHEDULE_TIME"] = config.schedule_time
+        os.environ.pop("ORCH_INTERVAL_MIN", None)
+    elif config.interval_minutes is not None:
+        env_updates["ORCH_INTERVAL_MIN"] = str(int(config.interval_minutes))
+        os.environ.pop("ORCH_SCHEDULE_TIME", None)
+
+    if config.config_path:
+        env_updates["ORCH_CONFIG"] = config.config_path
+    if config.dry_run:
+        env_updates["ORCH_DRY_RUN"] = "1"
+    else:
+        os.environ.pop("ORCH_DRY_RUN", None)
+    if config.force:
+        env_updates["ORCH_FORCE"] = "1"
+    else:
+        os.environ.pop("ORCH_FORCE", None)
+
+    for key, value in env_updates.items():
+        os.environ[key] = value
+
+    run_forever(
+        config_loader=_config_loader,
+        invoke_pipeline=invoke_pipeline,
+        sleep_fn=sleep_fn,
+    )
 
 
 def _lock_is_stale(lock_path: Path, ttl_hours: int) -> bool:
@@ -383,4 +437,9 @@ def run_forever(
             _release_lock(lock_path)
 
 
-__all__ = ["compute_next_run", "run_forever"]
+__all__ = [
+    "PipelineScheduleConfig",
+    "compute_next_run",
+    "run_forever",
+    "run_pipeline_schedule",
+]

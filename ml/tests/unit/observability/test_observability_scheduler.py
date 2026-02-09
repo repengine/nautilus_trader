@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from ml.core.integration import MLIntegrationManager
 from ml.observability.scheduler import ObservabilityFlusher
+from ml.observability.scheduler import ObservabilityStartConfig
+from ml.observability.scheduler import run_observability_start
 from ml.observability.service import ObservabilityService
 from ml.tests.utils.stubs import build_integration_manager_stub
 from nautilus_trader.model.identifiers import InstrumentId
@@ -77,3 +80,107 @@ class TestIntegrationFlusher:
         health_entry = out.get("health")
         assert isinstance(health_entry, Path)
         assert health_entry.exists()
+
+
+class _StubAsyncWorker:
+    def __init__(self) -> None:
+        self.stop_calls: list[tuple[bool, float]] = []
+
+    async def stop(self, *, drain: bool, timeout: float) -> None:
+        self.stop_calls.append((drain, timeout))
+
+
+class _StubRuntime:
+    def __init__(self) -> None:
+        self.start_config_calls: list[object] = []
+        self.start_flush_calls: list[dict[str, object]] = []
+        self.stop_flush_calls = 0
+        self._obs_async_worker: _StubAsyncWorker | None = None
+
+    def start_observability_from_config(self, cfg: object) -> None:
+        self.start_config_calls.append(cfg)
+        self._obs_async_worker = _StubAsyncWorker()
+
+    def start_observability_flush(
+        self,
+        *,
+        base_path: Path,
+        interval_seconds: float | None = 60.0,
+        file_format: str = "jsonl",
+        sink: str = "file",
+        db_connection_string: str | None = None,
+    ) -> dict[str, Path] | None:
+        self.start_flush_calls.append(
+            {
+                "base_path": base_path,
+                "interval_seconds": interval_seconds,
+                "file_format": file_format,
+                "sink": sink,
+                "db_connection_string": db_connection_string,
+            },
+        )
+        return {}
+
+    def stop_observability_flush(self) -> None:
+        self.stop_flush_calls += 1
+
+
+def test_run_observability_start_when_sync_mode_runs_flush(monkeypatch: Any, tmp_path: Path) -> None:
+    runtime = _StubRuntime()
+    sleep_calls: list[float] = []
+
+    def _fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr("ml.observability.scheduler.time.sleep", _fake_sleep)
+
+    rc = run_observability_start(
+        runtime,
+        ObservabilityStartConfig(
+            sink="file",
+            base_path=tmp_path,
+            interval_seconds=1.5,
+            duration_seconds=0.25,
+        ),
+    )
+
+    assert rc == 0
+    assert len(runtime.start_flush_calls) == 1
+    assert runtime.start_flush_calls[0]["base_path"] == tmp_path
+    assert runtime.start_flush_calls[0]["interval_seconds"] == 1.5
+    assert runtime.stop_flush_calls == 1
+    assert sleep_calls == [0.25]
+
+
+def test_run_observability_start_when_async_mode_runs_worker_stop(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    runtime = _StubRuntime()
+    sleep_calls: list[float] = []
+
+    async def _fake_async_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr("ml.observability.scheduler.asyncio.sleep", _fake_async_sleep)
+
+    rc = run_observability_start(
+        runtime,
+        ObservabilityStartConfig(
+            sink="db",
+            base_path=tmp_path,
+            db_url="sqlite:///obs.db",
+            async_enabled=True,
+            duration_seconds=0.1,
+        ),
+    )
+
+    assert rc == 0
+    assert len(runtime.start_config_calls) == 1
+    cfg = runtime.start_config_calls[0]
+    assert getattr(cfg, "sink") == "db"
+    assert getattr(cfg, "db_connection_string") == "sqlite:///obs.db"
+    worker = runtime._obs_async_worker
+    assert worker is not None
+    assert worker.stop_calls == [(True, 1.0)]
+    assert sleep_calls == [0.1]

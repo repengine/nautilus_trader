@@ -7,7 +7,10 @@ class name comparison) work correctly across pytest-xdist worker boundaries.
 """
 
 import pytest
-from ml.config.events import Stage, Source, EventStatus
+
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
 
 
 class TestEnumValueComparison:
@@ -94,10 +97,6 @@ class TestEnumClassNameComparison:
 class TestEnumIsinstanceAntiPattern:
     """Document WHY isinstance() doesn't work in parallel."""
 
-    @pytest.mark.xfail(
-        reason="isinstance() fails in pytest-xdist parallel execution",
-        strict=False,
-    )
     def test_isinstance_may_fail_in_parallel(self):
         """
         This test documents the anti-pattern that fails in parallel.
@@ -110,9 +109,8 @@ class TestEnumIsinstanceAntiPattern:
         Therefore: isinstance(Stage.FEATURE_COMPUTED, Stage) may return
         False if the enum was created in a different worker.
 
-        This test is marked xfail to document the issue, not to validate
-        our fix. It MAY pass in serial execution or with our pytest-xdist
-        config improvements.
+        This is a documentation test for the anti-pattern. Depending on
+        worker import behavior, it can pass or fail under pytest-xdist.
         """
         stage = Stage.FEATURE_COMPUTED
 

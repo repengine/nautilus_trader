@@ -16,6 +16,8 @@ from ml.config.base import ModelRegistryConfig
 from ml.config.base import MultiModelStrategyConfig
 from ml.config.base import PositionsConfig
 from ml.config.base import PositionsSource
+from ml.config.policy import RegistryCompatibilityPolicyConfig
+from ml.config.registry import RegistryPolicyConfig
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -76,6 +78,43 @@ class TestMLActorConfig:
 
         assert config.model_id == "test_model_v1"
         assert config.model_path == "/path/to/model.onnx"
+
+
+@pytest.mark.parallel_safe
+@pytest.mark.unit
+class TestRegistryPolicyConfig:
+    """
+    Tests for RegistryPolicyConfig scaffolding defaults and env loading.
+    """
+
+    def test_default_compatibility_policy_values(self) -> None:
+        config = RegistryPolicyConfig()
+        assert config.compatibility_policy == RegistryCompatibilityPolicyConfig()
+        assert config.compatibility_policy.strict_model_compatibility is False
+        assert config.compatibility_policy.allow_compatibility_migration_override is True
+        assert config.compatibility_policy.allow_unsigned_artifacts is False
+        assert config.compatibility_policy.require_output_semantics is False
+
+    def test_from_env_parses_compatibility_policy(self) -> None:
+        config = RegistryPolicyConfig.from_env(
+            env={
+                "ML_STRICT_MODEL_COMPATIBILITY": "true",
+                "ML_ALLOW_COMPATIBILITY_MIGRATION_OVERRIDE": "false",
+                "ML_ALLOW_UNSIGNED_ARTIFACTS": "true",
+                "ML_REQUIRE_OUTPUT_SEMANTICS": "true",
+            },
+        )
+        assert config.compatibility_policy.strict_model_compatibility is True
+        assert config.compatibility_policy.allow_compatibility_migration_override is False
+        assert config.compatibility_policy.allow_unsigned_artifacts is True
+        assert config.compatibility_policy.require_output_semantics is True
+
+    def test_from_env_defaults_to_strict_compatibility_policy(self) -> None:
+        config = RegistryPolicyConfig.from_env(env={})
+        assert config.compatibility_policy.strict_model_compatibility is True
+        assert config.compatibility_policy.allow_compatibility_migration_override is False
+        assert config.compatibility_policy.allow_unsigned_artifacts is False
+        assert config.compatibility_policy.require_output_semantics is True
 
 
 class TestMLTrainingConfig:

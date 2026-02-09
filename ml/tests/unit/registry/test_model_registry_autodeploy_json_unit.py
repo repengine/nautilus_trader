@@ -12,6 +12,9 @@ from ml.registry import ModelRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 def test_auto_deploy_student_targets_signal_actor(tmp_path: Path) -> None:
@@ -54,6 +57,12 @@ def test_auto_deploy_student_targets_signal_actor(tmp_path: Path) -> None:
         feature_set_id=None,
         parent_id=teacher_id,
     )
+    manifest.feature_set_id = register_feature_set_for_schema(
+        registry_path=reg_dir,
+        schema_hash=manifest.feature_schema_hash,
+    )
+    manifest.output_schema = default_output_schema()
+    manifest.calibration = default_calibration()
     mid = reg.register_model(model_path=model_path, manifest=manifest, auto_deploy=True)
     # Verify deployment through public API - get_model returns deployment info
     info = reg.get_model(mid)

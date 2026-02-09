@@ -100,12 +100,15 @@ def sample_ohlcv_dataframe() -> pd.DataFrame:
 class StubMacroTransform:
     """Stub macro transform for streaming executor tests."""
 
-    macro_series_ids = ["PAYEMS"]
-    include_revisions = False
-    revision_mode = "core"
-    include_composites = False
+    def __init__(self) -> None:
+        self.macro_series_ids = ["PAYEMS"]
+        self.include_revisions = False
+        self.revision_mode = "core"
+        self.include_composites = False
+        self.last_ts_event: int | None = None
 
     def compute_realtime(self, bar: object | None = None, ts_event: int | None = None) -> dict[str, float]:
+        self.last_ts_event = ts_event
         return {"PAYEMS__value_real_time": 42.0}
 
 
@@ -243,6 +246,44 @@ def test_stream_executor_supports_macro_transform(
             TransformSpec(name="returns", params={"periods": [1]}),
         ],
     )
+    macro_transform = StubMacroTransform()
+    context = PipelineStreamContext(
+        feature_config=base_feature_config,
+        indicator_manager=indicator_manager_with_history,
+        macro_transform=macro_transform,
+    )
+    executor = PipelineStreamExecutor(spec, allowable=DataRequirements.L1_ONLY, context=context)
+
+    indicator_manager_with_history.update_from_values(
+        close=current_bar["close"],
+        high=current_bar["high"],
+        low=current_bar["low"],
+        volume=current_bar["volume"],
+    )
+    timestamp_ns = int(pd.Timestamp("2024-01-02T15:00:00Z").value)
+    features = executor.execute(current_bar, timestamp_ns=timestamp_ns)
+    names = list(executor.feature_names)
+
+    macro_idx = names.index("PAYEMS__value_real_time")
+    assert features[macro_idx] == pytest.approx(42.0)
+    assert macro_transform.last_ts_event == timestamp_ns
+
+
+def test_stream_executor_when_macro_transform_enabled_without_timestamp_raises(
+    base_feature_config: FeatureConfig,
+    indicator_manager_with_history: IndicatorManager,
+    current_bar: dict[str, float],
+) -> None:
+    """Macro transforms require an explicit timestamp for causality bounds."""
+    spec = PipelineSpec(
+        transforms=[
+            TransformSpec(
+                name="macro",
+                params={"series_ids": ["PAYEMS"], "include_revisions": False},
+            ),
+            TransformSpec(name="returns", params={"periods": [1]}),
+        ],
+    )
     context = PipelineStreamContext(
         feature_config=base_feature_config,
         indicator_manager=indicator_manager_with_history,
@@ -256,11 +297,8 @@ def test_stream_executor_supports_macro_transform(
         low=current_bar["low"],
         volume=current_bar["volume"],
     )
-    features = executor.execute(current_bar)
-    names = list(executor.feature_names)
-
-    macro_idx = names.index("PAYEMS__value_real_time")
-    assert features[macro_idx] == pytest.approx(42.0)
+    with pytest.raises(ValueError, match="macro/calendar/event transforms"):
+        executor.execute(current_bar)
 
 
 def test_stream_executor_gates_microstructure_by_data_requirements(

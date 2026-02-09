@@ -19,12 +19,41 @@ from typing import Any
 
 import pytest
 
+from ml.config.policy import RegistryCompatibilityPolicyConfig
+from ml.config.registry import RegistryPolicyConfig
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelRole
+from ml.registry import FeatureRegistry
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.tests.builders import RegistryBuilder
+
+pytestmark = pytest.mark.usefixtures("isolated_registry_policy_env")
+
+
+def _permissive_registry_policy() -> RegistryPolicyConfig:
+    return RegistryPolicyConfig(
+        compatibility_policy=RegistryCompatibilityPolicyConfig(
+            strict_model_compatibility=False,
+            allow_compatibility_migration_override=True,
+            allow_unsigned_artifacts=False,
+            require_output_semantics=False,
+        ),
+    )
+
+
+def _register_matching_feature_set(
+    *,
+    registry_path: Path,
+    schema_hash: str,
+) -> str:
+    feature_registry = FeatureRegistry(registry_path)
+    feature_manifest = RegistryBuilder.feature_manifest(
+        feature_set_id="",
+        schema_hash=schema_hash,
+    )
+    return feature_registry.register_feature_set(feature_manifest)
 
 
 @pytest.mark.flaky
@@ -44,7 +73,10 @@ class TestRegistryBehaviors:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = ModelRegistry(registry_path)
+            registry = ModelRegistry(
+                registry_path,
+                policy_config=_permissive_registry_policy(),
+            )
 
             results: dict[str, list[Any]] = {"registered": [], "errors": [], "deployed": []}
             lock = threading.Lock()
@@ -126,7 +158,10 @@ class TestRegistryBehaviors:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = ModelRegistry(registry_path)
+            registry = ModelRegistry(
+                registry_path,
+                policy_config=_permissive_registry_policy(),
+            )
 
             # Create v1 - good model
             model_v1_path = registry_path / "model_v1.onnx"
@@ -211,7 +246,10 @@ class TestRegistryBehaviors:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = ModelRegistry(registry_path)
+            registry = ModelRegistry(
+                registry_path,
+                policy_config=_permissive_registry_policy(),
+            )
 
             # Create control model (current production)
             control_path = registry_path / "control_model.onnx"
@@ -302,7 +340,10 @@ class TestRegistryBehaviors:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = ModelRegistry(registry_path)
+            registry = ModelRegistry(
+                registry_path,
+                policy_config=_permissive_registry_policy(),
+            )
 
             # Deploy initial model
             model_v1_path = registry_path / "model_v1.onnx"
@@ -369,7 +410,10 @@ class TestRegistryBehaviors:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = ModelRegistry(registry_path)
+            registry = ModelRegistry(
+                registry_path,
+                policy_config=_permissive_registry_policy(),
+            )
 
             # Create model with strict constraints
             model_path = registry_path / "constrained_model.onnx"
@@ -435,3 +479,130 @@ class TestRegistryBehaviors:
             bad_model_info = registry.get_model(bad_student_model_id)
             assert bad_model_info is not None
             assert bad_model_info.deployment_status.value == DeploymentStatus.INACTIVE.value
+
+
+def test_production_registration_blocks_missing_feature_set_id_under_strict_defaults(
+    tmp_path: Path,
+) -> None:
+    registry = ModelRegistry(tmp_path)
+    model_path = tmp_path / "strict_default_missing_feature_set.onnx"
+    model_path.write_bytes(b"strict-default-feature-set")
+    manifest = RegistryBuilder.model_manifest(
+        model_id="strict_default_missing_feature_set",
+        feature_schema_hash="strict_default_schema",
+        serveable=True,
+        artifact_format="onnx",
+    )
+
+    with pytest.raises(ValueError, match="feature_set_id is required"):
+        registry.register_model(model_path=model_path, manifest=manifest)
+
+
+def test_production_registration_blocks_missing_output_semantics_under_strict_defaults(
+    tmp_path: Path,
+) -> None:
+    registry = ModelRegistry(tmp_path)
+    model_path = tmp_path / "strict_default_missing_output_semantics.onnx"
+    model_path.write_bytes(b"strict-default-output-semantics")
+    schema_hash = "strict_default_output_schema_hash"
+    feature_set_id = _register_matching_feature_set(
+        registry_path=tmp_path,
+        schema_hash=schema_hash,
+    )
+    manifest = RegistryBuilder.model_manifest(
+        model_id="strict_default_missing_output_semantics",
+        feature_schema_hash=schema_hash,
+        feature_set_id=feature_set_id,
+        serveable=True,
+        artifact_format="onnx",
+        output_schema=None,
+        calibration=None,
+    )
+
+    with pytest.raises(ValueError, match="Output semantics validation failed"):
+        registry.register_model(model_path=model_path, manifest=manifest)
+
+
+def test_production_registration_blocks_feature_schema_mismatch_under_strict_defaults(
+    tmp_path: Path,
+) -> None:
+    registry = ModelRegistry(tmp_path)
+    model_path = tmp_path / "strict_default_feature_schema_mismatch.onnx"
+    model_path.write_bytes(b"strict-default-feature-schema-mismatch")
+    feature_set_id = _register_matching_feature_set(
+        registry_path=tmp_path,
+        schema_hash="strict_default_feature_schema_expected",
+    )
+    manifest = RegistryBuilder.model_manifest(
+        model_id="strict_default_feature_schema_mismatch",
+        feature_schema_hash="strict_default_feature_schema_actual",
+        feature_set_id=feature_set_id,
+        serveable=True,
+        artifact_format="onnx",
+    )
+
+    with pytest.raises(ValueError, match="feature_schema_hash mismatch"):
+        registry.register_model(model_path=model_path, manifest=manifest)
+
+
+def test_production_load_blocks_missing_output_semantics_under_strict_defaults(
+    tmp_path: Path,
+) -> None:
+    bootstrap_registry = ModelRegistry(
+        tmp_path,
+        policy_config=_permissive_registry_policy(),
+    )
+    model_path = tmp_path / "strict_default_load_missing_output_semantics.onnx"
+    model_path.write_bytes(b"strict-default-load-missing-output-semantics")
+    schema_hash = "strict_default_load_output_schema_hash"
+    feature_set_id = _register_matching_feature_set(
+        registry_path=tmp_path,
+        schema_hash=schema_hash,
+    )
+    manifest = RegistryBuilder.model_manifest(
+        model_id="strict_default_load_missing_output_semantics",
+        feature_schema_hash=schema_hash,
+        feature_set_id=feature_set_id,
+        serveable=True,
+        artifact_format="onnx",
+        output_schema=None,
+        calibration=None,
+    )
+    model_id = bootstrap_registry.register_model(model_path=model_path, manifest=manifest)
+    bootstrap_registry._policy = RegistryPolicyConfig.from_env()
+    with pytest.raises(ValueError, match="Output semantics validation failed during load"):
+        bootstrap_registry.load_model(model_id)
+
+
+def test_production_load_blocks_missing_digest_under_strict_defaults(
+    tmp_path: Path,
+) -> None:
+    registry = ModelRegistry(tmp_path)
+    model_path = tmp_path / "strict_default_load_missing_digest.onnx"
+    model_path.write_bytes(b"strict-default-load-missing-digest")
+    schema_hash = "strict_default_load_digest_schema_hash"
+    feature_set_id = _register_matching_feature_set(
+        registry_path=tmp_path,
+        schema_hash=schema_hash,
+    )
+    manifest = RegistryBuilder.model_manifest(
+        model_id="strict_default_load_missing_digest",
+        feature_schema_hash=schema_hash,
+        feature_set_id=feature_set_id,
+        serveable=True,
+        artifact_format="onnx",
+        output_schema={
+            "kind": "binary_proba",
+            "shape": [None, 1],
+            "classes": [0, 1],
+            "positive_class_index": 1,
+        },
+        calibration={"kind": "platt", "params": {"coef": 1.0}},
+    )
+    model_id = registry.register_model(model_path=model_path, manifest=manifest)
+    model_info = registry.get_model(model_id)
+    assert model_info is not None
+    model_info.manifest.artifact_sha256_digest = None
+
+    with pytest.raises(ValueError, match="No SHA-256 digest available"):
+        registry.load_model(model_id)

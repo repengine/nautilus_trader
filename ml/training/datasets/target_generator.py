@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from ml.config.targets import TargetSemanticsConfig
 from ml.config.targets import build_binary_target_column
@@ -247,6 +248,10 @@ def build_target_semantics_metadata(config: TargetSemanticsConfig) -> dict[str, 
 
     semantics: dict[str, Any] = {
         "version": config.version,
+        "contract": config.contract_metadata(),
+        "horizon_resolution_mode": config.horizon_resolution_mode,
+        "horizon_alignment": config.horizon_alignment_metadata(),
+        "execution": config.execution_metadata(),
         "horizons": horizons,
         "returns": returns,
         "labels": labels,
@@ -455,6 +460,211 @@ class TargetGenerator:
             return pd.concat([df.reset_index(drop=True), targets.reset_index(drop=True)], axis=1)
         raise TypeError(f"Expected Pandas DataFrame, got {type(df)} and {type(targets)}")
 
+    @staticmethod
+    def _sanitize_forward_returns(
+        values: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
+        """
+        Sanitize forward-return values by replacing non-finite values with zero.
+        """
+        sanitized = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+        return cast(npt.NDArray[np.float64], sanitized.astype(np.float64, copy=False))
+
+    @staticmethod
+    def _coerce_timestamp_values_to_ns(
+        values: npt.NDArray[Any],
+        *,
+        column_name: str,
+    ) -> npt.NDArray[np.int64]:
+        """
+        Convert timestamp values to epoch nanoseconds for wall-clock alignment.
+        """
+        if np.issubdtype(values.dtype, np.datetime64):
+            datetime_ns = values.astype("datetime64[ns]")
+            timestamp_ns = datetime_ns.astype(np.int64)
+        elif np.issubdtype(values.dtype, np.integer):
+            timestamp_ns = values.astype(np.int64, copy=False)
+        elif np.issubdtype(values.dtype, np.floating):
+            timestamp_ns = values.astype(np.int64, copy=False)
+        else:
+            try:
+                datetime_ns = values.astype("datetime64[ns]")
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"wall_clock horizon mode requires datetime-like or epoch timestamp values in "
+                    f"column '{column_name}'",
+                ) from exc
+            timestamp_ns = datetime_ns.astype(np.int64)
+
+        nat_token = np.iinfo(np.int64).min
+        if np.any(timestamp_ns == nat_token):
+            raise ValueError(
+                f"wall_clock horizon mode requires non-null timestamps in column '{column_name}'",
+            )
+        return timestamp_ns
+
+    def _enforce_unresolved_execution_context_policy(
+        self,
+        unresolved_mask: npt.NDArray[np.bool_],
+        *,
+        config: TargetSemanticsConfig,
+        horizon_label: str,
+        reason: str,
+    ) -> None:
+        """
+        Enforce unresolved execution context handling policy.
+        """
+        if not config.fail_on_unresolved_execution_context:
+            return
+        unresolved_rows = np.flatnonzero(unresolved_mask)
+        if unresolved_rows.size == 0:
+            return
+        first_row = int(unresolved_rows[0])
+        raise ValueError(
+            "execution context unresolved for horizon "
+            f"{horizon_label!r} at row {first_row}: {reason}",
+        )
+
+    def _compute_bar_index_forward_return_columns(
+        self,
+        *,
+        entry_price_values: npt.NDArray[np.float64],
+        exit_price_values: npt.NDArray[np.float64],
+        config: TargetSemanticsConfig,
+    ) -> dict[str, npt.NDArray[np.float64]]:
+        """
+        Compute forward returns using bar-index offsets plus execution latency.
+        """
+        if entry_price_values.shape != exit_price_values.shape:
+            raise ValueError("execution entry and exit price arrays must share the same shape")
+
+        n_rows = int(entry_price_values.shape[0])
+        row_indices = np.arange(n_rows, dtype=np.int64)
+        entry_indices = row_indices + np.int64(config.execution_latency_bars)
+        entry_in_bounds = entry_indices < n_rows
+
+        forward_columns: dict[str, npt.NDArray[np.float64]] = {}
+        for spec in config.horizons:
+            label = spec.label or f"{spec.minutes}m"
+            exit_indices = entry_indices + np.int64(spec.minutes)
+            unresolved_mask = np.logical_not(entry_in_bounds) | (exit_indices >= n_rows)
+            forward = np.zeros(n_rows, dtype=np.float64)
+            if np.any(entry_in_bounds):
+                candidate_rows = np.nonzero(entry_in_bounds)[0]
+                candidate_entry_indices = entry_indices[candidate_rows]
+                candidate_exit_indices = exit_indices[candidate_rows]
+                candidate_in_bounds = candidate_exit_indices < n_rows
+                if np.any(candidate_in_bounds):
+                    resolved_rows = candidate_rows[candidate_in_bounds]
+                    resolved_entry_indices = candidate_entry_indices[candidate_in_bounds]
+                    resolved_exit_indices = candidate_exit_indices[candidate_in_bounds]
+                    entry_values = entry_price_values[resolved_entry_indices]
+                    exit_values = exit_price_values[resolved_exit_indices]
+                    valid_prices = (
+                        np.isfinite(entry_values)
+                        & np.isfinite(exit_values)
+                        & (entry_values != 0.0)
+                    )
+                    if np.any(np.logical_not(valid_prices)):
+                        unresolved_mask[resolved_rows[np.logical_not(valid_prices)]] = True
+                    if np.any(valid_prices):
+                        valid_rows = resolved_rows[valid_prices]
+                        valid_entry_values = entry_values[valid_prices]
+                        valid_exit_values = exit_values[valid_prices]
+                        forward[valid_rows] = (
+                            valid_exit_values - valid_entry_values
+                        ) / valid_entry_values
+
+            self._enforce_unresolved_execution_context_policy(
+                unresolved_mask.astype(np.bool_, copy=False),
+                config=config,
+                horizon_label=label,
+                reason="bar_index entry/exit indices or execution prices were not resolvable",
+            )
+            forward_columns[build_forward_return_column(label)] = self._sanitize_forward_returns(
+                forward,
+            )
+
+        return forward_columns
+
+    def _compute_wall_clock_forward_return_columns(
+        self,
+        *,
+        entry_price_values: npt.NDArray[np.float64],
+        exit_price_values: npt.NDArray[np.float64],
+        timestamp_values: npt.NDArray[Any],
+        config: TargetSemanticsConfig,
+    ) -> dict[str, npt.NDArray[np.float64]]:
+        """
+        Compute forward returns by timestamp-aligned wall-clock horizons.
+        """
+        if entry_price_values.shape != exit_price_values.shape:
+            raise ValueError("execution entry and exit price arrays must share the same shape")
+
+        timestamp_ns = self._coerce_timestamp_values_to_ns(
+            timestamp_values,
+            column_name=config.wall_clock_timestamp_column,
+        )
+        if timestamp_ns.size > 1 and np.any(timestamp_ns[1:] < timestamp_ns[:-1]):
+            raise ValueError(
+                "wall_clock horizon mode requires non-decreasing timestamps in column "
+                f"'{config.wall_clock_timestamp_column}'",
+            )
+
+        n_rows = int(entry_price_values.shape[0])
+        row_indices = np.arange(n_rows, dtype=np.int64)
+        entry_indices = row_indices + np.int64(config.execution_latency_bars)
+        entry_in_bounds = entry_indices < n_rows
+        forward_columns: dict[str, npt.NDArray[np.float64]] = {}
+        nanos_per_minute = np.int64(60_000_000_000)
+
+        for spec in config.horizons:
+            label = spec.label or f"{spec.minutes}m"
+            horizon_ns = np.int64(spec.minutes) * nanos_per_minute
+            forward = np.zeros(n_rows, dtype=np.float64)
+            unresolved_mask = np.logical_not(entry_in_bounds).copy()
+
+            if np.any(entry_in_bounds):
+                candidate_rows = np.nonzero(entry_in_bounds)[0]
+                candidate_entry_indices = entry_indices[candidate_rows]
+                target_ns = timestamp_ns[candidate_entry_indices] + horizon_ns
+                exit_indices = np.searchsorted(timestamp_ns, target_ns, side="left")
+                exit_in_bounds = exit_indices < n_rows
+                if np.any(np.logical_not(exit_in_bounds)):
+                    unresolved_mask[candidate_rows[np.logical_not(exit_in_bounds)]] = True
+                if np.any(exit_in_bounds):
+                    resolved_rows = candidate_rows[exit_in_bounds]
+                    resolved_entry_indices = candidate_entry_indices[exit_in_bounds]
+                    resolved_exit_indices = exit_indices[exit_in_bounds]
+                    entry_values = entry_price_values[resolved_entry_indices]
+                    exit_values = exit_price_values[resolved_exit_indices]
+                    valid_prices = (
+                        np.isfinite(entry_values)
+                        & np.isfinite(exit_values)
+                        & (entry_values != 0.0)
+                    )
+                    if np.any(np.logical_not(valid_prices)):
+                        unresolved_mask[resolved_rows[np.logical_not(valid_prices)]] = True
+                    if np.any(valid_prices):
+                        valid_rows = resolved_rows[valid_prices]
+                        valid_entry_values = entry_values[valid_prices]
+                        valid_exit_values = exit_values[valid_prices]
+                        forward[valid_rows] = (
+                            valid_exit_values - valid_entry_values
+                        ) / valid_entry_values
+
+            self._enforce_unresolved_execution_context_policy(
+                unresolved_mask.astype(np.bool_, copy=False),
+                config=config,
+                horizon_label=label,
+                reason="wall_clock entry/exit context could not be resolved deterministically",
+            )
+            forward_columns[build_forward_return_column(label)] = self._sanitize_forward_returns(
+                forward,
+            )
+
+        return forward_columns
+
     def _generate_targets_polars_with_config(
         self,
         df: Any,
@@ -471,8 +681,16 @@ class TargetGenerator:
 
         if not isinstance(df, pl.DataFrame):
             raise TypeError(f"Expected Polars DataFrame, got {type(df)}")
-        if "close" not in df.columns:
-            raise KeyError("Missing required 'close' column for target generation")
+        required_price_columns = {
+            config.execution_entry_price_column,
+            config.execution_exit_price_column,
+        }
+        missing_price_columns = sorted(col for col in required_price_columns if col not in df.columns)
+        if missing_price_columns:
+            raise KeyError(
+                "Missing required execution price column(s) for target generation: "
+                f"{missing_price_columns}",
+            )
 
         horizon_labels = config.horizon_labels
         return_cols = list(build_forward_return_column(label) for label in horizon_labels)
@@ -495,17 +713,44 @@ class TargetGenerator:
                     empty["y"] = pl.Series([], dtype=pl.Int32)
             return pl.DataFrame(empty), tuple(return_cols), tuple(label_cols)
 
-        future_return_exprs: list[Any] = []
-        for spec in config.horizons:
-            label = spec.label or f"{spec.minutes}m"
-            future_prices = pl.col("close").shift(-int(spec.minutes))
-            current_prices = pl.col("close")
-            forward_returns = (future_prices - current_prices) / current_prices
-            future_return_exprs.append(
-                forward_returns.cast(pl.Float32).alias(build_forward_return_column(label)),
+        entry_price_values = np.asarray(
+            df.get_column(config.execution_entry_price_column).to_numpy(),
+            dtype=np.float64,
+        )
+        exit_price_values = np.asarray(
+            df.get_column(config.execution_exit_price_column).to_numpy(),
+            dtype=np.float64,
+        )
+        if config.uses_wall_clock_horizons:
+            timestamp_column = config.wall_clock_timestamp_column
+            if timestamp_column not in df.columns:
+                raise KeyError(
+                    "wall_clock horizon mode requires "
+                    f"'{timestamp_column}' column for target generation",
+                )
+            timestamp_values = np.asarray(df.get_column(timestamp_column).to_numpy())
+            forward_columns = self._compute_wall_clock_forward_return_columns(
+                entry_price_values=entry_price_values,
+                exit_price_values=exit_price_values,
+                timestamp_values=timestamp_values,
+                config=config,
+            )
+        else:
+            forward_columns = self._compute_bar_index_forward_return_columns(
+                entry_price_values=entry_price_values,
+                exit_price_values=exit_price_values,
+                config=config,
             )
 
-        targets = df.select(future_return_exprs)
+        targets = pl.DataFrame(
+            {
+                name: pl.Series(
+                    name,
+                    values.astype(np.float32, copy=False),
+                )
+                for name, values in forward_columns.items()
+            },
+        )
 
         # Sanitize forward returns
         targets = targets.with_columns(
@@ -614,8 +859,16 @@ class TargetGenerator:
 
         if not isinstance(df, pd.DataFrame):
             raise TypeError(f"Expected Pandas DataFrame, got {type(df)}")
-        if "close" not in df.columns:
-            raise KeyError("Missing required 'close' column for target generation")
+        required_price_columns = {
+            config.execution_entry_price_column,
+            config.execution_exit_price_column,
+        }
+        missing_price_columns = sorted(col for col in required_price_columns if col not in df.columns)
+        if missing_price_columns:
+            raise KeyError(
+                "Missing required execution price column(s) for target generation: "
+                f"{missing_price_columns}",
+            )
 
         horizon_labels = config.horizon_labels
         return_cols = list(build_forward_return_column(label) for label in horizon_labels)
@@ -636,13 +889,37 @@ class TargetGenerator:
                     empty["y"] = pd.Series([], dtype=int)
             return pd.DataFrame(empty), tuple(return_cols), tuple(label_cols)
 
-        close = df["close"]
         data: dict[str, Any] = {}
-        for spec in config.horizons:
-            label = spec.label or f"{spec.minutes}m"
-            forward = (close.shift(-int(spec.minutes)) - close) / close
-            forward = forward.replace([np.inf, -np.inf], 0.0).fillna(0.0).astype(float)
-            data[build_forward_return_column(label)] = forward
+        entry_price_values = np.asarray(
+            df[config.execution_entry_price_column].to_numpy(),
+            dtype=np.float64,
+        )
+        exit_price_values = np.asarray(
+            df[config.execution_exit_price_column].to_numpy(),
+            dtype=np.float64,
+        )
+        if config.uses_wall_clock_horizons:
+            timestamp_column = config.wall_clock_timestamp_column
+            if timestamp_column not in df.columns:
+                raise KeyError(
+                    "wall_clock horizon mode requires "
+                    f"'{timestamp_column}' column for target generation",
+                )
+            timestamp_values = np.asarray(df[timestamp_column].to_numpy())
+            forward_columns = self._compute_wall_clock_forward_return_columns(
+                entry_price_values=entry_price_values,
+                exit_price_values=exit_price_values,
+                timestamp_values=timestamp_values,
+                config=config,
+            )
+        else:
+            forward_columns = self._compute_bar_index_forward_return_columns(
+                entry_price_values=entry_price_values,
+                exit_price_values=exit_price_values,
+                config=config,
+            )
+        for name, values in forward_columns.items():
+            data[name] = pd.Series(values, index=df.index, dtype=float)
 
         if config.should_emit_cost_return():
             cost_decimal = (

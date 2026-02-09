@@ -35,6 +35,7 @@ Test Cases Satisfied:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -502,6 +503,124 @@ def order_submission_component(
 # ---------------------------------------------------------------------------
 # Test: Market Order Submission
 # ---------------------------------------------------------------------------
+
+
+class TestHelperUtilities:
+    """Tests for helper utilities in order submission module."""
+
+    def test_resolve_order_intent_path_prefers_explicit_then_env(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from ml.strategies.common.order_submission import resolve_order_intent_path
+
+        explicit = resolve_order_intent_path("/tmp/custom/intents.jsonl")
+        assert explicit is not None
+        assert explicit.as_posix().endswith("/tmp/custom/intents.jsonl")
+
+        monkeypatch.setenv("ML_FILE_STORE_PATH", "/tmp/ml-store")
+        inferred = resolve_order_intent_path(None)
+        assert inferred is not None
+        assert inferred.as_posix().endswith("/tmp/ml-store/orders/order_intents.jsonl")
+
+        monkeypatch.delenv("ML_FILE_STORE_PATH", raising=False)
+        assert resolve_order_intent_path(None) is None
+
+    def test_order_intent_record_helpers_convert_values_and_metadata(self) -> None:
+        from ml.strategies.common.order_submission import _build_order_intent_record
+        from ml.strategies.common.order_submission import _enum_to_str
+        from ml.strategies.common.order_submission import _to_float
+        from ml.strategies.common.order_submission import _to_int
+
+        class _EnumLike:
+            name = "BUY"
+
+        class _ValueLike:
+            value = "IOC"
+
+        class _AsDouble:
+            def as_double(self) -> float:
+                return 3.5
+
+        class _BadNumber:
+            def __float__(self) -> float:
+                raise TypeError("bad")
+
+        assert _enum_to_str(_EnumLike()) == "BUY"
+        assert _enum_to_str(_ValueLike()) == "IOC"
+        assert _enum_to_str(123) == "123"
+        assert _to_float(_AsDouble()) == pytest.approx(3.5)
+        assert _to_float(_BadNumber()) is None
+        assert _to_int("5") == 5
+        assert _to_int("bad") is None
+
+        order = SimpleNamespace(
+            strategy_id="S",
+            trader_id="T",
+            instrument_id="EURUSD.SIM",
+            client_order_id="C1",
+            order_type=_ValueLike(),
+            side=_EnumLike(),
+            quantity=_AsDouble(),
+            time_in_force=_ValueLike(),
+            is_reduce_only=True,
+            ts_init="12",
+        )
+        record = _build_order_intent_record(
+            order,
+            is_live=False,
+            positions_metadata={"count": 1},
+            quote_metadata={"mid": 1.0},
+            exit_metadata={"reason": "test"},
+            execution_metadata={"mode": "market"},
+        )
+        assert record["side"] == "BUY"
+        assert record["quantity"] == pytest.approx(3.5)
+        assert record["ts_init"] == 12
+        assert record["source"] == "historical"
+        assert record["positions"] == {"count": 1}
+
+    def test_order_intent_writer_handles_unavailable_path_and_reader_failures(
+        self,
+        tmp_path: Any,
+        mock_logger: MockLogger,
+        mock_cache: MockCache,
+    ) -> None:
+        from ml.strategies.common.order_submission import OrderIntentWriter
+        from ml.strategies.common.order_submission import OrderSubmissionComponent
+
+        blocker = tmp_path / "blocked-parent"
+        blocker.write_text("not a directory", encoding="utf-8")
+        writer = OrderIntentWriter(blocker / "order_intents.jsonl", log=mock_logger)
+        writer.write(SimpleNamespace(), is_live=True)
+
+        class _BrokenExecutor:
+            def __init__(self) -> None:
+                self.config = SimpleNamespace(validation_mode=SimpleNamespace(value="strict"))
+
+            def get_last_ttl_plan(self) -> dict[str, object]:
+                raise RuntimeError("ttl")
+
+            def get_last_limit_price_source(self) -> str:
+                raise RuntimeError("source")
+
+            def get_last_rejection_reason(self) -> str:
+                raise RuntimeError("reason")
+
+        component = OrderSubmissionComponent(
+            strategy_id="test-strategy-001",
+            order_executor=_BrokenExecutor(),
+            cache=mock_cache,
+            log=mock_logger,
+        )
+
+        assert component._read_ttl_plan() is None
+        assert component._read_limit_price_source() is None
+        assert component._read_rejection_reason() is None
+        assert component._resolve_validation_mode() == "strict"
+        assert component._interval_ns_from_plan({"ttl_seconds": 5.0, "cadence_seconds": 0.0}) == 5_000_000_000
+        assert component._interval_ns_from_plan({"ttl_seconds": 0.0, "cadence_seconds": 2.0}) == 2_000_000_000
+        assert mock_logger.debug_calls
 
 
 class TestPlaceMarketOrder:

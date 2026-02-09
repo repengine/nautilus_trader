@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import random
 import shutil
 import time
 from collections.abc import Callable
@@ -34,6 +33,8 @@ from ml.common.gpu_monitor import GPUMemoryMonitor
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.reproducibility import apply_reproducibility_seed
+from ml.common.reproducibility import resolve_configured_seed
 from ml.config.events import EventStatus
 from ml.config.streaming_pipeline import CurriculumGuardContext
 from ml.config.streaming_pipeline import CurriculumResolution
@@ -1058,28 +1059,25 @@ class LightningStreamingWorker(TrainingWorker):
             amp_guard_reason=amp_guard_reason,
         )
 
-    def _apply_worker_seed(self) -> None:
-        seed = self.config.worker_seed
-        if seed is None:
-            return
-        seed_value = int(seed)
+    def _resolve_worker_seed(self, *, dataset_seed: int | None) -> int | None:
+        """Resolve worker-side seed with explicit worker override precedence."""
+        return resolve_configured_seed(
+            primary_seed=self.config.worker_seed,
+            fallback_seed=dataset_seed,
+            required=False,
+            context="streaming worker seed",
+        )
+
+    def _apply_worker_seed(self, *, dataset_seed: int | None) -> int | None:
+        seed_value = self._resolve_worker_seed(dataset_seed=dataset_seed)
+        if seed_value is None:
+            return None
         logger.info(
             "streaming worker applying random seed",
             extra={"worker_seed": seed_value},
         )
-        random.seed(seed_value)
-        np.random.seed(seed_value)
-        if HAS_TORCH and torch is not None:
-            try:
-                torch.manual_seed(seed_value)
-                if hasattr(torch, "cuda"):
-                    torch.cuda.manual_seed_all(seed_value)
-            except Exception:  # pragma: no cover - optional torch context
-                logger.debug(
-                    "torch seeding failed",
-                    extra={"worker_seed": seed_value},
-                    exc_info=True,
-                )
+        apply_reproducibility_seed(seed_value, include_torch=HAS_TORCH and torch is not None)
+        return seed_value
 
     def _execute_training_attempt(
         self,
@@ -1089,7 +1087,7 @@ class LightningStreamingWorker(TrainingWorker):
         callbacks: Sequence[Any] | None = None,
         checkpoint_path: Path | None = None,
     ) -> StreamingFitResult:
-        self._apply_worker_seed()
+        self._apply_worker_seed(dataset_seed=context.worker_streaming_cfg.seed)
         data_module = TFTStreamingDataModule(
             plan.parquet_path,
             config=context.worker_streaming_cfg,
@@ -1971,8 +1969,9 @@ class LightningStreamingWorker(TrainingWorker):
         }
         if worker_config.seed is not None and "dataset_seed" not in merged_caps:
             merged_caps["dataset_seed"] = int(worker_config.seed)
-        if self.config.worker_seed is not None:
-            merged_caps["worker_seed"] = int(self.config.worker_seed)
+        resolved_worker_seed = self._resolve_worker_seed(dataset_seed=worker_config.seed)
+        if resolved_worker_seed is not None:
+            merged_caps["worker_seed"] = int(resolved_worker_seed)
         if self.config.loss_pos_weight is not None:
             merged_caps["worker_loss_pos_weight"] = float(self.config.loss_pos_weight)
         if curriculum_stage:

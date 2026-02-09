@@ -25,16 +25,16 @@ from ml.config.dataset_ids import L2_MINUTE_DATASET_ID
 from ml.config.dataset_ids import MICRO_MINUTE_DATASET_ID
 from ml.config.events import Source
 from ml.config.universes import TIER1_SYMBOL_SETS
+from ml.data.rehydration import CacheHydrationResult
+from ml.data.rehydration import L2CacheHydrationConfig
+from ml.data.rehydration import MicroCacheHydrationConfig
+from ml.data.rehydration import hydrate_l2_caches
+from ml.data.rehydration import hydrate_micro_caches
+from ml.data.rehydration import ingest_l2_cache_partitions
+from ml.data.rehydration import ingest_micro_cache_partitions
 from ml.stores.data_store import DataStore
 from ml.stores.feature_raw_writer import FeatureDatasetParquetRawWriter
 from ml.stores.protocols import DataStoreFacadeProtocol
-from ml.tasks.caches import CacheHydrationResult
-from ml.tasks.caches import L2CacheHydrationConfig
-from ml.tasks.caches import MicroCacheHydrationConfig
-from ml.tasks.caches import hydrate_l2_caches
-from ml.tasks.caches import hydrate_micro_caches
-from ml.tasks.caches import ingest_l2_cache_partitions
-from ml.tasks.caches import ingest_micro_cache_partitions
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

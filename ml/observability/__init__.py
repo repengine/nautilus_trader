@@ -132,6 +132,9 @@ from ml.observability.async_db_persistence import ObservabilityAsyncDBPersistor
 
 # Async processing components
 from ml.observability.async_worker import ObservabilityAsyncWorker
+from ml.observability.backfill import ObservabilityBackfillConfig
+from ml.observability.backfill import backfill_observability_tables
+from ml.observability.backfill import collect_observability_backfill_tables
 
 # Bootstrap and configuration helpers
 from ml.observability.bootstrap import auto_start_if_configured
@@ -216,6 +219,7 @@ __all__ = [
     "MLPersistenceWorker",
     "ObservabilityAsyncDBPersistor",
     "ObservabilityAsyncWorker",
+    "ObservabilityBackfillConfig",
     "ObservabilityDBPersistor",
     "ObservabilityFlusher",
     "ObservabilityPersistor",
@@ -224,10 +228,12 @@ __all__ = [
     "apply_observability_indices",
     "apply_observability_monthly_partitions",
     "auto_start_if_configured",
+    "backfill_observability_tables",
     "build_event_correlation",
     "build_health_scores",
     "build_latency_watermarks",
     "build_metrics_collection",
+    "collect_observability_backfill_tables",
     "connected_components",
     "extract_and_link_trace_context",
     "get_trace_context",

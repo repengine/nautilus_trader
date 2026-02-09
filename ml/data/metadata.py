@@ -15,10 +15,19 @@ from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
 
+from ml.common.reproducibility import ReproducibilityValue
+from ml.common.reproducibility import validate_reproducibility_provenance
+from ml.config.targets import EXECUTION_UNRESOLVED_CONTEXT_FAIL
+from ml.config.targets import EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN
+from ml.config.targets import HORIZON_RESOLUTION_BAR_INDEX
+from ml.config.targets import HORIZON_RESOLUTION_WALL_CLOCK
+from ml.config.targets import TARGET_SEMANTICS_CONTRACT_ID
+from ml.config.targets import TARGET_SEMANTICS_CONTRACT_MAJOR
+from ml.config.targets import TARGET_SEMANTICS_EPOCH_VERSION
 from ml.data.ingest.market_bindings import MarketBindingStats
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
@@ -78,6 +87,7 @@ class DatasetMetadata:
     capability_flags: dict[str, bool] = field(default_factory=dict)
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
     target_semantics: dict[str, Any] | None = None
+    reproducibility: dict[str, ReproducibilityValue] | None = None
 
 
 @dataclass(frozen=True)
@@ -232,6 +242,16 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         target_semantics_raw if isinstance(target_semantics_raw, dict) else None
     )
 
+    reproducibility_raw = raw.get("reproducibility")
+    reproducibility: dict[str, ReproducibilityValue] | None = None
+    if reproducibility_raw is not None:
+        if not isinstance(reproducibility_raw, Mapping):
+            raise ValueError("dataset metadata reproducibility must be a mapping")
+        reproducibility = validate_reproducibility_provenance(
+            payload=cast(Mapping[str, object], reproducibility_raw),
+            context="dataset metadata reproducibility",
+        )
+
     bindings_raw = raw.get("market_bindings")
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None
     if isinstance(bindings_raw, list):
@@ -308,6 +328,7 @@ def load_dataset_metadata(path: Path) -> DatasetMetadata:
         capability_flags=capability_flags,
         market_bindings=market_bindings,
         target_semantics=target_semantics,
+        reproducibility=reproducibility,
     )
 
 
@@ -371,6 +392,112 @@ def validate_dataset_metadata_expectations(
     _ensure_bounds("ts_event_end", expectations.ts_event_end, metadata.ts_event_end, comparator="lte")
 
 
+def require_reproducibility_metadata(
+    metadata: DatasetMetadata,
+    *,
+    context: str | None = None,
+) -> dict[str, ReproducibilityValue]:
+    """
+    Ensure dataset metadata includes canonical reproducibility provenance payload.
+
+    Args:
+        metadata: Dataset metadata to validate.
+        context: Optional context prefix for errors.
+
+    Returns:
+        Validated reproducibility payload.
+    """
+    prefix = f"{context}: " if context else ""
+    reproducibility = metadata.reproducibility
+    if not isinstance(reproducibility, Mapping):
+        raise ValueError(f"{prefix}dataset metadata missing reproducibility payload")
+
+    validation_context = (
+        f"{context}.dataset_metadata.reproducibility"
+        if context
+        else "dataset_metadata.reproducibility"
+    )
+    return validate_reproducibility_provenance(
+        payload=cast(Mapping[str, object], reproducibility),
+        context=validation_context,
+    )
+
+
+def _normalize_target_semantics_execution_payload(
+    execution_payload: Mapping[str, object],
+    *,
+    context: str,
+) -> dict[str, Any]:
+    """
+    Validate and normalize target semantics execution metadata payload.
+    """
+    entry_price_column_raw = execution_payload.get("entry_price_column")
+    if not isinstance(entry_price_column_raw, str) or not entry_price_column_raw.strip():
+        raise ValueError(
+            f"{context}target semantics execution.entry_price_column must be non-empty string",
+        )
+    entry_price_column = entry_price_column_raw.strip()
+
+    exit_price_column_raw = execution_payload.get("exit_price_column")
+    if not isinstance(exit_price_column_raw, str) or not exit_price_column_raw.strip():
+        raise ValueError(
+            f"{context}target semantics execution.exit_price_column must be non-empty string",
+        )
+    exit_price_column = exit_price_column_raw.strip()
+
+    latency_bars_raw = execution_payload.get("latency_bars")
+    if not isinstance(latency_bars_raw, int):
+        raise ValueError(f"{context}target semantics execution.latency_bars must be an int")
+    if latency_bars_raw < 0:
+        raise ValueError(f"{context}target semantics execution.latency_bars must be >= 0")
+
+    latency_unit = execution_payload.get("latency_unit")
+    if latency_unit != "bars":
+        raise ValueError(
+            f"{context}target semantics execution.latency_unit must be 'bars', got {latency_unit!r}",
+        )
+
+    unresolved_mode_raw = execution_payload.get("unresolved_context_mode")
+    if not isinstance(unresolved_mode_raw, str) or not unresolved_mode_raw.strip():
+        raise ValueError(
+            f"{context}target semantics execution.unresolved_context_mode must be non-empty string",
+        )
+    unresolved_mode = unresolved_mode_raw.strip().lower()
+    if unresolved_mode not in (
+        EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN,
+        EXECUTION_UNRESOLVED_CONTEXT_FAIL,
+    ):
+        raise ValueError(
+            f"{context}target semantics execution.unresolved_context_mode must be one of "
+            f"{(EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN, EXECUTION_UNRESOLVED_CONTEXT_FAIL)}, "
+            f"got {unresolved_mode_raw!r}",
+        )
+
+    normalized: dict[str, Any] = {
+        "entry_price_column": entry_price_column,
+        "exit_price_column": exit_price_column,
+        "latency_bars": int(latency_bars_raw),
+        "latency_unit": "bars",
+        "unresolved_context_mode": unresolved_mode,
+    }
+    if unresolved_mode == EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN:
+        unresolved_return_raw = execution_payload.get("unresolved_context_return")
+        if not isinstance(unresolved_return_raw, int | float):
+            raise ValueError(
+                f"{context}target semantics execution.unresolved_context_return must be numeric "
+                "when unresolved_context_mode='zero_return'",
+            )
+        unresolved_return = float(unresolved_return_raw)
+        if unresolved_return != 0.0:
+            raise ValueError(
+                f"{context}target semantics execution.unresolved_context_return must be 0.0 "
+                "for deterministic zero-return fallback",
+            )
+        normalized["unresolved_context_return"] = 0.0
+
+    return normalized
+
+
 def require_target_semantics_metadata(
     metadata: DatasetMetadata,
     *,
@@ -395,16 +522,102 @@ def require_target_semantics_metadata(
     if not isinstance(target_semantics, dict) or not target_semantics:
         raise ValueError(f"{prefix}dataset metadata missing target_semantics payload")
 
-    required_keys = ("version", "horizons", "labels", "returns")
+    required_keys = ("contract", "horizons", "labels", "returns", "execution")
     missing = [key for key in required_keys if key not in target_semantics]
     if missing:
         raise ValueError(
             f"{prefix}dataset metadata target_semantics missing required keys: {missing}",
         )
 
+    horizon_resolution_mode = target_semantics.get("horizon_resolution_mode")
+    if not isinstance(horizon_resolution_mode, str) or not horizon_resolution_mode:
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_resolution_mode must be non-empty string",
+        )
+    if horizon_resolution_mode not in (
+        HORIZON_RESOLUTION_BAR_INDEX,
+        HORIZON_RESOLUTION_WALL_CLOCK,
+    ):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_resolution_mode must be one of "
+            f"{(HORIZON_RESOLUTION_BAR_INDEX, HORIZON_RESOLUTION_WALL_CLOCK)}, "
+            f"got {horizon_resolution_mode!r}",
+        )
+
+    horizon_alignment = target_semantics.get("horizon_alignment")
+    if not isinstance(horizon_alignment, Mapping):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_alignment must be a mapping",
+        )
+    alignment_mode = horizon_alignment.get("mode")
+    if alignment_mode != horizon_resolution_mode:
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_alignment.mode mismatch "
+            f"(expected {horizon_resolution_mode!r}, got {alignment_mode!r})",
+        )
+    future_anchor = horizon_alignment.get("future_anchor")
+    if not isinstance(future_anchor, str) or not future_anchor.strip():
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_alignment.future_anchor must be non-empty string",
+        )
+    insufficient_future_handling = horizon_alignment.get("insufficient_future_handling")
+    if (
+        not isinstance(insufficient_future_handling, str)
+        or not insufficient_future_handling.strip()
+    ):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_alignment."
+            "insufficient_future_handling must be non-empty string",
+        )
+    if horizon_resolution_mode == HORIZON_RESOLUTION_WALL_CLOCK:
+        timestamp_column = horizon_alignment.get("timestamp_column")
+        if not isinstance(timestamp_column, str) or not timestamp_column.strip():
+            raise ValueError(
+                f"{prefix}dataset metadata target_semantics horizon_alignment.timestamp_column must "
+                "be non-empty string for wall_clock mode",
+            )
+
+    execution = target_semantics.get("execution")
+    if not isinstance(execution, Mapping):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics execution must be a mapping",
+        )
+    _normalize_target_semantics_execution_payload(
+        cast(Mapping[str, object], execution),
+        context=f"{prefix}dataset metadata ",
+    )
+
     version = target_semantics.get("version")
-    if not isinstance(version, str) or not version:
-        raise ValueError(f"{prefix}dataset metadata target_semantics version must be non-empty string")
+    if version is not None and (
+        not isinstance(version, str) or version != TARGET_SEMANTICS_EPOCH_VERSION
+    ):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics version must be "
+            f"{TARGET_SEMANTICS_EPOCH_VERSION!r} when present",
+        )
+
+    contract = target_semantics.get("contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError(f"{prefix}dataset metadata target_semantics contract must be a mapping")
+    contract_id = contract.get("id")
+    if not isinstance(contract_id, str) or not contract_id:
+        raise ValueError(f"{prefix}dataset metadata target_semantics contract.id must be non-empty string")
+    contract_major = contract.get("major")
+    if not isinstance(contract_major, int) or contract_major < 1:
+        raise ValueError(f"{prefix}dataset metadata target_semantics contract.major must be >= 1")
+    capabilities = contract.get("capabilities")
+    if not isinstance(capabilities, list) or not capabilities:
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics contract.capabilities must be non-empty list",
+        )
+    if any(not isinstance(cap, str) or not cap.strip() for cap in capabilities):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics contract.capabilities must contain non-empty strings",
+        )
+    if len(set(capabilities)) != len(capabilities):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics contract.capabilities must be unique",
+        )
 
     horizons = target_semantics.get("horizons")
     if not isinstance(horizons, list) or not horizons:
@@ -418,6 +631,178 @@ def require_target_semantics_metadata(
     if not isinstance(returns, dict) or not returns:
         raise ValueError(f"{prefix}dataset metadata target_semantics returns must be non-empty mapping")
     return target_semantics
+
+
+def require_target_semantics_contract(
+    metadata: DatasetMetadata,
+    *,
+    required_capabilities: Sequence[str],
+    expected_contract_id: str = TARGET_SEMANTICS_CONTRACT_ID,
+    expected_contract_major: int = TARGET_SEMANTICS_CONTRACT_MAJOR,
+    context: str | None = None,
+) -> dict[str, Any]:
+    """
+    Ensure dataset target semantics use the canonical contract and capabilities.
+
+    Args:
+        metadata: Dataset metadata to validate.
+        required_capabilities: Capability names required by the caller.
+        expected_contract_id: Expected contract identifier.
+        expected_contract_major: Expected contract major version.
+        context: Optional context prefix for errors.
+
+    Returns:
+        Canonical contract payload.
+    """
+    prefix = f"{context}: " if context else ""
+    target_semantics = require_target_semantics_metadata(metadata, context=context)
+    version = target_semantics.get("version")
+    if version != TARGET_SEMANTICS_EPOCH_VERSION:
+        raise ValueError(
+            f"{prefix}target semantics version mismatch "
+            f"(expected {TARGET_SEMANTICS_EPOCH_VERSION!r}, got {version!r})",
+        )
+    contract = target_semantics.get("contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError(f"{prefix}dataset metadata target_semantics contract must be a mapping")
+
+    contract_id = contract.get("id")
+    if contract_id != expected_contract_id:
+        raise ValueError(
+            f"{prefix}target semantics contract.id mismatch "
+            f"(expected {expected_contract_id!r}, got {contract_id!r})",
+        )
+
+    contract_major = contract.get("major")
+    if contract_major != expected_contract_major:
+        raise ValueError(
+            f"{prefix}target semantics contract.major mismatch "
+            f"(expected {expected_contract_major}, got {contract_major!r})",
+        )
+
+    capabilities_raw = contract.get("capabilities")
+    capabilities = {
+        str(cap).strip()
+        for cap in capabilities_raw
+        if isinstance(cap, str) and cap.strip()
+    } if isinstance(capabilities_raw, list) else set()
+    required = [str(cap).strip() for cap in required_capabilities if str(cap).strip()]
+    missing = [cap for cap in required if cap not in capabilities]
+    if missing:
+        raise ValueError(
+            f"{prefix}target semantics contract missing required capabilities: {missing}",
+        )
+    return dict(contract)
+
+
+def require_target_semantics_horizon_mode(
+    metadata: DatasetMetadata,
+    *,
+    expected_mode: str | None = None,
+    context: str | None = None,
+) -> str:
+    """
+    Resolve and optionally enforce target semantics horizon resolution mode.
+
+    Args:
+        metadata: Dataset metadata to validate.
+        expected_mode:
+            Optional expected mode (`bar_index` or `wall_clock`).
+            When provided, mismatches raise ValueError.
+        context: Optional context prefix for errors.
+
+    Returns:
+        Declared horizon resolution mode.
+    """
+    prefix = f"{context}: " if context else ""
+    target_semantics = require_target_semantics_metadata(metadata, context=context)
+    mode = target_semantics.get("horizon_resolution_mode")
+    if not isinstance(mode, str):
+        raise ValueError(
+            f"{prefix}dataset metadata target_semantics horizon_resolution_mode must be a string",
+        )
+
+    if expected_mode is None:
+        return mode
+
+    normalized_expected = str(expected_mode).strip().lower()
+    if normalized_expected not in (
+        HORIZON_RESOLUTION_BAR_INDEX,
+        HORIZON_RESOLUTION_WALL_CLOCK,
+    ):
+        raise ValueError(
+            "expected_mode must be one of "
+            f"{(HORIZON_RESOLUTION_BAR_INDEX, HORIZON_RESOLUTION_WALL_CLOCK)}, "
+            f"got {expected_mode!r}",
+        )
+    if mode != normalized_expected:
+        raise ValueError(
+            f"{prefix}target semantics horizon_resolution_mode mismatch "
+            f"(expected {normalized_expected!r}, got {mode!r})",
+        )
+    return mode
+
+
+def require_target_semantics_execution_contract(
+    metadata: DatasetMetadata,
+    *,
+    expected_execution: Mapping[str, object] | None = None,
+    context: str | None = None,
+) -> dict[str, Any]:
+    """
+    Resolve and optionally enforce target semantics execution contract payload.
+
+    Args:
+        metadata: Dataset metadata to validate.
+        expected_execution:
+            Optional expected execution contract payload. When provided,
+            normalized execution fields must match exactly.
+        context: Optional context prefix for errors.
+
+    Returns:
+        Normalized execution contract payload.
+    """
+    prefix = f"{context}: " if context else ""
+    target_semantics = require_target_semantics_metadata(metadata, context=context)
+    execution = target_semantics.get("execution")
+    if not isinstance(execution, Mapping):
+        raise ValueError(f"{prefix}dataset metadata target_semantics execution must be a mapping")
+
+    normalized_execution = _normalize_target_semantics_execution_payload(
+        cast(Mapping[str, object], execution),
+        context=f"{prefix}",
+    )
+    if expected_execution is None:
+        return normalized_execution
+
+    normalized_expected = _normalize_target_semantics_execution_payload(
+        expected_execution,
+        context=f"{prefix}expected ",
+    )
+    comparison_keys = (
+        "entry_price_column",
+        "exit_price_column",
+        "latency_bars",
+        "latency_unit",
+        "unresolved_context_mode",
+    )
+    for key in comparison_keys:
+        if normalized_execution.get(key) != normalized_expected.get(key):
+            raise ValueError(
+                f"{prefix}target semantics execution.{key} mismatch "
+                f"(expected {normalized_expected.get(key)!r}, "
+                f"got {normalized_execution.get(key)!r})",
+            )
+    if normalized_execution["unresolved_context_mode"] == EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN:
+        if normalized_execution.get("unresolved_context_return") != normalized_expected.get(
+            "unresolved_context_return",
+        ):
+            raise ValueError(
+                f"{prefix}target semantics execution.unresolved_context_return mismatch "
+                f"(expected {normalized_expected.get('unresolved_context_return')!r}, "
+                f"got {normalized_execution.get('unresolved_context_return')!r})",
+            )
+    return normalized_execution
 
 
 def require_target_column_in_semantics(
@@ -528,6 +913,7 @@ def build_dataset_metadata_from_windows(
     capability_flags: dict[str, bool] | None = None,
     market_bindings: tuple[MarketBindingMetadata, ...] | None = None,
     target_semantics: dict[str, Any] | None = None,
+    reproducibility: dict[str, ReproducibilityValue] | None = None,
 ) -> DatasetMetadata:
     """
     Build dataset metadata from precomputed window boundaries.
@@ -545,6 +931,7 @@ def build_dataset_metadata_from_windows(
         capability_flags: Optional capability flags.
         market_bindings: Optional market binding metadata.
         target_semantics: Optional target semantics metadata payload.
+        reproducibility: Optional reproducibility provenance payload.
 
     Returns:
         DatasetMetadata instance.
@@ -567,6 +954,7 @@ def build_dataset_metadata_from_windows(
         capability_flags=capability_flags or {},
         market_bindings=market_bindings,
         target_semantics=target_semantics,
+        reproducibility=reproducibility,
     )
 
 
@@ -579,6 +967,7 @@ def _compute_dataset_metadata(
     dataset_id: str | None,
     macro_observation_counts: dict[str, int] | None,
     target_semantics: dict[str, Any] | None,
+    reproducibility: dict[str, ReproducibilityValue] | None = None,
 ) -> DatasetMetadata:
     """
     Compute dataset metadata from a sorted dataframe.
@@ -592,6 +981,7 @@ def _compute_dataset_metadata(
         dataset_id: Dataset identifier.
         macro_observation_counts: Macro observation counts by series.
         target_semantics: Target semantics metadata payload.
+        reproducibility: Reproducibility provenance payload.
 
     Returns:
         DatasetMetadata instance.
@@ -678,6 +1068,7 @@ def _compute_dataset_metadata(
         test_window=None,
         macro_observation_counts=macro_counts,
         target_semantics=target_semantics,
+        reproducibility=reproducibility,
     )
     return metadata
 
@@ -697,6 +1088,7 @@ def _metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:
         "macro_observation_counts": metadata.macro_observation_counts,
         "capability_flags": metadata.capability_flags,
         "target_semantics": metadata.target_semantics,
+        "reproducibility": metadata.reproducibility,
     }
     if metadata.market_bindings is not None:
         payload["market_bindings"] = [
@@ -825,7 +1217,11 @@ __all__ = [
     "build_metadata_expectations",
     "load_dataset_metadata",
     "metadata_to_dict",
+    "require_reproducibility_metadata",
     "require_target_column_in_semantics",
+    "require_target_semantics_contract",
+    "require_target_semantics_execution_contract",
+    "require_target_semantics_horizon_mode",
     "require_target_semantics_metadata",
     "resolve_target_col_from_metadata",
     "serialize_dataset_metadata",

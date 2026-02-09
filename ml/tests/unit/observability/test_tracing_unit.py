@@ -7,10 +7,12 @@ behavior when tracing is disabled (default state).
 """
 
 import os
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
 
+import ml.observability.tracing as tracing
 from ml.observability.tracing import (
     extract_and_link_trace_context,
     get_trace_context,
@@ -387,3 +389,184 @@ class TestTracingFunctionSignatures:
 
         assert inference_function.__name__ == "inference_function"
         assert "Inference function docstring" in (inference_function.__doc__ or "")
+
+
+class TestTracingAdditionalBranches:
+    """
+    Additional branch coverage for internal tracing fallback paths.
+    """
+
+    def test_ensure_backend_returns_false_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ML_TRACING_ENABLED", "false")
+        monkeypatch.setattr(tracing, "_tracer", None)
+        assert tracing._ensure_tracing_backend() is False
+
+    def test_ensure_backend_short_circuits_when_tracer_cached(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ML_TRACING_ENABLED", "true")
+        monkeypatch.setattr(tracing, "_tracer", object())
+        assert tracing._ensure_tracing_backend() is True
+
+    def test_ensure_backend_requests_dependencies_when_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ML_TRACING_ENABLED", "true")
+        monkeypatch.setattr(tracing, "_tracer", None)
+        monkeypatch.setattr(tracing, "HAS_OPENTELEMETRY", False)
+        recorded: list[str] = []
+
+        def _record_dependencies(deps: list[str]) -> None:
+            recorded.extend(deps)
+
+        monkeypatch.setattr(tracing, "check_ml_dependencies", _record_dependencies)
+        assert tracing._ensure_tracing_backend() is False
+        assert recorded == ["opentelemetry-api", "opentelemetry-sdk"]
+
+    def test_is_tracing_enabled_when_enabled_but_otel_flag_false(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ML_TRACING_ENABLED", "true")
+        monkeypatch.setattr(tracing, "HAS_OPENTELEMETRY", False)
+        assert is_tracing_enabled() is False
+
+    def test_trace_cold_path_returns_none_when_tracer_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        monkeypatch.setattr(tracing, "_tracer", None)
+        with trace_cold_path("cold") as span:
+            assert span is None
+
+    def test_trace_cold_path_decorator_uses_enabled_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        with patch("ml.observability.tracing.trace_cold_path") as trace_ctx:
+            span_cm = trace_ctx.return_value
+            span_cm.__enter__.return_value = None
+            span_cm.__exit__.return_value = False
+
+            @trace_cold_path_decorator("decorated-op", correlation_id_param="corr_id")
+            def _decorated(value: int, *, corr_id: str) -> int:
+                return value + 1
+
+            assert _decorated(10, corr_id="cid-77") == 11
+            kwargs = trace_ctx.call_args.kwargs
+
+        assert kwargs["correlation_id"] == "cid-77"
+        assert kwargs["function_name"] == "_decorated"
+        assert kwargs["module"] == __name__
+
+    def test_trace_inference_adds_instrument_attribute_when_present(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        class _Bar:
+            def __init__(self, instrument_id: str) -> None:
+                self.instrument_id = instrument_id
+
+        with patch("ml.observability.tracing.trace_cold_path") as trace_ctx:
+            span_cm = trace_ctx.return_value
+            span_cm.__enter__.return_value = None
+            span_cm.__exit__.return_value = False
+
+            @trace_inference("inference-op")
+            def _on_bar(_self: object, bar: _Bar) -> str:
+                return f"ok-{bar.instrument_id}"
+
+            assert _on_bar(object(), _Bar("EURUSD.SIM")) == "ok-EURUSD.SIM"
+            kwargs = trace_ctx.call_args.kwargs
+
+        assert kwargs["operation_type"] == "inference"
+        assert kwargs["function_name"] == "_on_bar"
+        assert kwargs["instrument_id"] == "EURUSD.SIM"
+
+    def test_get_trace_context_returns_empty_when_propagator_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        monkeypatch.setattr(tracing, "_propagate", None)
+        assert get_trace_context() == {}
+
+    def test_get_trace_context_returns_empty_on_propagation_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+
+        class _BrokenPropagate:
+            def inject(self, _carrier: dict[str, str]) -> None:
+                raise RuntimeError("inject failed")
+
+        monkeypatch.setattr(tracing, "_propagate", _BrokenPropagate())
+        assert get_trace_context() == {}
+
+    def test_inject_trace_context_returns_original_when_no_context(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        monkeypatch.setattr(tracing, "get_trace_context", dict)
+        metadata = {"correlation_id": "abc123"}
+        assert inject_trace_context(metadata) is metadata
+
+    def test_extract_and_link_trace_context_skips_invalid_context_when_enabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        extract_and_link_trace_context({"trace_context": "invalid"})
+
+    def test_extract_and_link_trace_context_logs_when_backends_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+        monkeypatch.setattr(tracing, "_propagate", None)
+        monkeypatch.setattr(tracing, "_context", None)
+        with patch("logging.getLogger") as get_logger:
+            extract_and_link_trace_context({"trace_context": {"traceparent": "00-x-y-z"}})
+        get_logger.return_value.debug.assert_called_once()
+
+    def test_extract_and_link_trace_context_attaches_context(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+
+        class _GoodPropagate:
+            def extract(self, carrier: dict[str, str]) -> dict[str, str]:
+                return {"traceparent": carrier.get("traceparent", "")}
+
+        context_mock = MagicMock()
+        monkeypatch.setattr(tracing, "_context", context_mock)
+        monkeypatch.setattr(tracing, "_propagate", _GoodPropagate())
+        with patch("logging.getLogger"):
+            extract_and_link_trace_context({"trace_context": {"traceparent": "00-a-b-01"}})
+        context_mock.attach.assert_called_once_with({"traceparent": "00-a-b-01"})
+
+    def test_extract_and_link_trace_context_logs_extract_errors(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(tracing, "is_tracing_enabled", lambda: True)
+
+        class _BrokenExtract:
+            def extract(self, _carrier: dict[str, str]) -> dict[str, str]:
+                raise RuntimeError("extract failed")
+
+        context_mock = MagicMock()
+        monkeypatch.setattr(tracing, "_context", context_mock)
+        monkeypatch.setattr(tracing, "_propagate", _BrokenExtract())
+        with patch("logging.getLogger") as get_logger:
+            extract_and_link_trace_context({"trace_context": {"traceparent": "00-a-b-01"}})
+        context_mock.attach.assert_not_called()
+        assert get_logger.return_value.debug.call_args.kwargs["exc_info"] is True

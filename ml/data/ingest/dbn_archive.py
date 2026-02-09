@@ -89,9 +89,9 @@ class DatabentoDBNDecoder(DBNDecoderProtocol):
         if "ts_event" not in frame.columns:
             raise ValueError("Decoded DBN frame missing 'ts_event' column")
         # Normalize timestamps to integer nanoseconds (UTC)
-        frame["ts_event"] = pd.to_datetime(frame["ts_event"], utc=True).view("int64")
+        frame["ts_event"] = pd.to_datetime(frame["ts_event"], utc=True).astype("int64", copy=False)
         if "ts_init" in frame.columns:
-            frame["ts_init"] = pd.to_datetime(frame["ts_init"], utc=True).view("int64")
+            frame["ts_init"] = pd.to_datetime(frame["ts_init"], utc=True).astype("int64", copy=False)
         else:
             frame["ts_init"] = frame["ts_event"]
         return frame

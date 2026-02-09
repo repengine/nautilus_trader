@@ -5,6 +5,7 @@ Tests for FeatureRegistry feature catalog utilities.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -13,6 +14,7 @@ from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
+from ml.registry.tools import feature_catalog as feature_catalog_module
 from ml.registry.tools.feature_catalog import FeatureFamily
 from ml.registry.tools.feature_catalog import build_feature_catalog
 
@@ -128,3 +130,66 @@ def test_feature_catalog_multiple_manifests(tmp_path: Path) -> None:
     # Ensure other families default to zero when absent.
     assert totals[FeatureFamily.EVENT.value] == 0
     assert totals[FeatureFamily.CALENDAR.value] == 0
+
+
+@pytest.mark.unit
+def test_feature_catalog_render_and_serialization_cover_classification_paths(tmp_path: Path) -> None:
+    registry = _register_manifest(
+        tmp_path / "registry_render",
+        feature_names=[
+            "is_macro_available_now",
+            "yield_curve_signal",
+            "tod_hour",
+            "spread_ratio",
+            "mystery_feature",
+        ],
+        capability_flags={
+            "include_macro": True,
+            "include_calendar": True,
+            "include_events": True,
+            "include_micro": False,
+        },
+    )
+
+    report = build_feature_catalog(registry)
+    assert report.total_feature_sets == 1
+    assert report.has_inconsistencies is True
+
+    summary = report.feature_sets[0]
+    assert summary.family_counts[FeatureFamily.MACRO.value] == 2
+    assert summary.family_counts[FeatureFamily.CALENDAR.value] == 1
+    assert summary.family_counts[FeatureFamily.MICRO.value] == 1
+    assert summary.family_counts[FeatureFamily.OTHER.value] == 1
+
+    summary_dict = summary.to_dict()
+    assert summary_dict["feature_set_id"]
+
+    report_dict = report.to_dict()
+    assert report_dict["total_feature_sets"] == 1
+    assert report_dict["total_features"] == 5
+
+    as_json = report.to_json(indent=2)
+    assert '"feature_sets"' in as_json
+
+    rendered = report.render_text()
+    assert "flags_missing_families" in rendered
+    assert "families_without_flag" in rendered
+
+
+@pytest.mark.unit
+def test_feature_catalog_handles_family_with_no_capability_mapping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _register_manifest(
+        tmp_path / "registry_missing_capability_map",
+        feature_names=["FEDFUNDS"],
+        capability_flags={},
+    )
+
+    family_map = cast(dict[FeatureFamily, tuple[str, ...]], feature_catalog_module.FAMILY_TO_CAPABILITIES)
+    monkeypatch.setitem(family_map, FeatureFamily.MACRO, tuple())
+
+    report = feature_catalog_module.build_feature_catalog(registry)
+    summary = report.feature_sets[0]
+    assert summary.families_without_flag == []

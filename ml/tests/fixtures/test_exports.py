@@ -24,6 +24,7 @@ _FIXTURE_MODULE_NAMES = (
     "monitoring_collectors",
     "observability",
     "pandera",
+    "registry_policy",
     "runtime",
     "security",
     "stores",
@@ -62,6 +63,7 @@ def test_fixtures_all_covers_submodules() -> None:
         | set(modules["monitoring_collectors"].__all__)
         | set(modules["observability"].__all__)
         | set(modules["pandera"].__all__)
+        | set(modules["registry_policy"].__all__)
         | set(modules["runtime"].__all__)
         | set(modules["security"].__all__)
         | set(modules["stores"].__all__)

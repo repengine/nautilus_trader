@@ -26,6 +26,9 @@ from ml.config._env_utils import env_positive_float as _env_positive_float
 from ml.config._env_utils import env_positive_int as _env_positive_int
 from ml.config._env_utils import env_truthy as _env_truthy
 from ml.config._env_utils import resolve_db_connection as _resolve_db_connection
+from ml.config.policy import ActorRemediationPolicyConfig
+from ml.config.policy import InferenceTimeoutAction
+from ml.config.policy import MLFailureAction
 from ml.config.registry import ModelRegistryConfig as ModelRegistryConfig
 from ml.config.targets import TargetSemanticsConfig
 from nautilus_trader.common.config import NautilusConfig
@@ -37,6 +40,94 @@ from nautilus_trader.config import StrategyConfig
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _is_production_like_actor_env(
+    *,
+    env: Mapping[str, str],
+    use_dummy_stores: bool,
+) -> bool:
+    """
+    Determine whether actor config should apply production strict defaults.
+
+    Parameters
+    ----------
+    env : Mapping[str, str]
+        Environment mapping used to build actor config.
+    use_dummy_stores : bool
+        Whether actor is configured to use dummy stores.
+
+    Returns
+    -------
+    bool
+        ``True`` when production-like strict defaults should apply.
+
+    """
+    if use_dummy_stores:
+        return False
+    env_mode = (
+        env.get("ML_ENV")
+        or env.get("NAUTILUS_ENV")
+        or env.get("ENVIRONMENT")
+        or ""
+    ).strip()
+    return env_mode.lower() in {"prod", "production", "live"}
+
+
+def _actor_remediation_policy_from_env_strict_defaults(
+    *,
+    env: Mapping[str, str] | None = None,
+    use_dummy_stores: bool,
+) -> ActorRemediationPolicyConfig:
+    """
+    Build actor remediation policy with strict production rollout defaults.
+
+    Defaults remain permissive outside production-like envs. In production-like
+    envs, deadline/failure remediation defaults to strict fail-closed behavior
+    unless explicitly overridden via remediation-policy environment variables.
+
+    Parameters
+    ----------
+    env : Mapping[str, str] | None, optional
+        Environment value source.
+    use_dummy_stores : bool
+        Whether actor runs with dummy stores.
+
+    Returns
+    -------
+    ActorRemediationPolicyConfig
+        Effective remediation policy.
+
+    """
+    source = _ensure_env(env)
+    policy = ActorRemediationPolicyConfig.from_env(env=source)
+    if not _is_production_like_actor_env(
+        env=source,
+        use_dummy_stores=use_dummy_stores,
+    ):
+        return policy
+
+    enable_deadline_guard = (
+        policy.enable_inference_deadline_guard
+        if "ML_ENABLE_INFERENCE_DEADLINE_GUARD" in source
+        else True
+    )
+    timeout_action = (
+        policy.inference_timeout_action
+        if "ML_INFERENCE_TIMEOUT_ACTION" in source
+        else InferenceTimeoutAction.HALT
+    )
+    failure_action = (
+        policy.ml_failure_action
+        if "ML_FAILURE_ACTION" in source
+        else MLFailureAction.HALT
+    )
+    return msgspec.structs.replace(
+        policy,
+        enable_inference_deadline_guard=enable_deadline_guard,
+        inference_timeout_action=timeout_action,
+        ml_failure_action=failure_action,
+    )
 
 
 class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -311,6 +402,9 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
         Maximum allowed feature computation latency in milliseconds.
     allow_sync_persistence_fallback : bool, default True
         Allow synchronous persistence when the async worker is unavailable.
+    remediation_policy : ActorRemediationPolicyConfig, optional
+        Additive rollout controls for deadline, drift, causality, failure, and
+        deterministic-mode policies.
     component_id : ComponentId, optional
         The component ID. If None then the identifier will be taken from the actor class name.
     log_events : bool, default True
@@ -354,6 +448,9 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     persistence_queue_size: PositiveInt = 10000
     persistence_flush_interval: PositiveFloat = 1.0
     persistence_batch_size: PositiveInt = 100
+    remediation_policy: ActorRemediationPolicyConfig = msgspec.field(
+        default_factory=ActorRemediationPolicyConfig,
+    )
 
     def __post_init__(self) -> None:
         """
@@ -395,6 +492,13 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
         ML_PERSISTENCE_FLUSH_INTERVAL_S, ML_PERSISTENCE_BATCH_SIZE,
         ML_ALLOW_SYNC_PERSISTENCE_FALLBACK
             Optional runtime tunables aligned with config fields.
+        ML_ENABLE_INFERENCE_DEADLINE_GUARD, ML_INFERENCE_TIMEOUT_ACTION,
+        ML_DRIFT_ACTION_POLICY, ML_CAUSALITY_MONOTONIC_ENFORCEMENT,
+        ML_FAILURE_ACTION, ML_DETERMINISTIC_MODE
+            Optional remediation policy scaffolding controls.
+        ML_ENV / NAUTILUS_ENV / ENVIRONMENT
+            Production-like values (``prod``, ``production``, ``live``) apply
+            strict remediation defaults unless explicitly overridden.
         ML_PREDICTION_NEUTRAL_BAND
             Neutral-band half width around 0.5 for downstream decision mapping.
         COMPONENT_ID / ML_COMPONENT_ID
@@ -470,6 +574,10 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
             "ML_PERSISTENCE_BATCH_SIZE",
             100,
         )
+        remediation_policy = _actor_remediation_policy_from_env_strict_defaults(
+            env=source,
+            use_dummy_stores=inference_cfg.use_dummy_stores,
+        )
 
         actor_model_id = inference_cfg.model_id
         if not actor_model_id:
@@ -507,6 +615,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
             persistence_queue_size=persistence_queue_size,
             persistence_flush_interval=persistence_flush_interval,
             persistence_batch_size=persistence_batch_size,
+            remediation_policy=remediation_policy,
         )
 
 

@@ -41,6 +41,8 @@ class OnnxRuntimeHarness:
         for module in self._availability_targets:
             if hasattr(module, "HAS_ONNX"):
                 setattr(module, "HAS_ONNX", available)
+            if hasattr(module, "HAS_ONNX_CORE"):
+                setattr(module, "HAS_ONNX_CORE", available)
 
 
 @dataclass(slots=True)
@@ -134,8 +136,12 @@ def patch_onnx_runtime(
             if hasattr(module, "HAS_ONNX"):
                 stack.enter_context(patch.object(module, "HAS_ONNX", True))
                 availability_modules.append(module)
+            if hasattr(module, "HAS_ONNX_CORE"):
+                stack.enter_context(patch.object(module, "HAS_ONNX_CORE", True))
             if hasattr(module, "ort"):
                 stack.enter_context(patch.object(module, "ort", ort_mock))
+            if hasattr(module, "onnx"):
+                stack.enter_context(patch.object(module, "onnx", onnx_mock))
             if hasattr(module, "check_ml_dependencies"):
                 stack.enter_context(patch.object(module, "check_ml_dependencies", check_mock))
 

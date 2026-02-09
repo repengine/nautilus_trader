@@ -152,6 +152,23 @@ class FeaturesProtocol(Protocol):
             persistence_worker: Optional async persistence worker to attach.
 
         """
+        ...
+
+    def reset_runtime_state(self, *, reason: str = "runtime_reset") -> None:
+        """
+        Reset buffered/warm-up runtime state.
+
+        Args:
+            reason: Low-cardinality reset reason for logs/telemetry context.
+
+        """
+        ...
+
+    def cleanup(self) -> None:
+        """
+        Release feature computation resources.
+        """
+        ...
 
 
 def build_feature_dict(
@@ -178,10 +195,27 @@ def build_feature_dict(
         return {feature_names[i]: float(features[i]) for i in range(len(feature_names))}
     return {f"feature_{i}": float(v) for i, v in enumerate(features)}
 
-    def cleanup(self) -> None:
-        """
-        Release feature computation resources.
-        """
+
+def is_monotonic_ingress_timestamp(
+    *,
+    ts_event: int,
+    previous_ts_event: int | None,
+) -> bool:
+    """
+    Return whether an ingress timestamp is monotonic relative to prior state.
+
+    Args:
+        ts_event: Incoming event timestamp in nanoseconds.
+        previous_ts_event: Previously accepted ingress timestamp, if any.
+
+    Returns:
+        ``True`` when ``ts_event`` is greater than or equal to ``previous_ts_event``,
+        or when no previous timestamp exists.
+    """
+    normalized_ts_event = int(ts_event)
+    if previous_ts_event is None:
+        return True
+    return normalized_ts_event >= int(previous_ts_event)
 
 
 class FeaturesComponent:
@@ -718,14 +752,24 @@ class FeaturesComponent:
             >>> assert not component.is_warmed_up()
 
         """
+        self.reset_runtime_state(reason="cleanup")
+
+    def reset_runtime_state(self, *, reason: str = "runtime_reset") -> None:
+        """
+        Reset runtime buffers, warm-up state, and local counters.
+
+        Args:
+            reason: Low-cardinality reason for the reset operation.
+        """
         self._bar_buffer.clear()
         self._feature_window.clear()
         self._is_warmed_up = False
         self._bars_processed = 0
         self._total_feature_time = 0.0
         self._feature_count = 0
+        self._sync_fallback_disabled_logged = False
 
-        self._logger.debug("FeaturesComponent resources released")
+        self._logger.debug(f"FeaturesComponent runtime state reset reason={reason}")
 
     def get_statistics(self) -> dict[str, Any]:
         """

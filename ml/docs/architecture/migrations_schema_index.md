@@ -14,7 +14,7 @@ This document inventories every SQL migration under `ml/stores/migrations/` (inc
 
 ## Summary
 
-- Current runtime migrations: `ml/tasks/db.py` and `MLIntegrationManager` only apply `ml/stores/migrations/001_bootstrap_schema.sql` plus the three registry migrations. All other SQL files are legacy artifacts.
+- Current runtime migrations: `ml/stores/migrations_runner.py` and `MLIntegrationManager` only apply `ml/stores/migrations/001_bootstrap_schema.sql` plus the three registry migrations. All other SQL files are legacy artifacts.
 - The bootstrap file contains objects for five domains: **Feature Store**, **Model Store**, **Strategy Store**, **Market Data**, **Data Registry**. Helper functions (partition creation, watermark emitters) are shared across domains.
 - Partition tables are pre-created for 60 months (2023–2027) for `ml_feature_values`, `ml_model_predictions`, `ml_strategy_signals`, and `market_data`, which directly impacts fixture cleanup times.
 
@@ -428,7 +428,7 @@ Agent outputs will be written to:
 ### Active Migrations (After Phase 1)
 
 ```python
-# ml/tasks/db.py
+# ml/stores/migrations_runner.py
 _BASE_MIGRATIONS: Final[tuple[str, ...]] = (
     "ml/registry/migrations/001_initial_schema.sql",
     "ml/registry/migrations/002_add_cold_path_fields.sql",

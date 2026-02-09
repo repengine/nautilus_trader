@@ -26,12 +26,15 @@ import os
 import tempfile
 import time
 from collections import deque
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+
+from ml.tests.utils.model_artifacts import write_stub_onnx_artifact
 
 
 # =============================================================================
@@ -58,13 +61,18 @@ def temp_onnx_model_path() -> str:
 
     """
     with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-        # Write some dummy bytes to make it look like a file
-        f.write(b"dummy_onnx_model_content")
         path = f.name
+    write_stub_onnx_artifact(
+        Path(path),
+        content=b"dummy_onnx_model_content",
+    )
     yield path
     # Cleanup
     if os.path.exists(path):
         os.unlink(path)
+    sidecar_path = Path(path).with_suffix(".meta.json")
+    if sidecar_path.exists():
+        sidecar_path.unlink()
 
 
 @pytest.fixture

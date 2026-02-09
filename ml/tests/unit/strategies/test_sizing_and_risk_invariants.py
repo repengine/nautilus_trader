@@ -11,7 +11,7 @@ from ml.strategies.common.correlation import CorrelationSnapshot
 from ml.strategies.common.positions import PositionsHealthStatus
 from ml.strategies.common.positions import PositionsSnapshot
 from ml.strategies.risk import RiskConfig, RiskManager
-from ml.strategies.sizing import CompositeSizer, SizingConfig, VolatilitySizer
+from ml.strategies.sizing import CompositeSizer, KellySizer, SizingConfig, VolatilitySizer
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from pytest import MonkeyPatch
@@ -80,10 +80,15 @@ class _DummyPositionView:
 
 
 class _DummyPositionsProvider:
-    def __init__(self, positions: list[_DummyPositionView]) -> None:
+    def __init__(
+        self,
+        positions: list[_DummyPositionView],
+        *,
+        source: PositionsSource = PositionsSource.CACHE_OPEN,
+    ) -> None:
         self._snapshot = PositionsSnapshot(
             positions=positions,
-            source=PositionsSource.CACHE_OPEN,
+            source=source,
         )
 
     def get_positions_snapshot(
@@ -283,3 +288,130 @@ def test_volatility_sizer_annualization_factor_scales_sizes() -> None:
     size_high = sizer_high.calculate_vol_adjusted_pct()
 
     assert size_high < size_low
+
+
+def test_kelly_sizer_handles_minimum_data_and_positive_edge() -> None:
+    cfg = SizingConfig(
+        kelly_fraction=0.5,
+        max_position_pct=0.2,
+        min_position_pct=0.02,
+        lookback_periods=20,
+    )
+    sizer = KellySizer(cfg)
+
+    assert sizer.calculate_kelly_pct() == cfg.min_position_pct
+
+    for pnl in (1.0, 1.0, 1.0, 1.0, 1.0, -2.0, -2.0, -2.0, -2.0, -2.0):
+        sizer.update_performance(pnl)
+    assert sizer.calculate_kelly_pct() == cfg.min_position_pct
+
+    for pnl in (3.0, 3.0, 3.0, 3.0, 3.0):
+        sizer.update_performance(pnl)
+
+    kelly_pct = sizer.calculate_kelly_pct()
+    assert cfg.min_position_pct <= kelly_pct <= cfg.max_position_pct
+
+
+def test_volatility_sizer_returns_max_size_when_volatility_is_near_zero() -> None:
+    cfg = SizingConfig(
+        target_volatility=0.2,
+        max_position_pct=0.25,
+        min_position_pct=0.01,
+        lookback_periods=4,
+        annualization_factor=10.0,
+    )
+    sizer = VolatilitySizer(cfg)
+    for _ in range(cfg.lookback_periods):
+        sizer.update_returns(0.0)
+
+    sizer.set_annualization_factor(0.0)
+    assert sizer.calculate_vol_adjusted_pct() == cfg.max_position_pct
+
+
+def test_composite_sizer_returns_none_for_non_positive_balance() -> None:
+    class _ZeroBalance:
+        def as_double(self) -> float:
+            return 0.0
+
+    class _ZeroAccount:
+        def balance_total(self) -> _ZeroBalance:
+            return _ZeroBalance()
+
+    sizer = CompositeSizer(
+        SizingConfig(
+            confidence_scaling=False,
+            performance_scaling=False,
+        ),
+    )
+    signal = MLSignal(
+        instrument_id=InstrumentId.from_str("TEST.SIM"),
+        model_id="m",
+        prediction=0.9,
+        confidence=0.8,
+        ts_event=1,
+        ts_init=1,
+    )
+
+    assert sizer.calculate(signal, _ZeroAccount(), current_positions=[]) is None
+
+
+def test_composite_sizer_performance_scalar_respects_drawdown_floor() -> None:
+    sizer = CompositeSizer()
+    sizer._recent_pnl = [-10.0, -5.0, -8.0]
+    sizer._max_equity = 1000.0
+    sizer._current_equity = 500.0
+
+    scalar = sizer._get_performance_scalar()
+
+    assert scalar == 0.5
+
+
+def test_risk_portfolio_exposure_short_circuits_for_net_position_snapshot() -> None:
+    provider = _DummyPositionsProvider([], source=PositionsSource.PORTFOLIO_NET)
+    rm = RiskManager(
+        RiskConfig(max_total_exposure=0.01),
+        positions_provider=provider,
+    )
+    portfolio = _DummyPortfolio(_account_balance=100.0)
+
+    assert rm._check_portfolio_exposure(10_000.0, 100.0, portfolio) is True
+
+
+def test_risk_iter_positions_falls_back_to_positions_open() -> None:
+    fallback_position = _DummyPosition(
+        instrument_id="AAA.SIM",
+        quantity=_DummyQuantity(1.0),
+        is_open=True,
+    )
+
+    class _FallbackPortfolio:
+        def positions(self) -> list[_DummyPosition]:
+            raise RuntimeError("positions unavailable")
+
+        def positions_open(self) -> list[_DummyPosition]:
+            return [fallback_position]
+
+    rm = RiskManager(RiskConfig())
+    snapshot = rm._iter_positions(
+        _FallbackPortfolio(),
+        instrument=None,
+        require_full_list=True,
+    )
+
+    assert snapshot.source is PositionsSource.PORTFOLIO_POSITIONS_OPEN
+    assert snapshot.positions == [fallback_position]
+
+
+def test_risk_check_daily_limits_halts_on_drawdown_threshold() -> None:
+    rm = RiskManager(
+        RiskConfig(
+            daily_loss_limit_pct=1.0,
+            max_drawdown_pct=0.10,
+        ),
+    )
+    rm._daily_pnl = 0.0
+    rm._peak_equity = 10_000.0
+    rm._current_equity = 8_000.0
+
+    assert rm.check_daily_limits() is False
+    assert rm.get_halt_reason() == "drawdown_limit"

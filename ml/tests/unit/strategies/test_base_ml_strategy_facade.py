@@ -17,11 +17,16 @@ Tests covered:
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import datetime
+from datetime import timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.objects import Quantity
 
 if TYPE_CHECKING:
     pass
@@ -1062,6 +1067,782 @@ class TestHelperFunctions:
         )
 
         assert result is False
+
+    def test_decision_from_prediction_uses_neutral_band(self) -> None:
+        """Verify facade decision helper returns HOLD inside neutral band."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(prediction_neutral_band=0.1)
+
+        assert strategy.decision_from_prediction(0.55) == "HOLD"
+
+    def test_should_reverse_invokes_facade_logic(self) -> None:
+        """Verify facade reverse helper handles opposing and aligned sides."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from nautilus_trader.model.enums import OrderSide
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        short_position = SimpleNamespace(side=SimpleNamespace(name="SHORT"))
+
+        assert strategy.should_reverse(short_position, OrderSide.BUY) is True
+        assert strategy.should_reverse(short_position, OrderSide.SELL) is False
+
+
+class TestIntentSerializationHelpers:
+    """Tests for intent serialization and helper branches."""
+
+    def test_should_block_entry_orders_uses_tracker_and_limits(self) -> None:
+        """Verify intent entry gating follows tracker and max_positions semantics."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(
+            serialize_order_intents=True,
+            max_positions=1,
+        )
+        strategy._active_positions = 0
+        strategy._intent_position_tracker = SimpleNamespace(active_positions=1)
+
+        assert strategy._should_block_entry_orders() is True
+
+        strategy._intent_position_tracker = None
+        strategy._active_positions = 1
+        assert strategy._should_block_entry_orders() is True
+
+        strategy._config.max_positions = 0
+        assert strategy._should_block_entry_orders() is True
+
+        strategy._config.max_positions = "not-an-int"
+        assert strategy._should_block_entry_orders() is False
+
+    def test_should_block_entry_orders_returns_false_when_serialization_disabled(self) -> None:
+        """Verify entry blocking is bypassed when intent serialization is disabled."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(serialize_order_intents=False, max_positions=1)
+        strategy._intent_position_tracker = SimpleNamespace(active_positions=99)
+        strategy._active_positions = 99
+
+        assert strategy._should_block_entry_orders() is False
+
+    def test_init_intent_position_tracker_respects_serialize_flag(self) -> None:
+        """Verify intent position tracker initializes only when serialization is enabled."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.strategies.common import OrderIntentPositionTracker
+
+        strategy = SimpleNamespace(
+            log=MagicMock(),
+            _intent_position_tracker=None,
+            _config=SimpleNamespace(serialize_order_intents=False),
+        )
+
+        BaseMLStrategyFacade._init_intent_position_tracker(cast(Any, strategy))
+        assert strategy._intent_position_tracker is None
+
+        strategy._config.serialize_order_intents = True
+        BaseMLStrategyFacade._init_intent_position_tracker(cast(Any, strategy))
+        assert isinstance(strategy._intent_position_tracker, OrderIntentPositionTracker)
+
+    def test_resolve_short_entry_policy_handles_enum_string_and_defaults(self) -> None:
+        """Verify short-entry policy resolution covers enum, string, and fallback paths."""
+        from ml.config.base import AccountMode
+        from ml.config.base import ShortEntryPolicy
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(
+            short_entry_policy=ShortEntryPolicy.DENY,
+            account_mode=AccountMode.CASH,
+        )
+        assert strategy._resolve_short_entry_policy() is ShortEntryPolicy.DENY
+
+        strategy._config = SimpleNamespace(
+            short_entry_policy="allow",
+            account_mode="cash",
+        )
+        assert strategy._resolve_short_entry_policy() is ShortEntryPolicy.ALLOW
+
+        strategy._config = SimpleNamespace(
+            short_entry_policy="invalid-policy",
+            account_mode="margin",
+        )
+        assert strategy._resolve_short_entry_policy() is ShortEntryPolicy.ALLOW
+
+        strategy._config = SimpleNamespace(
+            short_entry_policy=None,
+            account_mode="invalid-mode",
+        )
+        assert strategy._resolve_short_entry_policy() is ShortEntryPolicy.EXIT_ONLY
+
+    def test_resolve_submit_and_cancel_callbacks_respect_intent_mode(self) -> None:
+        """Verify submit/cancel callback selection in intent and live modes."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(serialize_order_intents=True)
+        strategy._order_intent_writer = None
+        strategy.submit_order = lambda order: order
+        strategy.cancel_order = lambda order: order
+
+        assert strategy._resolve_submit_order_callback() is None
+        assert strategy._resolve_cancel_order_callback() is None
+
+        strategy._order_intent_writer = object()
+        submit_callback = strategy._resolve_submit_order_callback()
+        assert submit_callback is not None
+        assert submit_callback.__name__ == "_record_order_intent"
+
+        strategy._config.serialize_order_intents = False
+        assert strategy._resolve_submit_order_callback() is strategy.submit_order
+        assert strategy._resolve_cancel_order_callback() is strategy.cancel_order
+
+    def test_resolve_submit_order_callback_returns_none_without_submit_attribute(self) -> None:
+        """Verify live-mode submit callback resolution returns None when unavailable."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        strategy = SimpleNamespace(_config=SimpleNamespace(serialize_order_intents=False))
+
+        callback = BaseMLStrategyFacade._resolve_submit_order_callback(cast(Any, strategy))
+
+        assert callback is None
+
+    def test_set_exit_intent_metadata_only_updates_when_serialization_enabled(self) -> None:
+        """Verify exit metadata is ignored unless intent serialization is enabled."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._config = SimpleNamespace(serialize_order_intents=False)
+        strategy._pending_exit_metadata = None
+
+        strategy._set_exit_intent_metadata({"reason": "liquidate"})
+        assert strategy._pending_exit_metadata is None
+
+        strategy._config.serialize_order_intents = True
+        payload = {"reason": "liquidate"}
+        strategy._set_exit_intent_metadata(payload)
+        assert strategy._pending_exit_metadata == payload
+        assert strategy._pending_exit_metadata is not payload
+
+    def test_update_intent_positions_tracks_active_positions_from_string_side(self) -> None:
+        """Verify intent position updates accept string sides and track active positions."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.strategies.common import OrderIntentPositionTracker
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.objects import Quantity
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        instrument_id = InstrumentId.from_str("EURUSD.SIM")
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._intent_position_tracker = OrderIntentPositionTracker(log=MagicMock())
+        strategy._active_positions = 0
+
+        order = SimpleNamespace(
+            side="buy",
+            instrument_id=instrument_id,
+            quantity=Quantity.from_str("1.0"),
+            reduce_only=False,
+            ts_init=1,
+            price=1.2345,
+        )
+        strategy._update_intent_positions(order)
+        assert strategy._active_positions == 1
+
+        bad_order = SimpleNamespace(
+            side="unsupported",
+            instrument_id=instrument_id,
+            quantity=Quantity.from_str("1.0"),
+            reduce_only=False,
+            ts_init=2,
+        )
+        strategy._update_intent_positions(bad_order)
+        assert strategy._active_positions == 1
+
+    def test_feature_store_accessor_handles_missing_and_present_store(self) -> None:
+        """Verify feature_store property returns None or injected store as expected."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._stores = None
+        assert strategy.feature_store is None
+
+        sentinel_store = object()
+        strategy._stores = SimpleNamespace(feature_store=sentinel_store)
+        assert strategy.feature_store is sentinel_store
+
+    def test_store_and_registry_accessors_cover_all_store_fields(self) -> None:
+        """Verify all store/registry accessors return injected values."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._stores = SimpleNamespace(
+            model_store="model",
+            data_store="data",
+            feature_registry="feature-registry",
+            model_registry="model-registry",
+            strategy_registry="strategy-registry",
+            data_registry="data-registry",
+        )
+
+        assert strategy.model_store == "model"
+        assert strategy.data_store == "data"
+        assert strategy.feature_registry == "feature-registry"
+        assert strategy.model_registry == "model-registry"
+        assert strategy.strategy_registry == "strategy-registry"
+        assert strategy.data_registry == "data-registry"
+
+    def test_sync_component_strategy_ids_logs_debug_on_setattr_failure(self) -> None:
+        """Verify strategy-id sync logs debug when a component rejects setattr."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from ml.tests.utils.stubs import LoggerStub
+
+        class _ReadOnlyComponent:
+            def __init__(self) -> None:
+                object.__setattr__(self, "_strategy_id", "initial")
+
+            def __setattr__(self, name: str, value: object) -> None:
+                if name == "_strategy_id":
+                    raise RuntimeError("read-only")
+                super().__setattr__(name, value)
+
+        strategy = SimpleNamespace(
+            id="STRAT-XYZ",
+            log=LoggerStub(),
+            _decision_persister=_ReadOnlyComponent(),
+            _position_manager=None,
+            _order_submitter=None,
+            _positions_provider=None,
+            performance=None,
+            _lifecycle=None,
+            _returns_updater=None,
+        )
+
+        BaseMLStrategyFacade._sync_component_strategy_ids(cast(Any, strategy))
+
+        assert any(
+            level == "debug" and args and args[0] == "ml_strategy.strategy_id_sync_failed"
+            for level, args, _kwargs in strategy.log.records
+        )
+
+
+class TestFacadeHelperDelegation:
+    """Tests for helper methods that delegate to component state."""
+
+    def test_resolve_market_price_falls_back_to_trade_then_quote(self) -> None:
+        """Verify direct cache fallback path resolves trade, quote, then None."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            _cache_stub: Any = None
+
+            @property
+            def cache(self) -> Any:
+                return self._cache_stub
+
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        instrument_id = InstrumentId.from_str("EURUSD.SIM")
+        trade_tick = SimpleNamespace(price=SimpleNamespace(as_double=lambda: 101.5))
+        quote_tick = SimpleNamespace(
+            bid_price=SimpleNamespace(as_double=lambda: 101.0),
+            ask_price=SimpleNamespace(as_double=lambda: 102.0),
+        )
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._position_manager = None
+        strategy._cache_stub = SimpleNamespace(
+            trade_tick=lambda _instrument: trade_tick,
+            quote_tick=lambda _instrument: quote_tick,
+        )
+        assert strategy._resolve_market_price(instrument_id) == pytest.approx(101.5)
+
+        strategy._cache_stub = SimpleNamespace(
+            trade_tick=lambda _instrument: None,
+            quote_tick=lambda _instrument: quote_tick,
+        )
+        assert strategy._resolve_market_price(instrument_id) == pytest.approx(101.5)
+
+        strategy._cache_stub = SimpleNamespace(
+            trade_tick=lambda _instrument: None,
+            quote_tick=lambda _instrument: None,
+        )
+        assert strategy._resolve_market_price(instrument_id) is None
+
+    def test_sizing_reject_reason_requires_string_return(self) -> None:
+        """Verify non-string reject reasons are ignored."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._position_manager = SimpleNamespace(
+            get_last_rejection_reason=lambda: "risk_rejected",
+        )
+        assert strategy._get_sizing_reject_reason() == "risk_rejected"
+
+        strategy._position_manager = SimpleNamespace(
+            get_last_rejection_reason=lambda: 123,
+        )
+        assert strategy._get_sizing_reject_reason() is None
+
+    def test_liquidation_side_and_quantity_helpers_cover_signs(self) -> None:
+        """Verify liquidation helper behavior for long, short, and flat positions."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+        from nautilus_trader.model.enums import OrderSide
+        from nautilus_trader.model.objects import Quantity
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+
+        long_position = SimpleNamespace(
+            signed_decimal_qty=lambda: 2,
+            quantity=Quantity.from_str("2.0"),
+        )
+        short_position = SimpleNamespace(
+            signed_decimal_qty=lambda: -3,
+            quantity=None,
+        )
+        flat_position = SimpleNamespace(
+            signed_decimal_qty=lambda: 0,
+            quantity=None,
+        )
+
+        assert strategy._resolve_liquidation_side(long_position) is OrderSide.SELL
+        assert strategy._resolve_liquidation_side(short_position) is OrderSide.BUY
+        assert strategy._resolve_liquidation_side(flat_position) is None
+
+        assert strategy._resolve_liquidation_quantity(long_position) is not None
+        short_qty = strategy._resolve_liquidation_quantity(short_position)
+        assert short_qty is not None
+        assert float(short_qty.as_double()) == pytest.approx(3.0)
+        assert strategy._resolve_liquidation_quantity(flat_position) is None
+
+    def test_aggregate_signal_updates_model_cache_and_router_buffer(self) -> None:
+        """Verify aggregate helper stores model signal and updates router buffer."""
+        from ml.strategies.base_facade import BaseMLStrategyFacade
+
+        class DummyStrategy(BaseMLStrategyFacade):
+            def _process_ml_signal(self, signal: object) -> None:
+                del signal
+
+        strategy = DummyStrategy.__new__(DummyStrategy)
+        strategy._signal_router = MagicMock()
+        strategy._model_signals = {}
+
+        signal = MockMLSignal(model_id="model-x")
+        strategy._aggregate_signal(signal)
+
+        assert strategy._model_signals["model-x"] is signal
+        strategy._signal_router.add_to_buffer.assert_called_once_with(signal)
+
+
+class TestSimpleFacadeSignalProcessing:
+    """Coverage tests for ``SimpleMLStrategyFacade._process_ml_signal`` branches."""
+
+    def test_simple_facade_process_signal_returns_on_hold(self) -> None:
+        """Verify HOLD decisions do not submit orders."""
+        from ml.strategies.base_facade import SimpleMLStrategyFacade
+
+        strategy = SimpleNamespace(
+            log=MagicMock(),
+            _config=SimpleNamespace(instrument_id=InstrumentId.from_str("EURUSD.SIM")),
+            _active_positions=0,
+            position_count_metric=None,
+            _get_current_position=lambda: None,
+            decision_from_prediction=lambda _prediction: "HOLD",
+            _should_block_entry_orders=lambda: False,
+            _calculate_position_size=lambda: Quantity.from_str("1.0"),
+        )
+        submitted: list[tuple[object, object, bool]] = []
+        strategy._place_market_order = lambda side, quantity, reduce_only=False: submitted.append(
+            (side, quantity, reduce_only),
+        )
+
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), MockMLSignal(prediction=0.5))
+
+        assert submitted == []
+        assert strategy._active_positions == 0
+
+    def test_simple_facade_process_signal_entry_paths_and_metrics(self) -> None:
+        """Verify entry block, sizing-failure warning, and successful metric update paths."""
+        from ml.strategies.base_facade import SimpleMLStrategyFacade
+        from ml.tests.utils.stubs import LoggerStub
+        from nautilus_trader.model.enums import OrderSide
+
+        class _MetricStub:
+            def __init__(self) -> None:
+                self.values: list[int] = []
+                self.labels_calls: list[tuple[str, str]] = []
+
+            def labels(self, *, strategy_id: str, instrument: str) -> _MetricStub:
+                self.labels_calls.append((strategy_id, instrument))
+                return self
+
+            def set(self, value: int) -> None:
+                self.values.append(value)
+
+        strategy = SimpleNamespace(
+            log=LoggerStub(),
+            id="STRAT-1",
+            _config=SimpleNamespace(instrument_id=InstrumentId.from_str("EURUSD.SIM")),
+            _active_positions=0,
+            _get_current_position=lambda: None,
+            decision_from_prediction=lambda _prediction: "BUY",
+            _should_block_entry_orders=lambda: True,
+            _calculate_position_size=lambda: Quantity.from_str("1.0"),
+            position_count_metric=_MetricStub(),
+        )
+        submitted: list[tuple[OrderSide, Quantity, bool]] = []
+        strategy._place_market_order = lambda side, quantity, reduce_only=False: submitted.append(
+            (side, quantity, reduce_only),
+        )
+
+        signal = MockMLSignal(
+            instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            prediction=0.9,
+        )
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert submitted == []
+        assert strategy._active_positions == 0
+
+        strategy._should_block_entry_orders = lambda: False
+        strategy._calculate_position_size = lambda: None
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert any(
+            level == "warning" and args and "position sizing failure" in str(args[0])
+            for level, args, _kwargs in strategy.log.records
+        )
+        assert submitted == []
+
+        strategy._calculate_position_size = lambda: Quantity.from_str("2.0")
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert submitted[-1][0] is OrderSide.BUY
+        assert strategy._active_positions == 1
+        assert strategy.position_count_metric.values == [1]
+
+    def test_simple_facade_process_signal_reverse_and_aligned_paths(self) -> None:
+        """Verify reverse branch close/open behavior plus aligned-position no-op branch."""
+        from ml.strategies.base_facade import SimpleMLStrategyFacade
+        from ml.tests.utils.stubs import LoggerStub
+        from nautilus_trader.model.enums import OrderSide
+
+        current_position = SimpleNamespace(
+            side=SimpleNamespace(name="LONG"),
+            quantity=Quantity.from_str("1.0"),
+        )
+        strategy = SimpleNamespace(
+            log=LoggerStub(),
+            _config=SimpleNamespace(instrument_id=InstrumentId.from_str("EURUSD.SIM")),
+            _active_positions=1,
+            position_count_metric=None,
+            _get_current_position=lambda: current_position,
+            decision_from_prediction=lambda _prediction: "SELL",
+            should_reverse=lambda _current, _target: True,
+            _should_block_entry_orders=lambda: True,
+            _calculate_position_size=lambda: Quantity.from_str("2.0"),
+        )
+        submitted: list[tuple[OrderSide, Quantity, bool]] = []
+        strategy._place_market_order = lambda side, quantity, reduce_only=False: submitted.append(
+            (side, quantity, reduce_only),
+        )
+
+        signal = MockMLSignal(
+            instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            prediction=0.1,
+        )
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert len(submitted) == 1
+        assert submitted[0][0] is OrderSide.SELL
+        assert submitted[0][1].as_decimal() == Decimal("1.0")
+        assert submitted[0][2] is True
+
+        strategy._should_block_entry_orders = lambda: False
+        strategy._calculate_position_size = lambda: None
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert any(
+            level == "warning" and args and "Closed position but cannot open new one" in str(args[0])
+            for level, args, _kwargs in strategy.log.records
+        )
+
+        strategy._calculate_position_size = lambda: Quantity.from_str("3.0")
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert len(submitted) >= 3
+        assert submitted[-2][0] is OrderSide.SELL
+        assert submitted[-2][1].as_decimal() == Decimal("1.0")
+        assert submitted[-2][2] is True
+        assert submitted[-1][0] is OrderSide.SELL
+        assert submitted[-1][1].as_decimal() == Decimal("3.0")
+        assert submitted[-1][2] is False
+
+        strategy.should_reverse = lambda _current, _target: False
+        SimpleMLStrategyFacade._process_ml_signal(cast(Any, strategy), signal)
+        assert any(
+            level == "debug" and args and "Position aligns with signal" in str(args[0])
+            for level, args, _kwargs in strategy.log.records
+        )
+
+
+@pytest.mark.usefixtures("isolated_prometheus_registry")
+class TestAnalyticsCoverage:
+    """Targeted unit tests for strategy analytics helpers."""
+
+    @staticmethod
+    def _signal(
+        *,
+        instrument: str,
+        model_id: str,
+        prediction: float,
+        confidence: float,
+        ts_event: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        from ml.actors.base import MLSignal
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        instrument_id = InstrumentId.from_str(instrument)
+        return MLSignal(
+            instrument_id=instrument_id,
+            model_id=model_id,
+            prediction=prediction,
+            confidence=confidence,
+            ts_event=ts_event,
+            ts_init=ts_event,
+            metadata=metadata,
+        )
+
+    def test_tracker_records_signal_order_and_position_metrics(self) -> None:
+        """Verify signal lifecycle updates quality, execution, and summary metrics."""
+        from ml.strategies.analytics import AnalyticsConfig
+        from ml.strategies.analytics import PerformanceTracker
+
+        tracker = PerformanceTracker(
+            AnalyticsConfig(
+                min_signals_for_stats=1,
+                report_frequency_minutes=10_000,
+            ),
+        )
+        signal_one = self._signal(
+            instrument="AAA.SIM",
+            model_id="model-a",
+            prediction=0.9,
+            confidence=0.8,
+            ts_event=1,
+            metadata={"neutral_band": 0.1},
+        )
+        signal_two = self._signal(
+            instrument="AAA.SIM",
+            model_id="model-b",
+            prediction=0.2,
+            confidence=0.7,
+            ts_event=2,
+        )
+
+        tracker.record_signal(signal_one)
+        tracker.record_order(order=object(), signal=signal_one)
+        tracker.record_position_closed(
+            position=object(),
+            signal=signal_one,
+            pnl=10.0,
+            fees=1.0,
+            slippage=0.5,
+        )
+
+        tracker.record_signal(signal_two)
+        tracker.record_order(order=object(), signal=signal_two)
+        tracker.record_position_closed(
+            position=object(),
+            signal=signal_two,
+            pnl=-5.0,
+            fees=0.5,
+            slippage=0.2,
+        )
+
+        quality = tracker.get_signal_quality_metrics(signal_one.instrument_id)
+        execution = tracker.get_execution_quality_metrics()
+        summary = tracker.get_performance_summary()
+
+        assert quality["total_signals"] == pytest.approx(2.0)
+        assert quality["execution_rate"] == pytest.approx(1.0)
+        assert quality["win_rate"] == pytest.approx(0.5)
+        assert execution["total_fees"] == pytest.approx(1.5)
+        assert execution["total_slippage"] == pytest.approx(0.7)
+        assert summary["cumulative_pnl"] == pytest.approx(5.0)
+        assert summary["total_signals"] == pytest.approx(2.0)
+
+    def test_tracker_sharpe_outliers_and_feature_importance(self) -> None:
+        """Verify statistical helper paths for sharpe, outliers, and feature importance."""
+        from ml.strategies.analytics import AnalyticsConfig
+        from ml.strategies.analytics import PerformanceTracker
+
+        tracker = PerformanceTracker(AnalyticsConfig(outlier_z_score=1.0))
+        tracker._daily_returns = [2.0, 1.0, -1.0]
+        assert tracker.get_sharpe_ratio(lookback_days=4) != 0.0
+
+        tracker._daily_returns = [1.0]
+        assert tracker.get_sharpe_ratio(lookback_days=30) == 0.0
+
+        assert not tracker.detect_outliers(np.array([1.0, 1.0], dtype=np.float64)).any()
+        assert not tracker.detect_outliers(np.array([1.0, 1.0, 1.0], dtype=np.float64)).any()
+        mask = tracker.detect_outliers(np.array([0.0, 0.0, 2.0], dtype=np.float64))
+        assert bool(mask[-1]) is True
+
+        assert tracker.get_feature_importance([]) == {}
+        importance = tracker.get_feature_importance(["f1", "f2", "f3"])
+        assert set(importance) == {"f1", "f2", "f3"}
+        assert sum(importance.values()) == pytest.approx(1.0)
+
+    def test_tracker_report_schedule_and_decay_warning_paths(self) -> None:
+        """Verify periodic report scheduling and decay warning logging paths."""
+        from ml.strategies import analytics as analytics_module
+        from ml.strategies.analytics import AnalyticsConfig
+        from ml.strategies.analytics import PerformanceTracker
+
+        tracker = PerformanceTracker(
+            AnalyticsConfig(
+                min_signals_for_stats=1,
+                report_frequency_minutes=1,
+            ),
+        )
+        tracker._last_report_time = datetime.now() - timedelta(minutes=5)
+        tracker._generate_report = MagicMock()  # type: ignore[method-assign]
+        tracker._check_report_schedule()
+        tracker._generate_report.assert_called_once()
+
+        class RecordingLogger:
+            def __init__(self) -> None:
+                self.info_calls: list[str] = []
+                self.warning_calls: list[str] = []
+
+            def info(self, message: str) -> None:
+                self.info_calls.append(message)
+
+            def warning(self, message: str) -> None:
+                self.warning_calls.append(message)
+
+        recording_logger = RecordingLogger()
+        original_logger = analytics_module.logger
+        analytics_module.logger = recording_logger
+        try:
+            tracker_for_report = PerformanceTracker(
+                AnalyticsConfig(
+                    min_signals_for_stats=1,
+                    report_frequency_minutes=1,
+                ),
+            )
+            tracker_for_report.get_performance_summary = MagicMock(  # type: ignore[method-assign]
+                return_value={
+                    "cumulative_pnl": 100.0,
+                    "sharpe_30d": 1.1,
+                    "win_rate": 0.6,
+                    "total_signals": 20.0,
+                    "signal_decay": 1.0,
+                    "recent_win_rate": 0.2,
+                },
+            )
+            tracker_for_report._generate_report()
+        finally:
+            analytics_module.logger = original_logger
+
+        assert recording_logger.info_calls
+        assert recording_logger.warning_calls
+
+
+class TestStrategyProtocols:
+    """Tests for protocol runtime behavior and stub callability."""
+
+    def test_protocol_stub_methods_are_callable(self) -> None:
+        """Execute protocol stubs to cover protocol declaration paths."""
+        from ml.strategies import protocols as strategy_protocols
+
+        sentinel = object()
+        assert strategy_protocols._HasAsDouble.as_double(sentinel) is None
+        assert strategy_protocols.AccountLike.balance_total(sentinel) is None
+        assert strategy_protocols.PositionSizerProtocol.calculate(
+            sentinel,
+            sentinel,
+            sentinel,
+            [],
+        ) is None
+        assert strategy_protocols.RiskManagerProtocol.check_position(
+            sentinel,
+            sentinel,
+            sentinel,
+            sentinel,
+        ) is None
+        assert strategy_protocols.RiskManagerProtocol.check_daily_limits(sentinel, None) is None
+        assert strategy_protocols.RiskManagerProtocol.update_daily_pnl(sentinel, 1.0, None) is None
+        assert strategy_protocols.OrderExecutorProtocol.create_order(
+            sentinel,
+            sentinel,
+            sentinel,
+            sentinel,
+            {},
+            sentinel,
+        ) is None
+        assert strategy_protocols.PortfolioManagerProtocol.allocate_signals(
+            sentinel,
+            [],
+            1.0,
+        ) is None
+        assert strategy_protocols.PortfolioManagerProtocol.get_correlation_matrix(
+            sentinel,
+            [],
+        ) is None
+        assert strategy_protocols.PerformanceTrackerProtocol.record_signal(sentinel, sentinel) is None
+        assert strategy_protocols.PerformanceTrackerProtocol.record_order(
+            sentinel,
+            sentinel,
+            sentinel,
+        ) is None
+        assert strategy_protocols.PerformanceTrackerProtocol.get_win_rate_by_confidence(sentinel) is None
+        assert strategy_protocols.PerformanceTrackerProtocol.get_sharpe_ratio(sentinel, 30) is None
 
 
 __all__ = [

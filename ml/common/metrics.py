@@ -10,6 +10,12 @@ here rather than instantiating their own collectors.
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.names import METRIC_CAUSALITY_MONOTONIC_VIOLATIONS_TOTAL
+from ml.config.names import METRIC_DRIFT_POLICY_ACTIONS_TOTAL
+from ml.config.names import METRIC_INFERENCE_DEADLINE_TIMEOUTS_TOTAL
+from ml.config.names import METRIC_ML_FAILURE_ACTIONS_TOTAL
+from ml.config.names import METRIC_REGISTRY_COMPATIBILITY_MIGRATION_BYPASS_TOTAL
+from ml.config.names import METRIC_REGISTRY_UNSIGNED_ARTIFACT_OVERRIDE_TOTAL
 
 
 # ============================================================================
@@ -270,6 +276,46 @@ aggregator_watermark_lag_seconds = get_gauge(
 )
 
 # ============================================================================
+# STATIC-AUDIT REMEDIATION METRICS (SCAFFOLDING)
+# ============================================================================
+
+causality_monotonic_violations_total = get_counter(
+    METRIC_CAUSALITY_MONOTONIC_VIOLATIONS_TOTAL,
+    "Total causality monotonic timestamp violations",
+    ["actor_id", "mode"],
+)
+
+inference_deadline_timeouts_total = get_counter(
+    METRIC_INFERENCE_DEADLINE_TIMEOUTS_TOTAL,
+    "Total inference deadline timeout events",
+    ["actor_id", "action"],
+)
+
+drift_policy_actions_total = get_counter(
+    METRIC_DRIFT_POLICY_ACTIONS_TOTAL,
+    "Total runtime drift policy actions",
+    ["actor_id", "action", "reason"],
+)
+
+ml_failure_actions_total = get_counter(
+    METRIC_ML_FAILURE_ACTIONS_TOTAL,
+    "Total ML failure policy actions",
+    ["actor_id", "action", "reason"],
+)
+
+registry_compatibility_migration_bypass_total = get_counter(
+    METRIC_REGISTRY_COMPATIBILITY_MIGRATION_BYPASS_TOTAL,
+    "Total compatibility migration bypass activations",
+    ["model_id", "reason"],
+)
+
+registry_unsigned_artifact_override_total = get_counter(
+    METRIC_REGISTRY_UNSIGNED_ARTIFACT_OVERRIDE_TOTAL,
+    "Total unsigned artifact override activations",
+    ["model_id", "reason"],
+)
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -334,13 +380,17 @@ __all__ = [
     "aggregator_flushed_total",
     "aggregator_watermark_lag_seconds",
     "catalog_write_operations_total",
+    "causality_monotonic_violations_total",
     "contract_violations_total",
     "data_collection_duration",
     "data_collection_errors_total",
     "data_events_total",
+    "drift_policy_actions_total",
     "feature_computation_duration",
     "feature_drift_score",
     "feature_store_operations_total",
+    "inference_deadline_timeouts_total",
+    "ml_failure_actions_total",
     "model_accuracy",
     "model_confidence",
     "model_inference_duration",
@@ -348,6 +398,8 @@ __all__ = [
     "pipeline_health",
     "quality_score_histogram",
     "record_pipeline_event",
+    "registry_compatibility_migration_bypass_total",
+    "registry_unsigned_artifact_override_total",
     "schema_mismatch_counter",
     "stage_coverage_pct",
     "strategy_pnl",

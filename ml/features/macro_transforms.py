@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Iterable
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
@@ -124,6 +126,7 @@ class MacroFeatureTransform:
         )
         self._last_coverage: dict[str, float] | None = None
         self._last_realtime_coverage: dict[str, bool] | None = None
+        self._realtime_timestamp_watermark_ns: int | None = None
 
     def _get_cache(self) -> MacroDataCache:
         """Get or create real-time cache."""
@@ -229,15 +232,16 @@ class MacroFeatureTransform:
         """
         Compute macro features for real-time inference.
 
-        Uses cached latest values - no point-in-time filtering needed since we're
-        always at "now".
+        Uses cached values bounded by ``ts_event`` when available. This prevents
+        selecting macro releases newer than the event timestamp.
 
         Parameters
         ----------
         bar : Bar | None
-            Current bar (unused, kept for signature compatibility).
+            Current bar. When ``ts_event`` is not provided, ``bar.ts_event`` is
+            used if available.
         ts_event : int | None
-            Event timestamp (unused in real-time - always uses latest).
+            Event timestamp in nanoseconds.
 
         Returns
         -------
@@ -251,6 +255,20 @@ class MacroFeatureTransform:
             logger.warning("Macro cache not loaded, returning empty features")
             return {}
 
+        event_ts_ns = self._resolve_event_timestamp_ns(bar=bar, ts_event=ts_event)
+        if event_ts_ns is not None:
+            watermark = self._realtime_timestamp_watermark_ns
+            if watermark is not None and event_ts_ns < watermark:
+                logger.warning(
+                    "Macro realtime timestamp backstep detected; preserving watermark and returning empty features",
+                    extra={
+                        "event_ts_ns": event_ts_ns,
+                        "watermark_ts_ns": watermark,
+                    },
+                )
+                return {}
+            self._realtime_timestamp_watermark_ns = event_ts_ns
+
         if self._coverage_validator is not None:
             coverage_flags = cache.get_coverage()
             self._last_realtime_coverage = coverage_flags
@@ -261,18 +279,73 @@ class MacroFeatureTransform:
                     sorted(missing_series),
                 )
 
-        # Get all features from cache (uses latest released values)
-        features = cache.get_all_features(mode=self.revision_mode)
+        features: dict[str, float] = {}
+        has_eligible_series = False
+        for series_id in self.macro_series_ids:
+            snapshot = cache.get_snapshot(series_id)
+            if snapshot is None:
+                continue
+            if not self._is_snapshot_eligible(snapshot.release_ts, event_ts_ns):
+                continue
+            has_eligible_series = True
+            features.update(cache.get_features(series_id, mode=self.revision_mode))
+
+        if event_ts_ns is not None and not has_eligible_series:
+            logger.debug(
+                "No eligible macro release found for event timestamp",
+                extra={"event_ts_ns": event_ts_ns},
+            )
+            return {}
 
         if not self.include_composites:
             return features
 
-        composites, issues = _compute_realtime_composites(cache)
+        composites, issues = _compute_realtime_composites(cache, event_ts_ns=event_ts_ns)
 
         self._record_composite_issues(issues)
 
         features.update(composites)
         return features
+
+    @staticmethod
+    def _datetime_to_ns(value: datetime) -> int:
+        """Convert datetime values to nanoseconds since epoch in UTC."""
+        normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return int(normalized.timestamp() * 1_000_000_000)
+
+    def _resolve_event_timestamp_ns(
+        self,
+        *,
+        bar: Bar | None,
+        ts_event: int | None,
+    ) -> int | None:
+        """Resolve event timestamp from explicit input or bar payload."""
+        if ts_event is not None:
+            return int(ts_event)
+        if bar is None:
+            return None
+        raw_ts_event = getattr(bar, "ts_event", None)
+        if raw_ts_event is None:
+            return None
+        try:
+            return int(raw_ts_event)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid bar ts_event for macro realtime transform",
+                extra={"raw_ts_event": raw_ts_event},
+                exc_info=True,
+            )
+            return None
+
+    def _is_snapshot_eligible(
+        self,
+        release_ts: datetime,
+        event_ts_ns: int | None,
+    ) -> bool:
+        """Return True when a snapshot release timestamp is usable for an event timestamp."""
+        if event_ts_ns is None:
+            return True
+        return self._datetime_to_ns(release_ts) <= event_ts_ns
 
     def get_feature_names(self) -> list[str]:
         """
@@ -470,6 +543,8 @@ def create_macro_transform_from_config(
 
 def _compute_realtime_composites(
     cache: MacroDataCache,
+    *,
+    event_ts_ns: int | None = None,
 ) -> tuple[dict[str, float], set[tuple[str, str]]]:
     """Compute macro composite features using cached snapshots."""
     feature_names = get_composite_feature_names()
@@ -481,6 +556,13 @@ def _compute_realtime_composites(
         if series_id in snapshots:
             return snapshots[series_id]
         snapshot = cache.get_snapshot(series_id)
+        if (
+            snapshot is not None
+            and event_ts_ns is not None
+            and MacroFeatureTransform._datetime_to_ns(snapshot.release_ts) > event_ts_ns
+        ):
+            issues.add((series_id, "future_release"))
+            snapshot = None
         snapshots[series_id] = snapshot
         if snapshot is None:
             issues.add((series_id, "missing_series"))

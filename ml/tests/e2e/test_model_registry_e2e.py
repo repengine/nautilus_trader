@@ -135,7 +135,7 @@ def create_test_manifest(
     role: ModelRole = ModelRole.INFERENCE,
     data_requirements: DataRequirements = DataRequirements.L1_ONLY,
     feature_schema_hash: str = "test_hash_123",
-    serveable: bool = True,
+    serveable: bool = False,
 ) -> ModelManifest:
     """
     Create test model manifest.
@@ -347,7 +347,8 @@ class TestE2EModelRegistrationAndLoading:
         registry = ModelRegistry(registry_path=temp_registry_path)
 
         # Register model with .onnx extension (should calculate SHA-256)
-        manifest = create_test_manifest(model_id="integrity_test", serveable=True)
+        # Use non-serveable mode to isolate artifact integrity from feature parity policy gates.
+        manifest = create_test_manifest(model_id="integrity_test", serveable=False)
         model_id = registry.register_model(
             model_path=sample_onnx_model_path,
             manifest=manifest,

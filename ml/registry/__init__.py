@@ -64,6 +64,10 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationResult
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.feature_operations import FeaturePromotionGate
+from ml.registry.feature_operations import deprecate_feature_set
+from ml.registry.feature_operations import promote_feature_set
+from ml.registry.feature_operations import register_default_feature_set
 
 # Feature Registry Types
 from ml.registry.feature_registry import FeatureInfo
@@ -130,6 +134,7 @@ __all__ = [
     "DummyRegistry",
     "FeatureInfo",
     "FeatureManifest",
+    "FeaturePromotionGate",
     "FeatureRegistry",
     "FeatureRole",
     "FeatureStage",
@@ -163,5 +168,8 @@ __all__ = [
     "calculate_sample_size",
     "compute_schema_hash",
     "create_data_registry",
+    "deprecate_feature_set",
+    "promote_feature_set",
+    "register_default_feature_set",
     "welch_t_test",
 ]

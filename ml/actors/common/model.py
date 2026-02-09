@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ml.common.metrics_bootstrap import get_counter
+from ml.common.model_load_policy import apply_direct_model_load_policy
 from ml.config.base import MLActorConfig
 
 
@@ -367,6 +368,7 @@ class ModelComponent:
             from ml._imports import check_ml_dependencies
             from ml._imports import onnx
             from ml._imports import ort
+            from ml.common.security import secure_onnx_load
 
             if not HAS_ONNX:
                 check_ml_dependencies(["onnx"])
@@ -384,15 +386,25 @@ class ModelComponent:
             except Exception as exc:
                 raise ValueError(f"Invalid ONNX model: {exc}") from exc
 
-            # Load with ONNXRuntime
+            policy_result = apply_direct_model_load_policy(
+                model_path=model_path,
+                model_metadata=self._model_metadata,
+                model_id=getattr(self._config, "model_id", None),
+                context="model_component_direct_onnx_load",
+            )
+            self._model_metadata = dict(policy_result.metadata)
+
+            # Load with ONNXRuntime + policy-driven integrity checks
             sess_options = ort.SessionOptions()
             sess_options.graph_optimization_level = (
                 ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             )
 
-            self._model = ort.InferenceSession(
-                str(model_path),
-                sess_options=sess_options,
+            self._model = secure_onnx_load(
+                file_path=model_path,
+                expected_digest=policy_result.expected_digest,
+                session_options=sess_options,
+                strict_integrity=policy_result.strict_integrity,
             )
 
             # Extract metadata from ONNX model

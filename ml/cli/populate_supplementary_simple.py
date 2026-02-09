@@ -12,9 +12,9 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.data.ingest import PopulateSupplementaryTaskConfig
+from ml.data.ingest import populate_supplementary_data
 from ml.data.loaders.supplementary import SupplementaryOutputs
-from ml.tasks.ingest import PopulateSupplementaryTaskConfig
-from ml.tasks.ingest import populate_supplementary_data
 
 
 __all__ = ["main"]

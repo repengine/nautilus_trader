@@ -49,6 +49,32 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
+def _resolve_covariate_column(
+    covariate: str,
+    columns: set[str],
+) -> str | None:
+    """
+    Resolve a configured covariate to an available dataframe column.
+
+    Supports legacy cyclical names (``*_sin``/``*_cos``) by falling back to the
+    base column when the transformed column is absent.
+
+    Args:
+        covariate: Configured covariate name.
+        columns: Available dataframe columns.
+
+    Returns:
+        The resolved column name if available; otherwise ``None``.
+    """
+    if covariate in columns:
+        return covariate
+    if covariate.endswith(("_sin", "_cos")):
+        base_column = covariate.rsplit("_", maxsplit=1)[0]
+        if base_column in columns:
+            return base_column
+    return None
+
+
 @overload
 def canonicalize_timestamp_column(
     df: PandasDataFrame,
@@ -139,8 +165,9 @@ def validate_nautilus_dataset(
     if config.target_column:
         required.append(config.target_column)
 
+    columns = set(df.columns)
     for col in required:
-        if col not in df.columns:
+        if col not in columns:
             errors.append(f"Missing required column: {col}")
 
     # Validate timestamp column is numeric (nanoseconds) or datetime - only for Polars DataFrames
@@ -163,15 +190,15 @@ def validate_nautilus_dataset(
 
     # Check covariates exist
     for cov in config.known_covariates:
-        if cov not in df.columns:
+        if _resolve_covariate_column(cov, columns) is None:
             errors.append(f"Missing known covariate column: {cov}")
 
     for cov in config.past_covariates:
-        if cov not in df.columns:
+        if cov not in columns:
             errors.append(f"Missing past covariate column: {cov}")
 
     for feat in config.static_features:
-        if feat not in df.columns:
+        if feat not in columns:
             errors.append(f"Missing static feature column: {feat}")
 
     return errors
@@ -269,8 +296,9 @@ def extract_covariates(
     columns = set(df.columns)
 
     for cov in config.known_covariates:
-        if cov in columns:
-            result["known"].append(cov)
+        resolved_covariate = _resolve_covariate_column(cov, columns)
+        if resolved_covariate is not None and resolved_covariate not in result["known"]:
+            result["known"].append(resolved_covariate)
 
     for cov in config.past_covariates:
         if cov in columns:

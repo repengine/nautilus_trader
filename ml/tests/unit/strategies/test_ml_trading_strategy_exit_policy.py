@@ -375,3 +375,16 @@ def test_model_exit_derives_min_hold_from_horizon_when_enabled() -> None:
 
     assert resolved is not None
     assert resolved.min_hold_ms == 15_000
+
+
+def test_exit_policy_falls_back_to_legacy_threshold_fields() -> None:
+    strat = build_ml_trading_strategy_stub(execute_trades=False, decision_recorder=None)
+    strat._config.exit_policy_config = None
+    strat._config.stop_loss_pct = 0.03
+    strat._config.take_profit_pct = 0.07
+
+    stop_loss, take_profit, max_holding = strat._resolve_exit_policy_config(horizon_ms=None)
+
+    assert stop_loss == 0.03
+    assert take_profit == 0.07
+    assert max_holding is None

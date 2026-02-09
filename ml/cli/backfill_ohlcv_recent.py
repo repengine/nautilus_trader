@@ -13,10 +13,10 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
-from ml.tasks.ingest import BackfillRecentOhlcvTaskConfig
-from ml.tasks.ingest import OhlcvRecentBackfillResult
-from ml.tasks.ingest import SymbolBackfillStatus
-from ml.tasks.ingest import backfill_recent_ohlcv
+from ml.data.ingest import BackfillRecentOhlcvTaskConfig
+from ml.data.ingest import OhlcvRecentBackfillResult
+from ml.data.ingest import SymbolBackfillStatus
+from ml.data.ingest import backfill_recent_ohlcv
 
 
 __all__ = ["main"]

@@ -19,6 +19,8 @@ from ml.registry import compute_schema_hash
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
 
 
 def test_model_registry_register_happy_path(tmp_path: Path) -> None:
@@ -69,6 +71,8 @@ def test_model_registry_register_happy_path(tmp_path: Path) -> None:
         serveable=True,
         artifact_format="onnx",
         feature_set_id="feat_v1",
+        output_schema=default_output_schema(),
+        calibration=default_calibration(),
     )
     model_id = mreg.register_model(model_path=model_path, manifest=manifest, auto_deploy=False)
     # Force immediate save to avoid flakiness from batch timer

@@ -12,10 +12,10 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.data.ingest import PopulateAlternativeDataTaskConfig
+from ml.data.ingest import populate_alternative_data_task
 from ml.data.loaders.alternative import AlternativeDataResult
 from ml.data.loaders.alternative import AlternativeSource
-from ml.tasks.ingest import PopulateAlternativeDataTaskConfig
-from ml.tasks.ingest import populate_alternative_data_task
 
 
 __all__ = ["main"]

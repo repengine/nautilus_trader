@@ -16,20 +16,130 @@ Following Universal ML Architecture Pattern 2: Protocol-First Interface Design.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
 
+from ml._imports import pd as _pd
+from ml._imports import pl as _pl
 from ml.common.validation_strategies import DEFAULT_CV_STRATEGY
 from ml.common.validation_strategies import normalize_strategy
 
 
 if TYPE_CHECKING:
+    from pandas import DataFrame as PandasFrame
+
     from ml.config.base import MLTrainingConfig
+else:
+    PandasFrame = Any
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class PurgedSplitResult:
+    """Index partitions for a single purged validation split."""
+
+    train_indices: npt.NDArray[np.int64]
+    validation_indices: npt.NDArray[np.int64]
+
+
+def _to_pandas(df: Any) -> PandasFrame:
+    if _pd is None:
+        raise RuntimeError("pandas is required for purged split helpers")
+    if _pl is not None and isinstance(df, _pl.DataFrame):
+        return cast(PandasFrame, df.to_pandas())
+    if isinstance(df, _pd.DataFrame):
+        return cast(PandasFrame, df)
+    raise TypeError("Expected pandas or polars DataFrame")
+
+
+def create_purged_splits(
+    df: Any,
+    *,
+    timestamp_col: str = "timestamp",
+    test_fraction: float = 0.2,
+    n_splits: int = 5,
+    purge_gap: int = 0,
+    embargo_hours: float = 24.0,
+    embargo_pct: float | None = None,
+) -> dict[str, Any]:
+    """
+    Create purged cross-validation splits with configurable embargo.
+
+    Parameters
+    ----------
+    df : Any
+        Input dataframe (pandas or polars) with timestamp column.
+    timestamp_col : str, default="timestamp"
+        Timestamp column used for ordering rows.
+    test_fraction : float, default=0.2
+        Hold-out fraction for the terminal test partition.
+    n_splits : int, default=5
+        Number of cross-validation folds for the train partition.
+    purge_gap : int, default=0
+        Number of samples to purge around validation windows.
+    embargo_hours : float, default=24.0
+        Embargo window in hours used when ``embargo_pct`` is omitted.
+    embargo_pct : float | None, default=None
+        Optional explicit embargo percentage in ``[0.0, 1.0)``.
+
+    Returns
+    -------
+    dict[str, Any]
+        Dictionary containing train/test index arrays, generated CV splits,
+        and the resolved embargo percentage.
+    """
+    from ml.preprocessing.stationarity import PurgedCrossValidator
+
+    pdf = _to_pandas(df).copy()
+    if _pd is None:
+        raise RuntimeError("pandas is required for purged split helpers")
+    pdf[timestamp_col] = (
+        _pd.to_datetime(pdf[timestamp_col], utc=True).dt.tz_convert("UTC").dt.tz_localize(None)
+    )
+    pdf = pdf.sort_values(timestamp_col).reset_index(drop=True)
+
+    n_samples = len(pdf)
+    if n_samples < 2:
+        raise ValueError("Dataset too small for purged splits")
+
+    test_size = max(int(n_samples * test_fraction), 1)
+    train_len = n_samples - test_size
+    if train_len < n_splits:
+        raise ValueError("Not enough samples for requested splits")
+
+    train_df = pdf.iloc[:train_len]
+    train_indices = np.arange(train_len)
+    test_indices = np.arange(train_len, n_samples)
+
+    if embargo_pct is None:
+        span = train_df[timestamp_col].iloc[-1] - train_df[timestamp_col].iloc[0]
+        total_hours = max(span.total_seconds() / 3600.0, 1.0)
+        resolved_embargo_pct = min(max(embargo_hours / total_hours, 0.0), 0.5)
+    else:
+        resolved_embargo_pct = float(embargo_pct)
+        if not 0.0 <= resolved_embargo_pct < 1.0:
+            raise ValueError(
+                f"embargo_pct must be in [0.0, 1.0), got {resolved_embargo_pct}",
+            )
+
+    cv = PurgedCrossValidator(
+        n_splits=n_splits,
+        purge_gap=purge_gap,
+        embargo_pct=resolved_embargo_pct,
+    )
+    cv_splits = cv.split(train_indices.reshape(-1, 1))
+
+    return {
+        "train_indices": train_indices,
+        "test_indices": test_indices,
+        "cv_splits": cv_splits,
+        "embargo_pct": resolved_embargo_pct,
+    }
 
 
 class CVTrainerProtocol(Protocol):
@@ -464,4 +574,6 @@ class CrossValidationComponent:
 __all__ = [
     "CVTrainerProtocol",
     "CrossValidationComponent",
+    "PurgedSplitResult",
+    "create_purged_splits",
 ]

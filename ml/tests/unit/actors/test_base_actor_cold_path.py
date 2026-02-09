@@ -3,18 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import msgspec
 import numpy as np
 import numpy.typing as npt
 import pytest
 
+import ml.actors.base as base_module
 from ml.actors.actor_services import ActorServices
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.actors import OptimizationConfig
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import MLActorConfig
 from ml.config.constants import TimeConstants
+from ml.config.policy import ActorRemediationPolicyConfig
+from ml.config.policy import CausalityMonotonicEnforcement
 from ml.stores.base import DummyStore
 
 
@@ -171,6 +175,19 @@ class _ModelStore:
                 "is_live": is_live,
             },
         )
+
+
+class _CounterMetricStub:
+    def __init__(self) -> None:
+        self.labels_calls: list[dict[str, str]] = []
+        self.inc_calls = 0
+
+    def labels(self, **kwargs: str) -> _CounterMetricStub:
+        self.labels_calls.append({k: str(v) for k, v in kwargs.items()})
+        return self
+
+    def inc(self) -> None:
+        self.inc_calls += 1
 
 
 def _make_actor(
@@ -668,6 +685,209 @@ def test_reset_health_status_replaces_monitor(
 
     assert actor._health_monitor is not old_monitor
     assert actor._health_monitor.total_predictions == 0
+
+
+def test_reset_inference_runtime_state_resets_shared_runtime_state(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor = _make_actor(
+        base_config=base_ml_config,
+        dummy_onnx_model=dummy_onnx_model,
+        monkeypatch=monkeypatch,
+        circuit_breaker_config=CircuitBreakerConfig(
+            failure_threshold=1,
+            recovery_timeout=1,
+            success_threshold=1,
+        ),
+        enable_health_monitoring=True,
+    )
+    assert actor._health_monitor is not None
+    assert actor._circuit_breaker is not None
+    previous_monitor = actor._health_monitor
+
+    actor._ml_inference_halted = True
+    actor._ml_failure_reason = "test_halt"
+    actor._ml_halt_logged = True
+    actor._bars_processed = 12
+    actor._is_warmed_up = True
+    actor._prediction_count = 8
+    actor._total_inference_time = 40.0
+    actor._total_feature_time = 24.0
+    actor._last_prediction_time = 99
+    actor._sync_prediction_fallback_disabled_logged = True
+    actor._feature_window.append(np.zeros(1, dtype=np.float32))
+    actor._indicator_state_backup["k"] = "v"
+    actor._circuit_breaker.record_failure()
+
+    feature_component = SimpleNamespace(
+        reset_runtime_state=Mock(),
+        update_dependencies=Mock(),
+    )
+    actor._features_component = feature_component
+    reset_calls: list[str] = []
+    actor._reset_inference_runtime_state_components = lambda: reset_calls.append("called")
+
+    actor._reset_inference_runtime_state(reason="test_rewind_reset", ts_event=77)
+
+    assert actor._ml_inference_halted is False
+    assert actor._ml_failure_reason is None
+    assert actor._ml_halt_logged is False
+    assert actor._bars_processed == 0
+    assert actor._is_warmed_up is False
+    assert actor._prediction_count == 0
+    assert actor._total_inference_time == 0.0
+    assert actor._total_feature_time == 0.0
+    assert actor._last_prediction_time == 0
+    assert actor._sync_prediction_fallback_disabled_logged is False
+    assert len(actor._feature_window) == 0
+    assert actor._indicator_state_backup == {}
+    assert actor._health_monitor is not previous_monitor
+    assert actor._health_monitor.total_predictions == 0
+
+    feature_component.reset_runtime_state.assert_called_once_with(reason="test_rewind_reset")
+    feature_component.update_dependencies.assert_called_once_with(
+        health_monitor=actor._health_monitor,
+        persistence_worker=actor._persistence_worker,
+    )
+    assert reset_calls == ["called"]
+    assert actor._circuit_breaker.get_stats()["failure_count"] == 0
+    assert actor._circuit_breaker.get_stats()["state"] == "closed"
+
+
+def test_on_bar_runs_prepare_hook_before_halt_gate(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor = _make_actor(
+        base_config=base_ml_config,
+        dummy_onnx_model=dummy_onnx_model,
+        monkeypatch=monkeypatch,
+    )
+    actor._ml_inference_halted = True
+    actor._features_component = SimpleNamespace(compute_features=Mock(return_value=None))
+
+    calls: list[str] = []
+
+    def _prepare(_bar: object) -> None:
+        calls.append("prepare")
+        actor._ml_inference_halted = False
+
+    actor._prepare_bar_runtime_state = _prepare
+
+    actor.on_bar(SimpleNamespace(ts_event=1))
+
+    assert calls == ["prepare"]
+    actor._features_component.compute_features.assert_called_once()
+
+
+@pytest.mark.runtime_correctness
+def test_on_bar_drops_non_monotonic_ingress_before_prepare_hook(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor = _make_actor(
+        base_config=base_ml_config,
+        dummy_onnx_model=dummy_onnx_model,
+        monkeypatch=monkeypatch,
+        remediation_policy=ActorRemediationPolicyConfig(
+            causality_monotonic_enforcement=CausalityMonotonicEnforcement.DROP,
+        ),
+    )
+    actor._last_ingress_ts_event = 200
+    actor._features_component = SimpleNamespace(compute_features=Mock(return_value=None))
+    actor._prepare_bar_runtime_state = Mock()
+
+    metric = _CounterMetricStub()
+    monkeypatch.setattr(base_module, "causality_monotonic_violations_total", metric)
+
+    actor.on_bar(SimpleNamespace(ts_event=150))
+
+    actor._prepare_bar_runtime_state.assert_not_called()
+    actor._features_component.compute_features.assert_not_called()
+    assert actor._bars_processed == 0
+    assert actor._last_ingress_ts_event == 200
+    assert metric.inc_calls == 1
+    assert metric.labels_calls[0]["mode"] == "drop"
+
+
+@pytest.mark.runtime_correctness
+def test_on_bar_reset_mode_applies_reset_before_halt_gate(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor = _make_actor(
+        base_config=base_ml_config,
+        dummy_onnx_model=dummy_onnx_model,
+        monkeypatch=monkeypatch,
+        remediation_policy=ActorRemediationPolicyConfig(
+            causality_monotonic_enforcement=CausalityMonotonicEnforcement.RESET,
+        ),
+    )
+    actor._last_ingress_ts_event = 200
+    actor._ml_inference_halted = True
+    actor._ml_failure_reason = "manual_halt"
+    actor._features_component = SimpleNamespace(compute_features=Mock(return_value=None))
+    metric = _CounterMetricStub()
+    monkeypatch.setattr(base_module, "causality_monotonic_violations_total", metric)
+
+    call_order: list[str] = []
+    original_reset = actor._reset_inference_runtime_state
+
+    def _wrapped_reset(*, reason: str, ts_event: int | None = None) -> None:
+        call_order.append("reset")
+        original_reset(reason=reason, ts_event=ts_event)
+
+    def _prepare(_bar: object) -> None:
+        call_order.append("prepare")
+
+    actor._reset_inference_runtime_state = _wrapped_reset
+    actor._prepare_bar_runtime_state = _prepare
+
+    actor.on_bar(SimpleNamespace(ts_event=150))
+
+    assert call_order == ["reset", "prepare"]
+    actor._features_component.compute_features.assert_called_once()
+    assert actor._ml_inference_halted is False
+    assert actor._bars_processed == 1
+    assert actor._last_ingress_ts_event == 150
+    assert metric.inc_calls == 1
+    assert metric.labels_calls[0]["mode"] == "reset"
+
+
+@pytest.mark.runtime_correctness
+def test_on_bar_warn_only_keeps_processing_non_monotonic_ingress(
+    base_ml_config: MLActorConfig,
+    dummy_onnx_model: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor = _make_actor(
+        base_config=base_ml_config,
+        dummy_onnx_model=dummy_onnx_model,
+        monkeypatch=monkeypatch,
+        remediation_policy=ActorRemediationPolicyConfig(
+            causality_monotonic_enforcement=CausalityMonotonicEnforcement.WARN_ONLY,
+        ),
+    )
+    actor._last_ingress_ts_event = 200
+    actor._features_component = SimpleNamespace(compute_features=Mock(return_value=None))
+    actor._prepare_bar_runtime_state = Mock()
+
+    metric = _CounterMetricStub()
+    monkeypatch.setattr(base_module, "causality_monotonic_violations_total", metric)
+
+    actor.on_bar(SimpleNamespace(ts_event=150))
+
+    actor._prepare_bar_runtime_state.assert_called_once()
+    actor._features_component.compute_features.assert_called_once()
+    assert actor._bars_processed == 1
+    assert actor._last_ingress_ts_event == 150
+    assert metric.inc_calls == 1
+    assert metric.labels_calls[0]["mode"] == "warn_only"
 
 
 def test_persist_prediction_async_enqueues_with_worker(

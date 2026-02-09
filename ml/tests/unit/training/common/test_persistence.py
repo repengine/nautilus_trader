@@ -92,6 +92,8 @@ class MockConfig:
     decision_policy: str | None = None
     decision_config: dict[str, Any] | None = None
     parent_model_id: str | None = None
+    random_seed: int | None = None
+    deterministic_mode: bool | None = None
 
 
 class TestableTrainer:
@@ -340,6 +342,47 @@ class TestSaveModel:
 
         mock_registry.assert_called_with(registry_path)
 
+    def test_save_model_passes_reproducibility_payload_to_export(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify save boundary forwards canonical reproducibility payload."""
+        config = MockConfig(random_seed=11, deterministic_mode=True)
+        trainer = TestableTrainer(config)
+        trainer._model = MockModel()
+        trainer._is_fitted = True
+        persistence = PersistenceComponent(trainer)
+        model_path = tmp_path / "model"
+
+        with patch("ml.registry.ModelRegistry") as mock_registry:
+            with patch("ml.training.export.save_model_with_metadata") as mock_save:
+                mock_save.return_value = model_path.with_suffix(".onnx")
+                mock_registry.return_value.register_model.return_value = "model_123"
+
+                persistence.save_model(model_path)
+
+        call_kwargs = mock_save.call_args.kwargs
+        payload = call_kwargs["reproducibility_provenance"]
+        assert payload["seed"] == 11
+        assert payload["deterministic_mode"] is True
+        assert isinstance(payload["python_version"], str)
+        assert isinstance(payload["numpy_version"], str)
+
+    def test_save_model_when_deterministic_mode_enabled_without_seed_raises_value_error(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify deterministic mode enforces configured seed at save boundary."""
+        config = MockConfig(random_seed=None, deterministic_mode=True)
+        trainer = TestableTrainer(config)
+        trainer._model = MockModel()
+        trainer._is_fitted = True
+        persistence = PersistenceComponent(trainer)
+
+        with patch("ml.registry.ModelRegistry"):
+            with pytest.raises(ValueError, match="training random seed must be configured"):
+                persistence.save_model(tmp_path / "model")
+
 
 # ============================================================================
 # Model Manifest Creation Tests
@@ -439,6 +482,31 @@ class TestCreateModelManifest:
         call_kwargs = mock_manifest.call_args[1]
         # TestableTrainer -> Testable (removes "Trainer" suffix)
         assert call_kwargs["architecture"] == "Testable"
+
+    def test_create_manifest_includes_reproducibility_training_config(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify manifest training_config embeds reproducibility payload."""
+        config = MockConfig(random_seed=23, deterministic_mode=True)
+        trainer = TestableTrainer(config)
+        trainer._model = MockModel()
+        trainer._is_fitted = True
+        persistence = PersistenceComponent(trainer)
+        save_path = tmp_path / "model.onnx"
+
+        with patch("ml.registry.ModelManifest") as mock_manifest:
+            with patch("ml.registry.feature_registry.compute_schema_hash") as mock_hash:
+                mock_hash.return_value = "hash123"
+                mock_manifest.return_value = MagicMock()
+
+                persistence._create_model_manifest(save_path)
+
+        training_config = mock_manifest.call_args[1]["training_config"]
+        assert "reproducibility" in training_config
+        payload = training_config["reproducibility"]
+        assert payload["seed"] == 23
+        assert payload["deterministic_mode"] is True
 
 
 # ============================================================================

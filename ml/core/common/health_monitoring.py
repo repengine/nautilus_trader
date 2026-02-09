@@ -32,9 +32,13 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ml.common.protocols import MLComponentProtocol
+
+
+if TYPE_CHECKING:
+    from ml.core.integration import HealthSummary
 
 
 logger = logging.getLogger(__name__)
@@ -499,4 +503,31 @@ class HealthMonitoringComponent:
             return False
 
 
-__all__ = ["HealthMonitoringComponent"]
+def aggregate_integration_health(
+    db_connection: str | None = None,
+    *,
+    strict_protocol_validation: bool = False,
+) -> HealthSummary:
+    """
+    Aggregate the integration health summary from `MLIntegrationManager`.
+
+    Args:
+        db_connection: Optional database connection string.
+        strict_protocol_validation: Whether protocol violations should raise.
+
+    Returns:
+        Structured health summary from the integration facade.
+    """
+    from ml.core.integration import MLIntegrationManager
+
+    manager = MLIntegrationManager(
+        db_connection=db_connection,
+        auto_start_postgres=False,
+        auto_migrate=False,
+        ensure_healthy=False,
+        strict_protocol_validation=strict_protocol_validation,
+    )
+    return manager.aggregate_health()
+
+
+__all__ = ["HealthMonitoringComponent", "aggregate_integration_health"]

@@ -20,16 +20,24 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
+from ml.config.targets import TARGET_SEMANTICS_CONTRACT_ID
+from ml.config.targets import TARGET_SEMANTICS_CONTRACT_MAJOR
+from ml.config.targets import TARGET_SEMANTICS_REQUIRED_CAPABILITIES
+from ml.config.targets import TargetSemanticsConfig
 from ml.data import load_dataset_metadata
 from ml.data import require_target_column_in_semantics
+from ml.data import require_target_semantics_contract
+from ml.data import require_target_semantics_horizon_mode
 from ml.data import require_target_semantics_metadata
+from ml.data.metadata import require_target_semantics_execution_contract
 
 
 if TYPE_CHECKING:
@@ -418,12 +426,123 @@ class TrainingOrchestratorComponent:
             return
 
         metadata = load_dataset_metadata(metadata_path)
+        expected_horizon_mode = self._resolve_expected_target_horizon_mode()
+        expected_execution_contract = self._resolve_expected_target_execution_contract()
         require_target_semantics_metadata(metadata, context="training_orchestrator")
+        require_target_semantics_contract(
+            metadata,
+            required_capabilities=TARGET_SEMANTICS_REQUIRED_CAPABILITIES,
+            expected_contract_id=TARGET_SEMANTICS_CONTRACT_ID,
+            expected_contract_major=TARGET_SEMANTICS_CONTRACT_MAJOR,
+            context="training_orchestrator",
+        )
+        require_target_semantics_horizon_mode(
+            metadata,
+            expected_mode=expected_horizon_mode,
+            context="training_orchestrator",
+        )
+        require_target_semantics_execution_contract(
+            metadata,
+            expected_execution=expected_execution_contract,
+            context="training_orchestrator",
+        )
         require_target_column_in_semantics(
             metadata,
             cfg.target_column,
             context="training_orchestrator",
         )
+
+    def _resolve_expected_target_horizon_mode(self) -> str | None:
+        """
+        Resolve expected horizon mode from trainer config target semantics.
+
+        Returns:
+            Canonical expected horizon mode when target semantics are configured,
+            else ``None``.
+        """
+        target_semantics = self._resolve_expected_target_semantics_config()
+        if target_semantics is None:
+            return None
+
+        return target_semantics.horizon_resolution_mode
+
+    def _resolve_expected_target_execution_contract(self) -> dict[str, Any] | None:
+        """
+        Resolve expected execution contract metadata from trainer target semantics.
+        """
+        target_semantics = self._resolve_expected_target_semantics_config()
+        if target_semantics is None:
+            return None
+        return target_semantics.execution_metadata()
+
+    def _resolve_expected_target_semantics_config(self) -> TargetSemanticsConfig | None:
+        """
+        Parse target semantics config from trainer configuration when available.
+        """
+        target_semantics_raw = getattr(self._trainer._config, "target_semantics", None)
+        if target_semantics_raw is None:
+            return None
+
+        if isinstance(target_semantics_raw, TargetSemanticsConfig):
+            return target_semantics_raw
+
+        if isinstance(target_semantics_raw, Mapping):
+            return TargetSemanticsConfig.from_dict(cast(Mapping[str, Any], target_semantics_raw))
+
+        if isinstance(target_semantics_raw, str):
+            return TargetSemanticsConfig.from_json(target_semantics_raw)
+
+        mode_attr = getattr(target_semantics_raw, "horizon_resolution_mode", None)
+        if isinstance(mode_attr, str) and mode_attr.strip():
+            inferred_payload: dict[str, Any] = {
+                "horizon_resolution_mode": mode_attr.strip().lower(),
+            }
+            wall_clock_timestamp_column = getattr(
+                target_semantics_raw,
+                "wall_clock_timestamp_column",
+                None,
+            )
+            if isinstance(wall_clock_timestamp_column, str) and wall_clock_timestamp_column.strip():
+                inferred_payload["wall_clock_timestamp_column"] = wall_clock_timestamp_column.strip()
+            execution_entry_price_column = getattr(
+                target_semantics_raw,
+                "execution_entry_price_column",
+                None,
+            )
+            if (
+                isinstance(execution_entry_price_column, str)
+                and execution_entry_price_column.strip()
+            ):
+                inferred_payload["execution_entry_price_column"] = (
+                    execution_entry_price_column.strip()
+                )
+            execution_exit_price_column = getattr(
+                target_semantics_raw,
+                "execution_exit_price_column",
+                None,
+            )
+            if (
+                isinstance(execution_exit_price_column, str)
+                and execution_exit_price_column.strip()
+            ):
+                inferred_payload["execution_exit_price_column"] = (
+                    execution_exit_price_column.strip()
+                )
+            execution_latency_bars = getattr(target_semantics_raw, "execution_latency_bars", None)
+            if isinstance(execution_latency_bars, int):
+                inferred_payload["execution_latency_bars"] = execution_latency_bars
+            unresolved_context_mode = getattr(
+                target_semantics_raw,
+                "unresolved_execution_context_mode",
+                None,
+            )
+            if isinstance(unresolved_context_mode, str) and unresolved_context_mode.strip():
+                inferred_payload["unresolved_execution_context_mode"] = (
+                    unresolved_context_mode.strip().lower()
+                )
+            return TargetSemanticsConfig.from_dict(inferred_payload)
+
+        return None
 
     @staticmethod
     def _resolve_dataset_metadata_path(data_source: str) -> Path | None:

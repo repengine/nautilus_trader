@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus
+import ml.training.event_driven.payloads as payloads_module
 from ml.training.event_driven.orchestrator import PublisherOrchestratorBus
 from ml.training.event_driven.services import DatasetPlanEvent
 from ml.training.event_driven.services import TrainingHeartbeatEvent
@@ -210,3 +212,60 @@ def test_publisher_bus_records_failed_payloads() -> None:
     topic, payload = failed[0]
     assert topic == "events.ml.DATASET_PLANNED.dataset"
     assert payload["plan_id"] == "plan-xyz"
+
+
+def test_payload_helpers_coerce_sequence_mappings() -> None:
+    class _TelemetryStub:
+        def as_dict(self) -> dict[str, Any]:
+            return {
+                "caps": [("max_total_rows", 100), ("bad-entry",)],
+                "metadata": [("dataset", "dataset")],
+                "train": [("selected_rows", 5)],
+                "validation": [("selected_rows", 2)],
+                "resources": [("gpu_mb", 256.0)],
+                "ensemble": {"members": ("m1", "m2"), "weight": 0.7},
+                "economic": {"sharpe": 1.2},
+                "stability": {"ks_statistic": 0.1},
+                "validation_returns": {"mean": 0.01},
+            }
+
+    payload = payloads_module._telemetry_dict(_TelemetryStub())
+    assert payload["caps"] == {"max_total_rows": 100}
+    assert payload["metadata"] == {"dataset": "dataset"}
+    assert payload["train"] == {"selected_rows": 5}
+    assert payload["validation"] == {"selected_rows": 2}
+    assert payload["resources"] == {"gpu_mb": 256.0}
+    assert payload["ensemble"]["members"] == ["m1", "m2"]
+    assert payload["economic"] == {"sharpe": 1.2}
+    assert payload["stability"] == {"ks_statistic": 0.1}
+    assert payload["validation_returns"] == {"mean": 0.01}
+
+
+def test_build_plan_message_includes_checkpoint_and_coerces_lag_values() -> None:
+    event = replace(_plan_event(), checkpoint_key="checkpoint-1")
+    object.__setattr__(event.streaming_config, "macro_lag_days", "bad")
+    object.__setattr__(event.streaming_config, "earnings_lag_days", None)
+    object.__setattr__(event.streaming_config, "events_notice_minutes", "3")
+
+    payload = payloads_module.build_plan_message(event).as_dict()
+
+    assert payload["payload"]["checkpoint_key"] == "checkpoint-1"
+    assert payload["payload"]["publication_lags"]["macro_lag_days"] == 0
+    assert payload["payload"]["publication_lags"]["earnings_lag_days"] == 0
+    assert payload["payload"]["publication_lags"]["events_notice_minutes"] == 3
+
+
+def test_build_heartbeat_message_marks_completion_success() -> None:
+    heartbeat = TrainingHeartbeatEvent(
+        worker_id="worker-2",
+        plan_id=None,
+        dataset_id=None,
+        progress_pct=100.0,
+        rss_mb=64.0,
+        shards_processed=8,
+    )
+
+    payload = payloads_module.build_heartbeat_message(heartbeat, dataset_id="dataset").as_dict()
+
+    assert payload["status"] == EventStatus.SUCCESS.value
+    assert payload["plan_id"] == "dataset"

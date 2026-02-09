@@ -30,6 +30,9 @@ from ml.training.export import (
     register_model_with_registry,
     save_model_with_metadata,
 )
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import ensure_strict_onnx_sidecar
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 class MockMLTrainer:
@@ -55,6 +58,20 @@ class MockMLTrainer:
         self.config.feature_set_id = "test_feature_set_001"
         self.config.pipeline_signature = "test_pipeline_v1_hash"
         self.config.pipeline_version = "1.2.0"
+
+
+def _prepare_strict_serveable_artifact(
+    *,
+    registry_path: Path,
+    model_path: Path,
+    feature_schema_hash: str,
+) -> str:
+    """Attach strict-valid ONNX sidecar metadata and linked feature set."""
+    ensure_strict_onnx_sidecar(model_path, output_schema=default_output_schema())
+    return register_feature_set_for_schema(
+        registry_path=registry_path,
+        schema_hash=feature_schema_hash,
+    )
 
 
 @pytest.fixture
@@ -282,6 +299,11 @@ class TestRegisterModelWithRegistry:
             "decision_config": {},
             "artifact_sha256_digest": None,
         }
+        manifest_data["feature_set_id"] = _prepare_strict_serveable_artifact(
+            registry_path=temp_registry_dir,
+            model_path=model_path,
+            feature_schema_hash=str(manifest_data["feature_schema_hash"]),
+        )
 
         # Register model
         model_id = register_model_with_registry(
@@ -332,6 +354,11 @@ class TestRegisterModelWithRegistry:
             "decision_config": {},
             "artifact_sha256_digest": None,
         }
+        manifest_data["feature_set_id"] = _prepare_strict_serveable_artifact(
+            registry_path=temp_registry_dir,
+            model_path=model_path,
+            feature_schema_hash=str(manifest_data["feature_schema_hash"]),
+        )
 
         # Register with auto-deploy
         model_id = register_model_with_registry(
@@ -374,11 +401,13 @@ class TestFeatureParity:
             pipeline_version=sample_feature_manifest.pipeline_version,
             serveable=True,
             artifact_format="onnx",
+            output_schema=default_output_schema(),
         )
 
         # Create dummy model file
         model_path = temp_registry_dir / "test_model.onnx"
         model_path.write_text("dummy onnx content")
+        ensure_strict_onnx_sidecar(model_path)
 
         # Register model - should succeed with parity validation
         model_registry = ModelRegistry(temp_registry_dir)
@@ -416,20 +445,20 @@ class TestFeatureParity:
             feature_set_id=feature_set_id,
             serveable=True,
             artifact_format="onnx",
+            output_schema=default_output_schema(),
         )
 
         model_path = temp_registry_dir / "test_model.onnx"
         model_path.write_text("dummy onnx content")
+        ensure_strict_onnx_sidecar(model_path)
 
-        # Registration should succeed with warning (unless strict mode enabled)
+        # Strict-by-default compatibility rejects parity hash mismatches.
         model_registry = ModelRegistry(temp_registry_dir)
-        model_id = model_registry.register_model(
-            model_path=model_path,
-            manifest=model_manifest,
-        )
-
-        # Should still register but with warnings
-        assert model_id != ""
+        with pytest.raises(ValueError, match="feature_schema_hash mismatch"):
+            model_registry.register_model(
+                model_path=model_path,
+                manifest=model_manifest,
+            )
 
     def test_feature_parity_strict_mode_failure(self, temp_registry_dir, sample_feature_manifest):
         """
@@ -452,10 +481,12 @@ class TestFeatureParity:
                 feature_set_id=feature_set_id,
                 serveable=True,
                 artifact_format="onnx",
+                output_schema=default_output_schema(),
             )
 
             model_path = temp_registry_dir / "test_model.onnx"
             model_path.write_text("dummy onnx content")
+            ensure_strict_onnx_sidecar(model_path)
 
             # Registration should fail in strict mode
             model_registry = ModelRegistry(temp_registry_dir)
@@ -513,6 +544,7 @@ class TestEndToEndTrainingIntegration:
         with patch("ml.training.export.save_model_with_metadata") as mock_save:
             mock_save.return_value = model_path
             model_path.write_text("dummy onnx content")
+            ensure_strict_onnx_sidecar(model_path)
 
             # 4. Create manifest and register
             manifest_data = create_model_manifest_stub(
@@ -564,6 +596,7 @@ class TestEndToEndTrainingIntegration:
         # Create a minimal ONNX-like content
         model_path = temp_registry_dir / "validated_model.onnx"
         model_path.write_text("mock onnx model content")
+        ensure_strict_onnx_sidecar(model_path)
 
         # Create manifest with ONNX-specific properties
         manifest_data = create_model_manifest_stub(
@@ -578,6 +611,10 @@ class TestEndToEndTrainingIntegration:
         # Ensure it's marked as serveable
         assert manifest_data["serveable"] is True
         assert manifest_data["artifact_format"] == "onnx"
+        manifest_data["feature_set_id"] = register_feature_set_for_schema(
+            registry_path=temp_registry_dir,
+            schema_hash=str(manifest_data["feature_schema_hash"]),
+        )
 
         # Register model
         model_id = register_model_with_registry(
@@ -592,6 +629,7 @@ class TestEndToEndTrainingIntegration:
         assert model_info is not None
         assert model_info.manifest.serveable is True
         assert model_info.manifest.artifact_format == "onnx"
+        assert model_info.manifest.output_schema is not None
         assert model_info.model_path == model_path
 
 

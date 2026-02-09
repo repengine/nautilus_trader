@@ -12,7 +12,37 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
-from typing import Any, Literal
+from typing import Any, Literal, cast
+
+
+TARGET_SEMANTICS_EPOCH_VERSION = "epoch-1"
+TARGET_SEMANTICS_CONTRACT_ID = "target_semantics_epoch"
+TARGET_SEMANTICS_CONTRACT_MAJOR = 1
+TARGET_SEMANTICS_REQUIRED_CAPABILITIES: tuple[str, ...] = (
+    "horizons_declared",
+    "horizon_resolution_declared",
+    "execution_contract_declared",
+    "execution_latency_declared",
+    "unresolved_execution_handling_declared",
+    "returns_declared",
+    "labels_declared",
+    "primary_target_resolved",
+)
+HORIZON_RESOLUTION_BAR_INDEX = "bar_index"
+HORIZON_RESOLUTION_WALL_CLOCK = "wall_clock"
+EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN: Literal["zero_return"] = "zero_return"
+EXECUTION_UNRESOLVED_CONTEXT_FAIL: Literal["fail"] = "fail"
+HorizonResolutionMode = Literal[
+    "bar_index",
+    "wall_clock",
+]
+ExecutionUnresolvedContextMode = Literal[
+    "zero_return",
+    "fail",
+]
+DEFAULT_WALL_CLOCK_TIMESTAMP_COLUMN = "timestamp"
+DEFAULT_EXECUTION_PRICE_COLUMN = "close"
+DEFAULT_EXECUTION_LATENCY_BARS = 0
 
 
 def bps_to_decimal(bps: float) -> float:
@@ -298,8 +328,27 @@ class TargetSemanticsConfig:
     Full target semantics configuration.
 
     Args:
-        version: Target semantics version identifier.
+        version: Target semantics epoch identifier (single supported epoch).
+        contract_id: Canonical contract identifier (single supported value).
+        contract_major: Contract major version (single supported value).
+        capabilities: Declared contract capabilities required by orchestrators.
         horizons: Tuple of horizon specifications.
+        horizon_resolution_mode:
+            Horizon resolution mode:
+            "bar_index" uses fixed row-offset lookahead;
+            "wall_clock" uses timestamp-aligned lookahead.
+        wall_clock_timestamp_column:
+            Timestamp column for wall-clock alignment.
+        execution_entry_price_column:
+            Price column used for entry execution context.
+        execution_exit_price_column:
+            Price column used for exit execution context.
+        execution_latency_bars:
+            Non-negative bar offset applied before computing horizon returns.
+        unresolved_execution_context_mode:
+            How unresolved execution context is handled:
+            "zero_return" emits deterministic zero returns;
+            "fail" raises ValueError.
         cost_model: Optional cost model for cost-aware returns.
         emit_cost_return: Emit cost-aware returns even when cost_model is None.
         binary: Binary target configuration.
@@ -309,10 +358,21 @@ class TargetSemanticsConfig:
         legacy_aliases: Whether to emit legacy aliases (y/forward_return).
     """
 
-    version: str = "v1"
+    version: str = TARGET_SEMANTICS_EPOCH_VERSION
+    contract_id: str = TARGET_SEMANTICS_CONTRACT_ID
+    contract_major: int = TARGET_SEMANTICS_CONTRACT_MAJOR
+    capabilities: tuple[str, ...] = field(
+        default_factory=lambda: TARGET_SEMANTICS_REQUIRED_CAPABILITIES,
+    )
     horizons: tuple[TargetHorizonSpec, ...] = field(
         default_factory=lambda: (TargetHorizonSpec(minutes=15),),
     )
+    horizon_resolution_mode: HorizonResolutionMode = "bar_index"
+    wall_clock_timestamp_column: str = DEFAULT_WALL_CLOCK_TIMESTAMP_COLUMN
+    execution_entry_price_column: str = DEFAULT_EXECUTION_PRICE_COLUMN
+    execution_exit_price_column: str = DEFAULT_EXECUTION_PRICE_COLUMN
+    execution_latency_bars: int = DEFAULT_EXECUTION_LATENCY_BARS
+    unresolved_execution_context_mode: ExecutionUnresolvedContextMode = "zero_return"
     cost_model: TargetCostModelConfig | None = None
     emit_cost_return: bool = False
     binary: BinaryTargetConfig = field(default_factory=BinaryTargetConfig)
@@ -325,10 +385,100 @@ class TargetSemanticsConfig:
         """
         Validate target semantics configuration.
         """
-        if not self.version:
-            raise ValueError("target semantics version must be non-empty")
+        if self.version != TARGET_SEMANTICS_EPOCH_VERSION:
+            raise ValueError(
+                "target semantics epoch is fixed to "
+                f"{TARGET_SEMANTICS_EPOCH_VERSION!r}, got {self.version!r}",
+            )
+        if self.contract_id != TARGET_SEMANTICS_CONTRACT_ID:
+            raise ValueError(
+                "target semantics contract_id is fixed to "
+                f"{TARGET_SEMANTICS_CONTRACT_ID!r}, got {self.contract_id!r}",
+            )
+        if self.contract_major != TARGET_SEMANTICS_CONTRACT_MAJOR:
+            raise ValueError(
+                "target semantics contract_major is fixed to "
+                f"{TARGET_SEMANTICS_CONTRACT_MAJOR}, got {self.contract_major}",
+            )
+        if not self.capabilities:
+            raise ValueError("target semantics capabilities must be non-empty")
+        normalized_capabilities = tuple(str(cap).strip() for cap in self.capabilities)
+        if any(not cap for cap in normalized_capabilities):
+            raise ValueError("target semantics capabilities must contain non-empty strings")
+        if len(set(normalized_capabilities)) != len(normalized_capabilities):
+            raise ValueError("target semantics capabilities must be unique")
+        missing_required = [
+            cap for cap in TARGET_SEMANTICS_REQUIRED_CAPABILITIES if cap not in normalized_capabilities
+        ]
+        if missing_required:
+            raise ValueError(
+                "target semantics capabilities missing required values: "
+                f"{missing_required}",
+            )
+        object.__setattr__(self, "capabilities", normalized_capabilities)
+
         if not self.horizons:
             raise ValueError("At least one horizon must be specified")
+
+        horizon_resolution_mode = str(self.horizon_resolution_mode).strip().lower()
+        if horizon_resolution_mode not in (
+            HORIZON_RESOLUTION_BAR_INDEX,
+            HORIZON_RESOLUTION_WALL_CLOCK,
+        ):
+            raise ValueError(
+                "horizon_resolution_mode must be one of "
+                f"{(HORIZON_RESOLUTION_BAR_INDEX, HORIZON_RESOLUTION_WALL_CLOCK)}, "
+                f"got {self.horizon_resolution_mode!r}",
+            )
+        object.__setattr__(
+            self,
+            "horizon_resolution_mode",
+            cast(HorizonResolutionMode, horizon_resolution_mode),
+        )
+
+        timestamp_column = str(self.wall_clock_timestamp_column).strip()
+        if (
+            self.horizon_resolution_mode == HORIZON_RESOLUTION_WALL_CLOCK
+            and not timestamp_column
+        ):
+            raise ValueError(
+                "wall_clock_timestamp_column must be a non-empty string "
+                "when horizon_resolution_mode='wall_clock'",
+            )
+        if not timestamp_column:
+            timestamp_column = DEFAULT_WALL_CLOCK_TIMESTAMP_COLUMN
+        object.__setattr__(self, "wall_clock_timestamp_column", timestamp_column)
+
+        entry_price_column = str(self.execution_entry_price_column).strip()
+        if not entry_price_column:
+            raise ValueError("execution_entry_price_column must be a non-empty string")
+        object.__setattr__(self, "execution_entry_price_column", entry_price_column)
+
+        exit_price_column = str(self.execution_exit_price_column).strip()
+        if not exit_price_column:
+            raise ValueError("execution_exit_price_column must be a non-empty string")
+        object.__setattr__(self, "execution_exit_price_column", exit_price_column)
+
+        latency_bars = int(self.execution_latency_bars)
+        if latency_bars < 0:
+            raise ValueError("execution_latency_bars must be >= 0")
+        object.__setattr__(self, "execution_latency_bars", latency_bars)
+
+        unresolved_execution_mode = str(self.unresolved_execution_context_mode).strip().lower()
+        if unresolved_execution_mode not in (
+            EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN,
+            EXECUTION_UNRESOLVED_CONTEXT_FAIL,
+        ):
+            raise ValueError(
+                "unresolved_execution_context_mode must be one of "
+                f"{(EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN, EXECUTION_UNRESOLVED_CONTEXT_FAIL)}, "
+                f"got {self.unresolved_execution_context_mode!r}",
+            )
+        object.__setattr__(
+            self,
+            "unresolved_execution_context_mode",
+            cast(ExecutionUnresolvedContextMode, unresolved_execution_mode),
+        )
 
         labels = [spec.label for spec in self.horizons if spec.label is not None]
         if len(labels) != len(set(labels)):
@@ -369,6 +519,52 @@ class TargetSemanticsConfig:
         Determine whether cost-aware return columns should be emitted.
         """
         return self.cost_model is not None or self.emit_cost_return
+
+    @property
+    def uses_wall_clock_horizons(self) -> bool:
+        """
+        Return whether horizons resolve via event timestamps.
+        """
+        return self.horizon_resolution_mode == HORIZON_RESOLUTION_WALL_CLOCK
+
+    def horizon_alignment_metadata(self) -> dict[str, Any]:
+        """
+        Serialize horizon alignment semantics for metadata contracts.
+        """
+        if self.uses_wall_clock_horizons:
+            return {
+                "mode": self.horizon_resolution_mode,
+                "timestamp_column": self.wall_clock_timestamp_column,
+                "future_anchor": "first_timestamp_at_or_after_horizon",
+                "insufficient_future_handling": "zero_return",
+            }
+        return {
+            "mode": self.horizon_resolution_mode,
+            "future_anchor": "fixed_row_offset",
+            "insufficient_future_handling": "zero_return",
+        }
+
+    @property
+    def fail_on_unresolved_execution_context(self) -> bool:
+        """
+        Return whether unresolved execution context should raise immediately.
+        """
+        return self.unresolved_execution_context_mode == EXECUTION_UNRESOLVED_CONTEXT_FAIL
+
+    def execution_metadata(self) -> dict[str, Any]:
+        """
+        Serialize execution-aware label semantics for metadata contracts.
+        """
+        execution: dict[str, Any] = {
+            "entry_price_column": self.execution_entry_price_column,
+            "exit_price_column": self.execution_exit_price_column,
+            "latency_bars": int(self.execution_latency_bars),
+            "latency_unit": "bars",
+            "unresolved_context_mode": self.unresolved_execution_context_mode,
+        }
+        if self.unresolved_execution_context_mode == EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN:
+            execution["unresolved_context_return"] = 0.0
+        return execution
 
     def return_column_for_basis(self, horizon_label: str, basis: Literal["raw", "cost"]) -> str:
         """
@@ -441,6 +637,19 @@ class TargetSemanticsConfig:
                 return spec.minutes
         return None
 
+    def contract_metadata(self) -> dict[str, Any]:
+        """
+        Serialize canonical contract metadata for dataset artifacts.
+
+        Returns:
+            Contract metadata payload.
+        """
+        return {
+            "id": self.contract_id,
+            "major": int(self.contract_major),
+            "capabilities": list(self.capabilities),
+        }
+
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> TargetSemanticsConfig:
         """
@@ -452,7 +661,76 @@ class TargetSemanticsConfig:
         Returns:
             Parsed TargetSemanticsConfig instance.
         """
-        version = str(payload.get("version", "v1"))
+        version_raw = payload.get("version", TARGET_SEMANTICS_EPOCH_VERSION)
+        version = str(version_raw).strip() or TARGET_SEMANTICS_EPOCH_VERSION
+
+        contract_payload = payload.get("contract")
+        if contract_payload is not None and not isinstance(contract_payload, Mapping):
+            raise ValueError("target semantics contract payload must be a mapping when provided")
+        contract_map = contract_payload if isinstance(contract_payload, Mapping) else {}
+        contract_id_raw = payload.get("contract_id", contract_map.get("id", TARGET_SEMANTICS_CONTRACT_ID))
+        contract_id = str(contract_id_raw).strip() or TARGET_SEMANTICS_CONTRACT_ID
+        contract_major_raw = payload.get(
+            "contract_major",
+            contract_map.get("major", TARGET_SEMANTICS_CONTRACT_MAJOR),
+        )
+        contract_major = int(contract_major_raw)
+        capabilities_raw = payload.get("capabilities", contract_map.get("capabilities"))
+        if capabilities_raw is None:
+            capabilities = TARGET_SEMANTICS_REQUIRED_CAPABILITIES
+        elif isinstance(capabilities_raw, (list, tuple)):
+            capabilities = tuple(str(item).strip() for item in capabilities_raw)
+        else:
+            raise ValueError(
+                "target semantics contract capabilities must be a list/tuple when provided",
+            )
+
+        horizon_alignment_payload = payload.get("horizon_alignment")
+        horizon_alignment_map = (
+            horizon_alignment_payload
+            if isinstance(horizon_alignment_payload, Mapping)
+            else {}
+        )
+        horizon_mode_raw = payload.get(
+            "horizon_resolution_mode",
+            horizon_alignment_map.get("mode", HORIZON_RESOLUTION_BAR_INDEX),
+        )
+        horizon_resolution_mode = str(horizon_mode_raw).strip().lower() or HORIZON_RESOLUTION_BAR_INDEX
+        if "wall_clock_timestamp_column" in payload:
+            wall_clock_timestamp_column_raw = payload.get("wall_clock_timestamp_column")
+        elif "timestamp_column" in horizon_alignment_map:
+            wall_clock_timestamp_column_raw = horizon_alignment_map.get("timestamp_column")
+        else:
+            wall_clock_timestamp_column_raw = DEFAULT_WALL_CLOCK_TIMESTAMP_COLUMN
+        wall_clock_timestamp_column = str(wall_clock_timestamp_column_raw).strip()
+
+        execution_payload = payload.get("execution")
+        if execution_payload is not None and not isinstance(execution_payload, Mapping):
+            raise ValueError("target semantics execution payload must be a mapping when provided")
+        execution_map = execution_payload if isinstance(execution_payload, Mapping) else {}
+        entry_price_column_raw = payload.get(
+            "execution_entry_price_column",
+            execution_map.get("entry_price_column", DEFAULT_EXECUTION_PRICE_COLUMN),
+        )
+        execution_entry_price_column = str(entry_price_column_raw).strip()
+        exit_price_column_raw = payload.get(
+            "execution_exit_price_column",
+            execution_map.get("exit_price_column", DEFAULT_EXECUTION_PRICE_COLUMN),
+        )
+        execution_exit_price_column = str(exit_price_column_raw).strip()
+        execution_latency_raw = payload.get(
+            "execution_latency_bars",
+            execution_map.get("latency_bars", DEFAULT_EXECUTION_LATENCY_BARS),
+        )
+        execution_latency_bars = int(execution_latency_raw)
+        unresolved_execution_mode_raw = payload.get(
+            "unresolved_execution_context_mode",
+            execution_map.get(
+                "unresolved_context_mode",
+                EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN,
+            ),
+        )
+        unresolved_execution_context_mode = str(unresolved_execution_mode_raw).strip().lower()
 
         horizons_payload = payload.get("horizons")
         horizons: tuple[TargetHorizonSpec, ...]
@@ -529,7 +807,19 @@ class TargetSemanticsConfig:
 
         return cls(
             version=version,
+            contract_id=contract_id,
+            contract_major=contract_major,
+            capabilities=capabilities,
             horizons=horizons,
+            horizon_resolution_mode=cast(HorizonResolutionMode, horizon_resolution_mode),
+            wall_clock_timestamp_column=wall_clock_timestamp_column,
+            execution_entry_price_column=execution_entry_price_column,
+            execution_exit_price_column=execution_exit_price_column,
+            execution_latency_bars=execution_latency_bars,
+            unresolved_execution_context_mode=cast(
+                ExecutionUnresolvedContextMode,
+                unresolved_execution_context_mode,
+            ),
             cost_model=cost_model,
             emit_cost_return=emit_cost_return,
             binary=binary_cfg,
@@ -550,10 +840,26 @@ class TargetSemanticsConfig:
         Returns:
             Parsed TargetSemanticsConfig instance.
         """
-        return cls.from_dict(json.loads(payload))
+        decoded = json.loads(payload)
+        if not isinstance(decoded, Mapping):
+            raise ValueError("target semantics JSON payload must decode to an object")
+        return cls.from_dict(decoded)
 
 __all__ = [
+    "DEFAULT_EXECUTION_LATENCY_BARS",
+    "DEFAULT_EXECUTION_PRICE_COLUMN",
+    "DEFAULT_WALL_CLOCK_TIMESTAMP_COLUMN",
+    "EXECUTION_UNRESOLVED_CONTEXT_FAIL",
+    "EXECUTION_UNRESOLVED_CONTEXT_ZERO_RETURN",
+    "HORIZON_RESOLUTION_BAR_INDEX",
+    "HORIZON_RESOLUTION_WALL_CLOCK",
+    "TARGET_SEMANTICS_CONTRACT_ID",
+    "TARGET_SEMANTICS_CONTRACT_MAJOR",
+    "TARGET_SEMANTICS_EPOCH_VERSION",
+    "TARGET_SEMANTICS_REQUIRED_CAPABILITIES",
     "BinaryTargetConfig",
+    "ExecutionUnresolvedContextMode",
+    "HorizonResolutionMode",
     "MulticlassTargetConfig",
     "RegressionTargetConfig",
     "TargetCostModelConfig",

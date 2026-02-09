@@ -18,6 +18,7 @@ PYTEST_DONT_REWRITE = True
 
 import errno
 import fcntl
+import gc
 import logging
 import os
 import subprocess
@@ -227,6 +228,7 @@ def template_database() -> Generator[str, None, None]:
     finally:
         # Keep template alive for the session; cleanup handled by EngineManager
         EngineManager.dispose_all()
+        gc.collect()
 
 
 @pytest.fixture
@@ -258,6 +260,7 @@ def cloned_test_database(template_database: str) -> Generator[str, None, None]:
         # Ensure cached engines are disposed before dropping the clone so the DROP
         # call does not hang while connections remain open.
         EngineManager.dispose_all()
+        gc.collect()
         _drop_database(clone_name, template_engine)
 
 
@@ -328,7 +331,7 @@ def _drop_database(db_name: str, engine: Engine) -> None:
     """
     Drop a PostgreSQL database safely (best-effort).
     """
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+    def _drop_with_connection(conn: Any) -> None:
         try:
             conn.execute(
                 text(
@@ -346,6 +349,26 @@ WHERE datname = :db_name
             conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
         except Exception:
             pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            _drop_with_connection(conn)
+        return
+    except Exception:
+        pass
+
+    # Fallback: template DB may already be gone, so reconnect via default admin DB.
+    try:
+        from sqlalchemy.engine import make_url
+
+        admin_url = make_url(DATABASE_URL).set(database="postgres").render_as_string(
+            hide_password=False,
+        )
+        admin_engine = EngineManager.get_engine(admin_url, pool_size=1, max_overflow=0)
+        with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            _drop_with_connection(conn)
+    except Exception:
+        pass
 
 
 def start_postgresql() -> None:
@@ -856,7 +879,7 @@ $$ LANGUAGE plpgsql;
         try:
             from ml.cli.apply_migrations import apply_files as _apply_files
             from ml.cli.apply_migrations import build_plan as _build_plan
-            from ml.tasks.db import MigrationSchema
+            from ml.stores.migrations_runner import MigrationSchema
 
             plan = _build_plan(include_optional=True, schema=MigrationSchema.BOTH)
             _apply_files(self.engine, plan, dry_run=False)

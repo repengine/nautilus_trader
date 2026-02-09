@@ -6,6 +6,9 @@ from ml.registry import DataRequirements
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 def test_manifest_round_trip_with_decision_policy(tmp_path: Path) -> None:
@@ -23,6 +26,12 @@ def test_manifest_round_trip_with_decision_policy(tmp_path: Path) -> None:
         decision_policy="ml.actors.adapters.DynamicThresholdAdapter",
         decision_config={"alpha": 0.1},
     )
+    manifest.feature_set_id = register_feature_set_for_schema(
+        registry_path=tmp_path,
+        schema_hash=manifest.feature_schema_hash,
+    )
+    manifest.output_schema = default_output_schema()
+    manifest.calibration = default_calibration()
 
     reg.register_model(model_file, manifest, auto_deploy=False)
 

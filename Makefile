@@ -865,6 +865,36 @@ pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real A
 		poetry run pytest -c ml/pytest.ini ml/tests/integration/cli/test_streaming_persistence_worker_cli.py ml/tests/integration/consumers/test_streaming_persistence_integration.py -m "not slow" -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
+.PHONY: pytest-ml-runtime-correctness
+pytest-ml-runtime-correctness:  #-- Run PR-13 runtime correctness CI subset (deadline/drift/rewind + aggregation contracts)
+	$(info $(M) Running ML runtime-correctness subset...)
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		poetry run pytest -c ml/pytest.ini -q -n 1 -m "runtime_correctness" \
+		ml/tests/unit/actors/test_inference_deadline_guard.py \
+		ml/tests/unit/actors/test_signal_facade_impl_unit.py \
+		ml/tests/unit/actors/test_base_actor_cold_path.py \
+		ml/tests/unit/actors/test_multi_signal_actor.py \
+		ml/tests/integration/replay/test_actor_reset_on_rewind.py \
+		ml/tests/contracts/test_runtime_correctness_contracts.py
+
+.PHONY: pytest-ml-registry-hardening
+pytest-ml-registry-hardening:  #-- Run PR-14 strict compatibility/output-semantics hardening subset
+	$(info $(M) Running ML registry hardening subset...)
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		poetry run pytest -c ml/pytest.ini -q -n 1 \
+		ml/tests/unit/registry/test_model_registry_policy_gating.py \
+		ml/tests/contracts/test_registry_behavioral.py::test_production_registration_blocks_missing_feature_set_id_under_strict_defaults \
+		ml/tests/contracts/test_registry_behavioral.py::test_production_registration_blocks_missing_output_semantics_under_strict_defaults \
+		ml/tests/contracts/test_registry_behavioral.py::test_production_registration_blocks_feature_schema_mismatch_under_strict_defaults \
+		ml/tests/contracts/test_registry_behavioral.py::test_production_load_blocks_missing_output_semantics_under_strict_defaults \
+		ml/tests/contracts/test_registry_behavioral.py::test_production_load_blocks_missing_digest_under_strict_defaults
+
+.PHONY: pytest-ml-strict-policy
+pytest-ml-strict-policy:  #-- Run PR-16 strict-policy subset (runtime correctness + registry hardening, fail-fast)
+	$(info $(M) Running ML strict-policy composed subset...)
+	@$(MAKE) pytest-ml-runtime-correctness || exit $$?
+	@$(MAKE) pytest-ml-registry-hardening || exit $$?
+
 .PHONY: pytest-ml-perf
 pytest-ml-perf:  #-- Run ML performance tests with optional relax factor (ML_BENCH_RELAX)
 	$(info $(M) Running ML performance tests...)

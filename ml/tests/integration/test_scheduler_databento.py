@@ -15,7 +15,6 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from typing import Any, cast
 
 import pytest
 
@@ -26,8 +25,6 @@ pytest.importorskip("databento", reason="databento package not installed")
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler
-from ml.features.earnings.store import DummyEarningsStore
-from ml.stores.data_store import DataStore
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -71,11 +68,6 @@ class TestDataSchedulerIntegration:
                 catalog=catalog,
                 config=config,
                 connection=cloned_test_database,
-            )
-
-            cast(Any, scheduler)._data_store = DataStore(
-                connection_string=cloned_test_database,
-                earnings_store=DummyEarningsStore(),
             )
 
             # Verify initialization

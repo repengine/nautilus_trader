@@ -28,10 +28,11 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from enum import Enum
 from itertools import chain
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from sqlalchemy import inspect
 from sqlalchemy import text
@@ -44,7 +45,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ml.config.market_data import MarketDataTableConfig
 from ml.config.market_data import MarketDataTableProfile
 from ml.core.db_engine import EngineManager
-from ml.tasks.db import split_sql_statements
+from ml.stores.common.sql_splitter import split_sql_statements
 
 
 LOGGER = logging.getLogger(__name__)
@@ -59,6 +60,20 @@ DEFAULT_SCHEMA_CANDIDATES: tuple[str | None, ...] = (None, "public")
 REQUIRED_INSTRUMENTATION_TABLES: tuple[str, ...] = ("ml_data_events", "ml_data_watermarks")
 _TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ALLOW_MIGRATION_DRIFT = frozenset({"1", "true", "yes", "on"})
+IDEMPOTENT_ERROR_PHRASES: Final[tuple[str, ...]] = (
+    "already exists",
+    "does not exist",
+    "duplicate key",
+    "is not partitioned",
+)
+_BASE_MIGRATIONS: Final[tuple[str, ...]] = (
+    "ml/registry/migrations/001_initial_schema.sql",
+    "ml/registry/migrations/002_add_cold_path_fields.sql",
+    "ml/registry/migrations/003_add_artifact_digest.sql",
+    "ml/stores/migrations_bootstrap/001_bootstrap.sql",
+)
+_OPTIONAL_MIGRATIONS: Final[tuple[str, ...]] = ()
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _allow_migration_drift() -> bool:
@@ -69,6 +84,21 @@ def _allow_migration_drift() -> bool:
     if token is None:
         return False
     return token.strip().lower() in _ALLOW_MIGRATION_DRIFT
+
+
+def _resolve_migration_path(path: str) -> Path:
+    """
+    Resolve migration paths relative to the repository root when needed.
+    """
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate
+    resolved = _REPO_ROOT / path
+    if resolved.exists():
+        return resolved
+    return candidate
 
 
 class MigrationRunnerError(RuntimeError):
@@ -105,6 +135,58 @@ class MigrationSummary:
     def pending_count(self) -> int:
         """Number of migrations that still need to run (dry-run preview)."""
         return len(self.pending)
+
+
+class MigrationSchema(str, Enum):
+    """
+    Schema selection for migration plans.
+    """
+
+    STORES = "stores"
+    REGISTRY = "registry"
+    BOTH = "both"
+
+    def allows(self, migration_path: str) -> bool:
+        """
+        Return ``True`` when ``migration_path`` is included for this schema.
+        """
+        if self is MigrationSchema.BOTH:
+            return True
+        if self is MigrationSchema.STORES:
+            return "/stores/" in migration_path
+        if self is MigrationSchema.REGISTRY:
+            return "/registry/" in migration_path
+        return False
+
+
+@dataclass(slots=True, frozen=True)
+class MigrationPlan:
+    """
+    Concrete plan describing which SQL files will be executed.
+    """
+
+    files: tuple[Path, ...]
+
+
+@dataclass(slots=True)
+class MigrationResult:
+    """
+    Outcome details returned after executing a migration plan.
+    """
+
+    applied: int = 0
+    skipped: int = 0
+    warnings: int = 0
+    errors: int = 0
+    files_applied: list[Path] = field(default_factory=list)
+    files_skipped: list[Path] = field(default_factory=list)
+
+    @property
+    def succeeded(self) -> bool:
+        """
+        Return ``True`` when no errors were recorded.
+        """
+        return self.errors == 0
 
 
 class MigrationProfile(str, Enum):
@@ -229,6 +311,157 @@ class MarketDataSchemaReport:
         parts = [f"profile={self.profile.value}"]
         parts.extend(table.describe() for table in self.tables)
         return " | ".join(parts)
+
+
+def build_migration_plan(
+    *,
+    include_optional: bool,
+    schema: MigrationSchema,
+    base: Sequence[str] | None = None,
+    optional: Sequence[str] | None = None,
+) -> MigrationPlan:
+    """
+    Construct a migration plan filtered by ``schema``.
+
+    Parameters
+    ----------
+    include_optional:
+        When ``True`` the optional migration list is appended to the plan.
+    schema:
+        Which schema subset should be included.
+    base:
+        Override for the canonical baseline migration list (used in tests).
+    optional:
+        Override for the optional migration list (used in tests).
+    """
+    base_paths = base or _BASE_MIGRATIONS
+    optional_paths = optional or _OPTIONAL_MIGRATIONS
+
+    ordered: list[Path] = []
+    for candidate in base_paths:
+        if not schema.allows(candidate):
+            continue
+        ordered.append(_resolve_migration_path(candidate))
+
+    if include_optional:
+        for candidate in optional_paths:
+            if not schema.allows(candidate):
+                continue
+            ordered.append(_resolve_migration_path(candidate))
+
+    plan = MigrationPlan(files=tuple(ordered))
+    LOGGER.debug("Built migration plan", extra={"schema": schema.value, "count": len(plan.files)})
+    return plan
+
+
+def apply_migration_files(
+    engine: Engine,
+    plan: MigrationPlan,
+    *,
+    dry_run: bool = False,
+) -> MigrationResult:
+    """
+    Execute a migration plan using the provided SQLAlchemy ``engine``.
+
+    Parameters
+    ----------
+    engine:
+        SQLAlchemy engine used for execution.
+    plan:
+        Ordered migration plan generated by :func:`build_migration_plan`.
+    dry_run:
+        When ``True``, report planned file application without executing SQL.
+
+    Returns
+    -------
+    MigrationResult
+        Aggregated migration execution outcome.
+    """
+    result = MigrationResult()
+    for path in plan.files:
+        if not path.exists():
+            LOGGER.warning("Migration file missing", extra={"file": str(path)})
+            result.skipped += 1
+            result.files_skipped.append(path)
+            continue
+
+        if dry_run:
+            result.applied += 1
+            result.files_applied.append(path)
+            LOGGER.info("Dry-run migration", extra={"file": str(path)})
+            continue
+
+        try:
+            sql_text = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            LOGGER.error("Unable to read migration file", extra={"file": str(path)}, exc_info=exc)
+            result.errors += 1
+            continue
+
+        statements = tuple(split_sql_statements(sql_text))
+        if not statements:
+            LOGGER.debug("Skipping empty migration file %s", path)
+            continue
+
+        try:
+            warning_count = _execute_migration_statements(
+                engine=engine,
+                statements=statements,
+                path=path,
+                tolerate_idempotent_errors=True,
+            )
+        except SQLAlchemyError as exc:
+            LOGGER.error("Migration file execution failed", extra={"file": str(path)}, exc_info=exc)
+            result.errors += 1
+            continue
+
+        result.warnings += warning_count
+        result.applied += 1
+        result.files_applied.append(path)
+        LOGGER.info("Applied migration file", extra={"file": str(path)})
+
+    return result
+
+
+def apply_database_migrations(
+    db_url: str,
+    *,
+    include_optional: bool,
+    schema: MigrationSchema,
+    dry_run: bool = False,
+) -> MigrationResult:
+    """
+    Plan and apply database migrations using ``EngineManager``.
+
+    Parameters
+    ----------
+    db_url:
+        SQLAlchemy-compatible database URL.
+    include_optional:
+        Include optional migration files when ``True``.
+    schema:
+        Schema filter for baseline migration files.
+    dry_run:
+        When ``True``, return a preview without executing SQL.
+
+    Returns
+    -------
+    MigrationResult
+        Aggregated migration application result.
+    """
+    plan = build_migration_plan(include_optional=include_optional, schema=schema)
+    engine = EngineManager.get_engine(db_url)
+    LOGGER.info(
+        "Applying migrations",
+        extra={
+            "db_url": db_url,
+            "dry_run": dry_run,
+            "schema": schema.value,
+            "optional": include_optional,
+            "files": len(plan.files),
+        },
+    )
+    return apply_migration_files(engine, plan, dry_run=dry_run)
 
 
 class MigrationRunner:
@@ -462,29 +695,83 @@ class MigrationRunner:
             return
 
         try:
-            with engine.connect() as connection:
-                transaction: RootTransaction | None = connection.begin()
-                try:
-                    for statement in statements:
-                        if _requires_dedicated_transaction(statement):
-                            if transaction is None:
-                                transaction = connection.begin()
-                            transaction.commit()
-                            transaction = None
-                            _execute_autocommit_statement(engine, statement)
-                            transaction = connection.begin()
-                        else:
-                            connection.execute(text(statement))
-                except SQLAlchemyError:
-                    if transaction is not None and transaction.is_active:
-                        transaction.rollback()
-                    raise
-                else:
-                    if transaction is not None and transaction.is_active:
-                        transaction.commit()
+            _execute_migration_statements(
+                engine=engine,
+                statements=statements,
+                path=path,
+                tolerate_idempotent_errors=False,
+            )
         except SQLAlchemyError as exc:
             msg = f"Failed to apply migration {path.name}"
             raise MigrationRunnerError(msg) from exc
+
+
+def _execute_migration_statements(
+    *,
+    engine: Engine,
+    statements: Sequence[str],
+    path: Path,
+    tolerate_idempotent_errors: bool,
+) -> int:
+    """
+    Execute migration statements with transaction handling.
+
+    Parameters
+    ----------
+    engine:
+        SQLAlchemy engine used to execute statements.
+    statements:
+        Statements to execute in order.
+    path:
+        Migration file path used for logging context.
+    tolerate_idempotent_errors:
+        When ``True``, known idempotent SQL errors are converted to warnings.
+
+    Returns
+    -------
+    int
+        Number of idempotent warnings emitted while executing ``statements``.
+    """
+    warning_count = 0
+    with engine.connect() as connection:
+        transaction: RootTransaction | None = connection.begin()
+        try:
+            for statement in statements:
+                try:
+                    if _requires_dedicated_transaction(statement):
+                        if transaction is None:
+                            transaction = connection.begin()
+                        transaction.commit()
+                        transaction = None
+                        _execute_autocommit_statement(engine, statement)
+                        transaction = connection.begin()
+                    else:
+                        connection.execute(text(statement))
+                except SQLAlchemyError as exc:
+                    message = str(exc).lower()
+                    if tolerate_idempotent_errors and any(
+                        phrase in message for phrase in IDEMPOTENT_ERROR_PHRASES
+                    ):
+                        LOGGER.warning(
+                            "Idempotent migration warning",
+                            extra={
+                                "file": str(path),
+                                "statement_preview": statement[:80],
+                            },
+                            exc_info=exc,
+                        )
+                        warning_count += 1
+                    else:
+                        raise
+        except SQLAlchemyError:
+            if transaction is not None and transaction.is_active:
+                transaction.rollback()
+            raise
+        else:
+            if transaction is not None and transaction.is_active:
+                transaction.commit()
+
+    return warning_count
 
 
 def _requires_dedicated_transaction(statement: str) -> bool:
@@ -988,16 +1275,23 @@ if __name__ == "__main__":  # pragma: no cover - CLI entry
 
 __all__ = [
     "MarketDataSchemaReport",
+    "MigrationPlan",
     "MigrationProfile",
+    "MigrationResult",
     "MigrationRunner",
     "MigrationRunnerError",
+    "MigrationSchema",
     "MigrationSummary",
     "ProfiledMigrationSummary",
     "SchemaHealthCheckError",
     "SchemaHealthReport",
+    "apply_database_migrations",
+    "apply_migration_files",
     "apply_profiled_migrations",
+    "build_migration_plan",
     "is_postgres_url",
     "main",
+    "split_sql_statements",
     "verify_instrumentation_tables",
     "verify_market_data_schema",
 ]

@@ -9,8 +9,17 @@ from __future__ import annotations
 
 from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.tft_dataset_builder_facade import SchemaValidationError
-from ml.data.tft_dataset_builder_facade import TFTDatasetBuilder
 from ml.data.tft_dataset_builder_facade import TFTDatasetBuilderFacade
+
+
+class TFTDatasetBuilder(TFTDatasetBuilderFacade):
+    """
+    Canonical TFT dataset builder wrapper.
+
+    This class intentionally remains a thin subclass so the canonical
+    ``ml.data.tft_dataset_builder.TFTDatasetBuilder`` type stays distinct from
+    the facade type while preserving identical behavior.
+    """
 
 
 __all__ = [

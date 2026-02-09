@@ -20,6 +20,23 @@ from ml.registry import DataRequirements
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
+
+
+def _attach_strict_serveable_fields(
+    *,
+    manifest: ModelManifest,
+    registry_path: Path,
+) -> None:
+    """Attach strict-valid feature linkage and output semantics for registration."""
+    manifest.feature_set_id = register_feature_set_for_schema(
+        registry_path=registry_path,
+        schema_hash=manifest.feature_schema_hash,
+    )
+    manifest.output_schema = default_output_schema()
+    manifest.calibration = default_calibration()
 
 
 @pytest.mark.property
@@ -60,6 +77,10 @@ class TestRegistryProperties:
                 feature_schema_hash="test_hash",
                 performance_metrics=metrics,
                 version="1.0.0",
+            )
+            _attach_strict_serveable_fields(
+                manifest=manifest,
+                registry_path=registry_path,
             )
 
             # Register model
@@ -111,6 +132,10 @@ class TestRegistryProperties:
                     feature_schema={"feature": "float32"},
                     feature_schema_hash=f"hash_{i}",
                     version=f"{i}.0.0",
+                )
+                _attach_strict_serveable_fields(
+                    manifest=manifest,
+                    registry_path=Path(tmpdir),
                 )
 
                 model_id = registry.register_model(model_path, manifest)
@@ -164,6 +189,10 @@ class TestRegistryProperties:
                     feature_schema={f"feature_{name}": "float32"},
                     feature_schema_hash=f"hash_{name}",
                     version="1.0.0",
+                )
+                _attach_strict_serveable_fields(
+                    manifest=manifest,
+                    registry_path=Path(tmpdir),
                 )
 
                 model_id = registry.register_model(model_path, manifest)

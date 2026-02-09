@@ -55,6 +55,7 @@ from ml._imports import check_ml_dependencies
 from ml._imports import ort
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
+from ml.common.model_load_policy import apply_direct_model_load_policy
 
 
 if TYPE_CHECKING:
@@ -196,10 +197,23 @@ class ModelWarmUpComponent:
 
         rt = self._onnx_runtime_config or _OnnxRuntimeConfig()
         session_options, providers = to_session_options(rt)
+        policy_result = apply_direct_model_load_policy(
+            model_path=Path(self._model_path),
+            context="model_warmup_component_load",
+        )
 
         # Load model with ONNX Runtime
         if not HAS_ONNX:
             check_ml_dependencies(["onnxruntime"])
+        if ort is None:
+            check_ml_dependencies(["onnxruntime"])
+        from ml.common.security import verify_artifact_integrity
+
+        verify_artifact_integrity(
+            Path(self._model_path),
+            policy_result.expected_digest,
+            strict=policy_result.strict_integrity,
+        )
         assert ort is not None
         model = ort.InferenceSession(
             self._model_path,
@@ -211,11 +225,15 @@ class ModelWarmUpComponent:
         input_names = [inp.name for inp in model.get_inputs()]
         output_names = [out.name for out in model.get_outputs()]
 
-        metadata = {
-            "input_names": input_names,
-            "output_names": output_names,
-            "model_path": self._model_path,
-        }
+        metadata = dict(policy_result.metadata)
+        metadata.update(
+            {
+                "artifact_sha256_digest": policy_result.expected_digest,
+                "input_names": input_names,
+                "output_names": output_names,
+                "model_path": self._model_path,
+            },
+        )
 
         # Log success
         if self._log:
@@ -420,6 +438,38 @@ class ModelWarmUpComponent:
             if self._log:
                 self._log.error(f"Failed to hot reload model: {e}", exc_info=True)
             return None
+
+    def is_drift_policy_ready(
+        self,
+        *,
+        baseline_samples: int,
+        observed_samples: int,
+        min_baseline_samples: int,
+        min_observed_samples: int,
+    ) -> bool:
+        """
+        Return whether runtime drift actions are eligible for enforcement.
+
+        Parameters
+        ----------
+        baseline_samples : int
+            Current number of baseline samples collected by drift monitoring.
+        observed_samples : int
+            Current number of observed inference samples.
+        min_baseline_samples : int
+            Required minimum baseline sample count.
+        min_observed_samples : int
+            Required minimum observed sample count.
+
+        Returns
+        -------
+        bool
+            ``True`` when both baseline and observed sample windows are satisfied.
+
+        """
+        baseline_target = max(1, int(min_baseline_samples))
+        observed_target = max(baseline_target, int(min_observed_samples))
+        return int(baseline_samples) >= baseline_target and int(observed_samples) >= observed_target
 
     # Property accessors
     @property

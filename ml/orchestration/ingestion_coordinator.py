@@ -17,8 +17,10 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -26,12 +28,18 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.market_data import MarketDatasetInput
 from ml.data.dataset_manifest_defaults import build_auto_dataset_manifest
+from ml.data.ingest.l2_efficient import PopulateL2TaskConfig
+from ml.data.ingest.l2_efficient import populate_l2_efficient
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import BackfillWindowList
+from ml.data.ingest.orchestrator import CatalogBackfillClient
 from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.data.ingest.orchestrator import execute_backfill_plan
 from ml.data.ingest.resume import DatabentoIngestor
+from ml.data.ingest.resume import DatabentoLikeClient
 from ml.data.ingest.service import DatabentoIngestionService
 from ml.data.ingest.subscription import SubscriptionPolicy as CoveragePolicy
 from ml.data.ingest.subscription import get_max_lookback_days
@@ -48,16 +56,19 @@ from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import DAY_NS
 from ml.stores.raw_protocols import RawIngestionWriterProtocol
-from ml.tasks.ingest import PopulateL2TaskConfig
-from ml.tasks.ingest import populate_l2_efficient
 
 
-__all__ = ["IngestionCoordinator", "IngestionOrchestrator"]
+__all__ = [
+    "IngestBackfillRuntimeConfig",
+    "IngestBackfillRuntimeResult",
+    "IngestionCoordinator",
+    "IngestionOrchestrator",
+    "run_ingest_backfill",
+]
 
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from ml.config.scheduler_config import SchedulerConfig
-    from ml.data.ingest.orchestrator import IngestionOrchestrator
     from ml.orchestration.discovery_client import DiscoveryClient
 
 
@@ -87,6 +98,274 @@ class _AutoFillMetrics:
     @staticmethod
     def default() -> _AutoFillMetrics:
         return _AutoFillMetrics()
+
+
+@dataclass(frozen=True, slots=True)
+class IngestBackfillRuntimeConfig:
+    """
+    Runtime configuration for the canonical ingest backfill command flow.
+
+    Parameters
+    ----------
+    db
+        SQL connection string used for registry + SQL write/coverage paths.
+    dataset_id
+        Target dataset identifier.
+    schema
+        Target schema identifier.
+    instruments
+        Canonical instrument identifiers to process.
+    lookback_days
+        Lookback window in days.
+    table_name
+        SQL table used for market-data persistence.
+    catalog_path
+        Optional parquet catalog path.
+    also_write_catalog
+        When true, fan out writes to the parquet catalog through raw writer path.
+    state_path
+        Resume state path for ``IngestState`` persistence.
+    coverage_mode
+        Coverage source mode: ``sql`` or ``catalog``.
+    write_mode
+        Write destination mode: ``sql`` (``parquet`` reserved, not implemented).
+    client_mode
+        Ingestion client mode: ``catalog``, ``databento``, or ``noop``.
+    api_key
+        Optional Databento API key override.
+    market_dataset_id
+        Optional dataset identifier used for market binding resolution.
+    market_inputs
+        Optional market descriptor overrides for binding resolution.
+    dry_run
+        When true, skip state persistence and pass ``state=None`` to ingestion calls.
+    """
+
+    db: str | None
+    dataset_id: str
+    schema: str
+    instruments: tuple[str, ...]
+    lookback_days: int
+    table_name: str = "market_data"
+    catalog_path: str | None = None
+    also_write_catalog: bool = False
+    state_path: str = "checkpoints/ingest_state.json"
+    coverage_mode: str = "sql"
+    write_mode: str = "sql"
+    client_mode: str = "catalog"
+    api_key: str | None = None
+    market_dataset_id: str | None = None
+    market_inputs: tuple[MarketDatasetInput, ...] | None = None
+    dry_run: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.dataset_id.strip():
+            raise ValueError("dataset_id must be non-empty")
+        if not self.schema.strip():
+            raise ValueError("schema must be non-empty")
+        if self.lookback_days < 1:
+            raise ValueError("lookback_days must be >= 1")
+        if not self.instruments:
+            raise ValueError("No instruments provided")
+        if not self.table_name.strip():
+            raise ValueError("table_name must be non-empty")
+        if not self.state_path.strip():
+            raise ValueError("state_path must be non-empty")
+        if self.coverage_mode not in {"sql", "catalog"}:
+            raise ValueError("coverage_mode must be one of: sql, catalog")
+        if self.write_mode not in {"sql", "parquet"}:
+            raise ValueError("write_mode must be one of: sql, parquet")
+        if self.client_mode not in {"catalog", "databento", "noop"}:
+            raise ValueError("client_mode must be one of: catalog, databento, noop")
+        if self.coverage_mode == "catalog" and not self.catalog_path:
+            raise ValueError("--catalog-path is required for catalog coverage")
+        if self.client_mode == "catalog" and not self.catalog_path:
+            raise ValueError("--catalog-path is required for client-mode catalog")
+        if self.also_write_catalog and not self.catalog_path:
+            raise ValueError("--also-write-catalog requires --catalog-path")
+
+
+@dataclass(frozen=True, slots=True)
+class IngestBackfillRuntimeResult:
+    """
+    Outcome summary for a backfill command execution.
+
+    Parameters
+    ----------
+    total_windows_planned
+        Total number of windows requested across all processed instruments.
+    state_saved
+        ``True`` when state was persisted to disk.
+    """
+
+    total_windows_planned: int
+    state_saved: bool
+
+
+def run_ingest_backfill(
+    config: IngestBackfillRuntimeConfig,
+    *,
+    emit: Callable[[str], None] | None = None,
+) -> IngestBackfillRuntimeResult:
+    """
+    Execute ingestion backfill with canonical orchestration/domain owners.
+
+    Parameters
+    ----------
+    config
+        Runtime configuration for the backfill run.
+    emit
+        Optional callback used for user-facing status output.
+
+    Returns
+    -------
+    IngestBackfillRuntimeResult
+        Execution summary.
+    """
+    from ml.data.ingest.api import ensure_service
+    from ml.data.ingest.service import build_like_client
+    from ml.data.ingest.state import load_state
+    from ml.data.ingest.state import save_state
+    from ml.registry.data_registry import DataRegistry
+    from ml.registry.persistence import BackendType
+    from ml.registry.persistence import PersistenceConfig
+    from ml.stores.providers import CatalogCoverageProvider
+    from ml.stores.providers import SqlCoverageProvider
+    from ml.stores.providers import SqlMarketDataWriter
+
+    emit_fn = emit
+
+    def _emit(message: str) -> None:
+        if emit_fn is not None:
+            emit_fn(message)
+
+    coverage: CoverageProviderProtocol
+    if config.coverage_mode == "sql":
+        if not config.db:
+            raise ValueError("--db is required for SQL coverage")
+        coverage = SqlCoverageProvider(
+            connection_string=config.db,
+            table_name=config.table_name,
+        )
+    else:
+        catalog_path = config.catalog_path
+        if not catalog_path:
+            raise ValueError("--catalog-path is required for catalog coverage")
+        coverage = CatalogCoverageProvider(catalog_path=catalog_path)
+
+    if config.write_mode != "sql":
+        raise ValueError("parquet write-mode not implemented; use --write-mode sql")
+    if not config.db:
+        raise ValueError("--db is required (registry + sql write mode)")
+
+    writer = SqlMarketDataWriter(
+        connection_string=config.db,
+        table_name=config.table_name,
+    )
+    registry = DataRegistry(
+        registry_path=Path("ml_registry"),
+        persistence_config=PersistenceConfig(
+            backend=BackendType.POSTGRES,
+            connection_string=config.db,
+        ),
+    )
+
+    client: DatabentoLikeClient
+    if config.client_mode == "catalog":
+        catalog_path = config.catalog_path
+        if not catalog_path:
+            raise ValueError("--catalog-path is required for client-mode catalog")
+        client = CatalogBackfillClient(catalog_path)
+    elif config.client_mode == "databento":
+        api_key = config.api_key or os.getenv("DATABENTO_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "--api-key (or DATABENTO_API_KEY) is required for client-mode databento",
+            )
+        os.environ.setdefault("DATABENTO_API_KEY", str(api_key))
+        try:
+            service = ensure_service()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to initialise Databento ingestion service: {exc}",
+            ) from exc
+        client = build_like_client(service)
+    else:
+
+        class _NoopClient:
+            def get_data(
+                self,
+                dataset: str,
+                symbols: list[str],
+                schema: str,
+                start: str | datetime,
+                end: str | datetime,
+                **kwargs: object,
+            ) -> Any:
+                del dataset
+                del symbols
+                del schema
+                del start
+                del end
+                del kwargs
+                import pandas as pd
+
+                return pd.DataFrame()
+
+        client = _NoopClient()
+
+    ingestor = DatabentoIngestor(client=client)
+
+    raw_writer: RawIngestionWriterProtocol | None = None
+    domain_loader: DomainWindowLoaderProtocol | None = None
+    if config.also_write_catalog:
+        catalog_path = config.catalog_path
+        if not catalog_path:
+            raise ValueError("--also-write-catalog requires --catalog-path")
+        try:
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+        except Exception as exc:  # pragma: no cover - env dependent
+            raise RuntimeError(f"ParquetDataCatalog unavailable: {exc}") from exc
+
+        from ml.stores.io_raw import ParquetCatalogRawWriter
+
+        catalog = ParquetDataCatalog(catalog_path)
+        raw_writer = ParquetCatalogRawWriter(catalog)
+
+    orchestrator = IngestionOrchestrator(
+        coverage=coverage,
+        writer=writer,
+        registry=registry,
+        ingestor=ingestor,
+        raw_writer=raw_writer,
+        domain_loader=domain_loader,
+    )
+
+    state = load_state(config.state_path)
+    binding_dataset_id = config.market_dataset_id or config.dataset_id
+    summary = execute_backfill_plan(
+        orchestrator=orchestrator,
+        dataset_id=config.dataset_id,
+        schema=config.schema,
+        instruments=config.instruments,
+        lookback_days=int(config.lookback_days),
+        binding_dataset_id=binding_dataset_id,
+        market_inputs=config.market_inputs,
+        state=None if config.dry_run else state,
+        emit=_emit,
+    )
+
+    state_saved = False
+    if not config.dry_run:
+        save_state(config.state_path, state)
+        _emit(f"State saved to {config.state_path}")
+        state_saved = True
+
+    _emit(f"Total windows planned: {summary.total_windows}")
+    return IngestBackfillRuntimeResult(
+        total_windows_planned=summary.total_windows,
+        state_saved=state_saved,
+    )
 
 
 # ========================================================================
@@ -1076,9 +1355,11 @@ class IngestionCoordinator:
 
         """
         try:
-            module = importlib.import_module("ml.tasks.ingest.l3")
+            module = importlib.import_module("ml.data.ingest.l3")
         except Exception:  # pragma: no cover - optional dependency
-            logger.info("Auto-fill L3 requested but task helpers are unavailable; skipping")
+            logger.info(
+                "Auto-fill L3 requested but canonical ingest helpers are unavailable; skipping",
+            )
             metrics.operations_total.labels(schema="l3", status="skipped").inc()
             return
 

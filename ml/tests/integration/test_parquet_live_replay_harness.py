@@ -11,6 +11,7 @@ from ml.config.replay_harness import ParquetLiveReplayHarnessConfig
 from ml.config.replay_harness import StrategyReplayConfig
 from ml.features.config import FeatureConfig
 from ml.orchestration.parquet_live_replay_harness import run_parquet_live_replay_harness
+from ml.tests.utils.model_artifacts import write_stub_onnx_artifact
 
 
 pytestmark = pytest.mark.usefixtures(
@@ -101,7 +102,7 @@ def test_parquet_live_replay_harness_smoke(
     catalog.write_data(quotes)
 
     model_path = tmp_path / "smoke_model.onnx"
-    model_path.write_bytes(b"dummy-onnx")
+    write_stub_onnx_artifact(model_path, content=b"dummy-onnx")
 
     output_dir = tmp_path / "out"
     actor_config = ActorReplayConfig(

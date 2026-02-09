@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -71,6 +72,19 @@ class AlternativeDataResult:
         Return sources which produced at least one row.
         """
         return tuple(name for name, frame in self.frames.items() if not frame.is_empty())
+
+
+@dataclass(slots=True, frozen=True)
+class PopulateAlternativeDataTaskConfig:
+    """
+    Arguments accepted by :func:`populate_alternative_data_task`.
+    """
+
+    output_dir: Path
+    symbols: Sequence[str] | None = None
+    sources: Sequence[str] | None = None
+    populate_all: bool = False
+    tier1_progress_path: Path | None = None
 
 
 def _timestamp_now() -> datetime:
@@ -274,11 +288,52 @@ def load_tier1_symbols(progress_path: Path | None = None) -> tuple[str, ...]:
     return tuple()
 
 
+def _resolve_task_sources(config: PopulateAlternativeDataTaskConfig) -> tuple[AlternativeSource, ...]:
+    if config.populate_all:
+        return tuple(AlternativeSource)
+    if not config.sources:
+        raise ValueError("No sources specified; pass populate_all=True or provide --source")
+    resolved: list[AlternativeSource] = []
+    for raw_source in config.sources:
+        try:
+            resolved.append(AlternativeSource(raw_source))
+        except ValueError as exc:
+            raise ValueError(f"Unsupported alternative data source: {raw_source}") from exc
+    return tuple(resolved)
+
+
+def _resolve_task_symbols(config: PopulateAlternativeDataTaskConfig) -> tuple[str, ...]:
+    if config.symbols:
+        symbols = tuple({symbol.upper() for symbol in config.symbols if symbol})
+        if symbols:
+            return symbols
+    tier_symbols = load_tier1_symbols(config.tier1_progress_path)
+    if tier_symbols:
+        return tier_symbols
+    raise ValueError("No symbols provided and Tier 1 progress file was not found or empty")
+
+
+def populate_alternative_data_task(
+    config: PopulateAlternativeDataTaskConfig,
+) -> AlternativeDataResult:
+    """
+    Populate alternative data sources and persist datasets.
+    """
+    symbols = _resolve_task_symbols(config)
+    sources = _resolve_task_sources(config)
+    loader_config = AlternativeDataConfig(symbols=symbols, sources=sources)
+    result = populate_alternative_data(loader_config)
+    save_alternative_data(result, config.output_dir)
+    return result
+
+
 __all__ = [
     "AlternativeDataConfig",
     "AlternativeDataResult",
     "AlternativeSource",
+    "PopulateAlternativeDataTaskConfig",
     "load_tier1_symbols",
     "populate_alternative_data",
+    "populate_alternative_data_task",
     "save_alternative_data",
 ]

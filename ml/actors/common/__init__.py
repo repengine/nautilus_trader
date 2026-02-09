@@ -12,6 +12,15 @@ dependency injection.
 from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
 from ml.actors.common.chronos_inference import ChronosInferenceAdapter
 from ml.actors.common.chronos_inference import ChronosPredictorProtocol
+from ml.actors.common.drift_monitoring import DriftMonitoringComponent
+from ml.actors.common.drift_monitoring import DriftObservation
+from ml.actors.common.drift_monitoring import DriftPolicyConfig
+from ml.actors.common.drift_monitoring import DriftPolicyOutcome
+from ml.actors.common.drift_monitoring import DriftThresholds
+from ml.actors.common.drift_monitoring import evaluate_drift_policy_outcome
+from ml.actors.common.drift_monitoring import resolve_drift_policy_config
+from ml.actors.common.drift_monitoring import resolve_replay_safe_drift_action
+from ml.actors.common.drift_monitoring import threshold_for_policy_action
 from ml.actors.common.features import FeaturesComponent
 from ml.actors.common.features import FeaturesProtocol
 from ml.actors.common.model import ModelComponent
@@ -44,6 +53,11 @@ __all__ = [
     "AdaptiveThresholdComponent",
     "ChronosInferenceAdapter",
     "ChronosPredictorProtocol",
+    "DriftMonitoringComponent",
+    "DriftObservation",
+    "DriftPolicyConfig",
+    "DriftPolicyOutcome",
+    "DriftThresholds",
     "EnsembleStrategy",
     "ExtremesStrategy",
     "FeaturesComponent",
@@ -68,4 +82,8 @@ __all__ = [
     "ThresholdStrategy",
     "build_prediction_surface_metadata",
     "build_signal_metadata",
+    "evaluate_drift_policy_outcome",
+    "resolve_drift_policy_config",
+    "resolve_replay_safe_drift_action",
+    "threshold_for_policy_action",
 ]

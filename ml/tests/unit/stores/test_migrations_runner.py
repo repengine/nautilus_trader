@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -10,8 +11,15 @@ from sqlalchemy.exc import NoSuchTableError
 
 from ml.stores.migrations_runner import MigrationRunner
 from ml.stores.migrations_runner import MigrationRunnerError
+from ml.stores.migrations_runner import MigrationPlan
+from ml.stores.migrations_runner import MigrationResult
+from ml.stores.migrations_runner import MigrationSchema
 from ml.stores.migrations_runner import SchemaHealthCheckError
+from ml.stores.migrations_runner import apply_database_migrations
+from ml.stores.migrations_runner import apply_migration_files
 from ml.stores.migrations_runner import apply_profiled_migrations
+from ml.stores.migrations_runner import build_migration_plan
+from ml.stores.migrations_runner import split_sql_statements
 from ml.config.market_data import MarketDataTableProfile
 from ml.stores.migrations_runner import verify_market_data_schema
 from ml.stores.migrations_runner import verify_instrumentation_tables
@@ -19,6 +27,83 @@ from ml.stores.migrations_runner import verify_instrumentation_tables
 
 def _sqlite_engine(db_path: Path):
     return create_engine(f"sqlite:///{db_path}", future=True)
+
+
+def test_task_db_shim_module_is_retired() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("ml.tasks.db")
+
+
+def test_build_migration_plan_filters_schema_and_optional_files(tmp_path: Path) -> None:
+    registry_dir = tmp_path / "ml" / "registry" / "migrations"
+    stores_dir = tmp_path / "ml" / "stores" / "migrations_bootstrap"
+    registry_dir.mkdir(parents=True)
+    stores_dir.mkdir(parents=True)
+
+    registry_base = registry_dir / "registry_base.sql"
+    stores_base = stores_dir / "stores_base.sql"
+    registry_optional = registry_dir / "registry_optional.sql"
+    stores_optional = stores_dir / "stores_optional.sql"
+
+    for path in (registry_base, stores_base, registry_optional, stores_optional):
+        path.write_text("-- migration\n", encoding="utf-8")
+
+    base = (str(registry_base), str(stores_base))
+    optional = (str(registry_optional), str(stores_optional))
+
+    plan_registry = build_migration_plan(
+        include_optional=False,
+        schema=MigrationSchema.REGISTRY,
+        base=base,
+        optional=optional,
+    )
+    assert plan_registry.files == (registry_base,)
+
+    plan_stores_full = build_migration_plan(
+        include_optional=True,
+        schema=MigrationSchema.STORES,
+        base=base,
+        optional=optional,
+    )
+    assert plan_stores_full.files == (stores_base, stores_optional)
+
+    plan_both_full = build_migration_plan(
+        include_optional=True,
+        schema=MigrationSchema.BOTH,
+        base=base,
+        optional=optional,
+    )
+    assert plan_both_full.files == (registry_base, stores_base, registry_optional, stores_optional)
+
+
+def test_apply_migration_files_tracks_missing_files_and_idempotent_warnings(tmp_path: Path) -> None:
+    db_path = tmp_path / "apply.sqlite"
+    engine = _sqlite_engine(db_path)
+
+    first_migration = tmp_path / "001_create.sql"
+    second_migration = tmp_path / "002_duplicate.sql"
+    missing_migration = tmp_path / "003_missing.sql"
+
+    first_migration.write_text("CREATE TABLE idempotent_demo (id INTEGER PRIMARY KEY);", encoding="utf-8")
+    second_migration.write_text(
+        "CREATE TABLE idempotent_demo (id INTEGER PRIMARY KEY);",
+        encoding="utf-8",
+    )
+
+    plan = MigrationPlan(files=(first_migration, second_migration, missing_migration))
+    result = apply_migration_files(engine, plan)
+
+    assert result.applied == 2
+    assert result.skipped == 1
+    assert result.warnings == 1
+    assert result.errors == 0
+    assert result.succeeded
+
+    with engine.connect() as conn:
+        table_name = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='idempotent_demo'"),
+        ).scalar_one()
+    assert table_name == "idempotent_demo"
 
 
 def test_runner_applies_and_tracks_migrations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

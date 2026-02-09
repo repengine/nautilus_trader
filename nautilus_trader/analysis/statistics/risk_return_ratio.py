@@ -31,4 +31,8 @@ class RiskReturnRatio(PortfolioStatistic):
         if not self._check_valid_returns(returns):
             return np.nan
 
-        return returns.mean() / returns.std()
+        mean = returns.mean()
+        std = returns.std()
+        if not np.isfinite(mean) or not np.isfinite(std) or std == 0:
+            return np.nan
+        return mean / std

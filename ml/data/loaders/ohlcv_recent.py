@@ -284,7 +284,7 @@ def _merge_save(base: Path, symbol: str, df_new: PandasDataFrame) -> None:
 def backfill_recent_ohlcv(
     config: OhlcvRecentBackfillConfig,
     *,
-    service: DatabentoIngestionService,
+    service: DatabentoIngestionService | None = None,
     policy: DatabentoCoveragePolicy | None = None,
     fetch_fn: FetchSymbolDataFn | None = None,
 ) -> OhlcvRecentBackfillResult:
@@ -296,7 +296,8 @@ def backfill_recent_ohlcv(
     config:
         Configuration describing the data directory, symbols, and time window.
     service:
-        Databento ingestion service used to fetch the bars.
+        Optional Databento ingestion service used to fetch the bars. When
+        omitted, the service is resolved via :func:`ml.data.ingest.api.ensure_service`.
     policy:
         Optional coverage policy. When ``None`` the policy is resolved from the
         environment via :func:`DatabentoCoveragePolicy.from_env`.
@@ -305,10 +306,12 @@ def backfill_recent_ohlcv(
         facilitate testing.
 
     """
+    from ml.data.ingest.api import ensure_service  # local import to avoid cycles
     from ml.data.ingest.api import fetch_symbol_data  # local import to avoid cycles
 
     active_policy = policy or DatabentoCoveragePolicy.from_env()
     fetch = fetch_fn or fetch_symbol_data
+    resolved_service = service or ensure_service()
 
     symbols = _resolve_symbols(config)
     if not symbols:
@@ -362,7 +365,7 @@ def backfill_recent_ohlcv(
 
         try:
             frame = fetch(
-                service=service,
+                service=resolved_service,
                 dataset=config.dataset,
                 schema=config.schema,
                 symbol=symbol,
@@ -420,7 +423,11 @@ def backfill_recent_ohlcv(
     return OhlcvRecentBackfillResult(tuple(summaries), config.dataset, config.schema)
 
 
+BackfillRecentOhlcvTaskConfig = OhlcvRecentBackfillConfig
+
+
 __all__ = [
+    "BackfillRecentOhlcvTaskConfig",
     "OhlcvRecentBackfillConfig",
     "OhlcvRecentBackfillResult",
     "SymbolBackfillStatus",

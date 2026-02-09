@@ -32,6 +32,7 @@ ORCHESTRATOR_ENV_VARS: tuple[str, ...] = (
     "ORCH_LOCK_TTL_HOURS",
     "ORCH_SCHEDULE_TIME",
 )
+ORCHESTRATOR_ENV_PREFIXES: tuple[str, ...] = ("ML_TFT_",)
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test() -> Generator[None, None, None]:
@@ -139,12 +140,15 @@ def isolated_orchestrator_env(monkeypatch: pytest.MonkeyPatch) -> None:
     Clear pipeline orchestrator environment variables for the duration of a test.
 
     Tests can opt into this fixture to ensure scheduler helpers never inherit
-    stray ORCH_* values from other shards while still using monkeypatch to
+    stray ORCH_* or ML_TFT_* values from other shards while still using monkeypatch to
     set explicit overrides.
     """
 
     for key in ORCHESTRATOR_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
+    for key in tuple(os.environ):
+        if key.startswith(ORCHESTRATOR_ENV_PREFIXES):
+            monkeypatch.delenv(key, raising=False)
 
 
 @pytest.fixture

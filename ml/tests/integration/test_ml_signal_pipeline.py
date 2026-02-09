@@ -21,6 +21,7 @@ import pytest
 
 from ml._imports import HAS_NAUTILUS_CORE
 from ml._imports import NAUTILUS_CORE_IMPORT_ERROR
+from ml.tests.utils.model_artifacts import write_stub_onnx_artifact
 
 if not HAS_NAUTILUS_CORE:  # pragma: no cover - depends on native extensions
     pytest.skip(
@@ -76,11 +77,10 @@ def _configure_mock_onnx_session(
 
 
 def _write_stub_model(tmp_path: Path, filename: str = "model.onnx") -> Path:
-    """Write a placeholder ONNX artifact to satisfy path checks."""
+    """Write a placeholder ONNX artifact and sidecar digest metadata."""
 
     model_path = tmp_path / filename
-    model_path.write_bytes(b"mock-onnx")
-    return model_path
+    return write_stub_onnx_artifact(model_path)
 
 
 @pytest.mark.slow

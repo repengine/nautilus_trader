@@ -15,10 +15,15 @@ import pytest
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from ml.actors.base import BaseMLInferenceActor, MLSignal
+from ml.actors.common.drift_monitoring import DriftObservation
+from ml.actors.common.drift_monitoring import DriftPolicyConfig
+from ml.actors.common.drift_monitoring import DriftPolicyOutcome
+from ml.actors.common.drift_monitoring import DriftThresholds
 from ml.actors.common.signal_strategy import ThresholdSignalStrategy
 from ml.actors import signal_facade_impl as facade_impl
 from ml.actors.signal_facade_impl import MLSignalActorFacade
 from ml.actors.signal_facade_impl import _record_feature_time_metric
+from ml.config.policy import DriftActionPolicy
 from ml.tests.utils.stubs import make_stub_bar
 
 
@@ -73,6 +78,29 @@ class _CounterStub:
         self.inc_calls += 1
 
 
+def _drift_policy_config(action: DriftActionPolicy = DriftActionPolicy.LOG_ONLY) -> DriftPolicyConfig:
+    return DriftPolicyConfig(
+        action_policy=action,
+        thresholds=DriftThresholds(
+            log_only=0.2,
+            degraded=0.4,
+            fail_closed=0.8,
+        ),
+        min_baseline_samples=2,
+        min_observed_samples=3,
+    )
+
+
+def _drift_observation(score: float = 1.0, policy_ready: bool = True) -> DriftObservation:
+    return DriftObservation(
+        drift_score=score,
+        sample_count=3,
+        baseline_samples=2,
+        baseline_ready=True,
+        policy_ready=policy_ready,
+    )
+
+
 class _StrategyStub:
     def __init__(self, signal: MLSignal | None) -> None:
         self.signal = signal
@@ -107,6 +135,12 @@ def _stub_bar_with_ts_init(ts_init: int) -> object:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
     bar_type = SimpleNamespace(instrument_id=inst, spec="stub")
     return SimpleNamespace(bar_type=bar_type, ts_event=1, ts_init=ts_init)
+
+
+def _stub_bar_with_ts_event(ts_event: int) -> object:
+    inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
+    bar_type = SimpleNamespace(instrument_id=inst, spec="stub")
+    return SimpleNamespace(bar_type=bar_type, ts_event=ts_event, ts_init=ts_event)
 
 
 def _metric_stub() -> _MetricStub:
@@ -328,6 +362,7 @@ def test_generate_prediction_protected_forces_signal_mode(monkeypatch) -> None:
         _execute_hot_reload=lambda: None,
         _predict=Mock(side_effect=AssertionError("predict should not be called")),
         _prediction_count=0,
+        _apply_inference_deadline_guard=Mock(return_value=False),
         _calculate_volatility=lambda _bar: 0.05,
         _prediction_buffer_component=buffer_component,
         _adaptive_threshold_component=adaptive_component,
@@ -337,6 +372,7 @@ def test_generate_prediction_protected_forces_signal_mode(monkeypatch) -> None:
         _last_feature_time_ns=1_000,
         _record_success=Mock(),
         _record_failure=Mock(),
+        _apply_configured_ml_failure_action=Mock(),
         log=SimpleNamespace(exception=lambda *a, **k: None),
     )
 
@@ -357,6 +393,287 @@ def test_generate_prediction_protected_forces_signal_mode(monkeypatch) -> None:
     actor._try_generate_signal.assert_called_once()
     performance_component.record_timing.assert_called_once()
     actor._record_success.assert_called_once()
+
+
+def test_generate_prediction_protected_stops_pipeline_on_deadline_guard() -> None:
+    buffer_component = SimpleNamespace(
+        update=Mock(),
+        volatility_window=np.array([0.1], dtype=np.float32),
+        window_count=1,
+    )
+    adaptive_component = SimpleNamespace(detect_regime=Mock())
+    performance_component = SimpleNamespace(record_timing=Mock(), record_error=Mock())
+
+    actor = SimpleNamespace(
+        _should_hot_reload=lambda: False,
+        _execute_hot_reload=lambda: None,
+        _predict=Mock(return_value=(0.9, 0.8)),
+        _prediction_count=0,
+        _apply_inference_deadline_guard=Mock(return_value=True),
+        _calculate_volatility=lambda _bar: 0.05,
+        _prediction_buffer_component=buffer_component,
+        _adaptive_threshold_component=adaptive_component,
+        _persist_prediction=Mock(),
+        _try_generate_signal=Mock(),
+        _performance_monitoring_component=performance_component,
+        _last_feature_time_ns=2_000,
+        _record_success=Mock(),
+        _record_failure=Mock(),
+        _apply_configured_ml_failure_action=Mock(),
+        log=SimpleNamespace(exception=lambda *a, **k: None),
+    )
+
+    actor_proxy = cast(MLSignalActorFacade, actor)
+    MLSignalActorFacade._generate_prediction_protected(
+        actor_proxy,
+        _stub_bar(),
+        np.zeros(1, dtype=np.float32),
+    )
+
+    assert actor._prediction_count == 1
+    actor._apply_inference_deadline_guard.assert_called_once()
+    assert not buffer_component.update.called
+    assert not adaptive_component.detect_regime.called
+    assert not actor._persist_prediction.called
+    assert not actor._try_generate_signal.called
+    performance_component.record_timing.assert_called_once()
+    assert not actor._record_success.called
+    assert not actor._record_failure.called
+
+
+def test_generate_prediction_protected_stops_pipeline_on_drift_halt() -> None:
+    buffer_component = SimpleNamespace(
+        update=Mock(),
+        volatility_window=np.array([0.1], dtype=np.float32),
+        window_count=1,
+    )
+    adaptive_component = SimpleNamespace(detect_regime=Mock())
+    performance_component = SimpleNamespace(record_timing=Mock(), record_error=Mock())
+
+    actor = SimpleNamespace(
+        _should_hot_reload=lambda: False,
+        _execute_hot_reload=lambda: None,
+        _predict=Mock(return_value=(0.9, 0.8)),
+        _prediction_count=0,
+        _apply_inference_deadline_guard=Mock(return_value=False),
+        _handle_runtime_drift_policy=Mock(return_value=True),
+        _calculate_volatility=lambda _bar: 0.05,
+        _prediction_buffer_component=buffer_component,
+        _adaptive_threshold_component=adaptive_component,
+        _persist_prediction=Mock(),
+        _try_generate_signal=Mock(),
+        _performance_monitoring_component=performance_component,
+        _last_feature_time_ns=2_000,
+        _record_success=Mock(),
+        _record_failure=Mock(),
+        _apply_configured_ml_failure_action=Mock(),
+        log=SimpleNamespace(exception=lambda *a, **k: None),
+    )
+
+    actor_proxy = cast(MLSignalActorFacade, actor)
+    MLSignalActorFacade._generate_prediction_protected(
+        actor_proxy,
+        _stub_bar(),
+        np.zeros(1, dtype=np.float32),
+    )
+
+    actor._handle_runtime_drift_policy.assert_called_once()
+    assert actor._prediction_count == 1
+    assert buffer_component.update.called
+    assert adaptive_component.detect_regime.called
+    assert not actor._persist_prediction.called
+    assert not actor._try_generate_signal.called
+    performance_component.record_timing.assert_called_once()
+    assert not actor._record_success.called
+    assert not actor._record_failure.called
+
+
+def test_generate_prediction_protected_applies_ml_failure_action_on_exception() -> None:
+    performance_component = SimpleNamespace(record_timing=Mock(), record_error=Mock())
+
+    actor = SimpleNamespace(
+        _should_hot_reload=lambda: False,
+        _execute_hot_reload=lambda: None,
+        _predict=Mock(side_effect=RuntimeError("boom")),
+        _prediction_count=0,
+        _apply_inference_deadline_guard=Mock(return_value=False),
+        _calculate_volatility=lambda _bar: 0.05,
+        _prediction_buffer_component=SimpleNamespace(
+            update=Mock(),
+            volatility_window=np.array([0.1], dtype=np.float32),
+            window_count=1,
+        ),
+        _adaptive_threshold_component=SimpleNamespace(detect_regime=Mock()),
+        _persist_prediction=Mock(),
+        _try_generate_signal=Mock(),
+        _performance_monitoring_component=performance_component,
+        _last_feature_time_ns=1_000,
+        _record_success=Mock(),
+        _record_failure=Mock(),
+        _apply_configured_ml_failure_action=Mock(),
+        log=SimpleNamespace(exception=lambda *a, **k: None),
+    )
+
+    actor_proxy = cast(MLSignalActorFacade, actor)
+    bar = _stub_bar()
+    MLSignalActorFacade._generate_prediction_protected(
+        actor_proxy,
+        bar,
+        np.zeros(1, dtype=np.float32),
+    )
+
+    performance_component.record_error.assert_called_once()
+    actor._record_failure.assert_called_once()
+    actor._apply_configured_ml_failure_action.assert_called_once_with(
+        reason="prediction_exception",
+        ts_event=int(bar.ts_event),
+        detail="RuntimeError('boom')",
+    )
+
+
+@pytest.mark.runtime_correctness
+@pytest.mark.parametrize(
+    ("action", "expected_abort"),
+    [
+        (DriftActionPolicy.LOG_ONLY, False),
+        (DriftActionPolicy.DEGRADED, False),
+        (DriftActionPolicy.FAIL_CLOSED, True),
+    ],
+)
+def test_handle_runtime_drift_policy_applies_configured_action(
+    action: DriftActionPolicy,
+    expected_abort: bool,
+) -> None:
+    observation = _drift_observation(score=1.0, policy_ready=True)
+    outcome = DriftPolicyOutcome(
+        action=action,
+        configured_action=action,
+        reason="runtime_feature_drift",
+        drift_score=1.0,
+        threshold=0.2,
+    )
+    monitor = SimpleNamespace(
+        record_inference=Mock(return_value=observation),
+        evaluate_policy=Mock(return_value=outcome),
+        policy_config=_drift_policy_config(action=action),
+    )
+    warmup = SimpleNamespace(is_drift_policy_ready=Mock(return_value=True))
+
+    actor = cast(
+        MLSignalActorFacade,
+        SimpleNamespace(
+            _drift_monitoring_component=monitor,
+            _model_warmup_component=warmup,
+            cache=SimpleNamespace(is_backtesting=False),
+            _apply_drift_policy_outcome=Mock(return_value=expected_abort),
+            log=SimpleNamespace(debug=Mock()),
+        ),
+    )
+    bar = _stub_bar()
+
+    should_abort = MLSignalActorFacade._handle_runtime_drift_policy(
+        actor,
+        bar=bar,
+        features=np.array([1.0], dtype=np.float32),
+    )
+
+    assert should_abort is expected_abort
+    warmup.is_drift_policy_ready.assert_called_once()
+    monitor.evaluate_policy.assert_called_once_with(
+        observation=observation,
+        policy_ready=True,
+    )
+    actor._apply_drift_policy_outcome.assert_called_once()
+    kwargs = actor._apply_drift_policy_outcome.call_args.kwargs
+    assert kwargs["action"] == action
+    assert kwargs["reason"] == "runtime_feature_drift"
+    assert kwargs["drift_score"] == pytest.approx(1.0)
+    assert kwargs["threshold"] == pytest.approx(0.2)
+    assert f"configured_action={action.value}" in kwargs["detail"]
+    assert kwargs["ts_event"] == int(bar.ts_event)
+
+
+@pytest.mark.runtime_correctness
+def test_handle_runtime_drift_policy_replay_forces_log_only() -> None:
+    observation = _drift_observation(score=1.0, policy_ready=True)
+    outcome = DriftPolicyOutcome(
+        action=DriftActionPolicy.FAIL_CLOSED,
+        configured_action=DriftActionPolicy.FAIL_CLOSED,
+        reason="runtime_feature_drift",
+        drift_score=1.0,
+        threshold=0.2,
+    )
+    monitor = SimpleNamespace(
+        record_inference=Mock(return_value=observation),
+        evaluate_policy=Mock(return_value=outcome),
+        policy_config=_drift_policy_config(action=DriftActionPolicy.FAIL_CLOSED),
+    )
+
+    actor = cast(
+        MLSignalActorFacade,
+        SimpleNamespace(
+            _drift_monitoring_component=monitor,
+            _model_warmup_component=SimpleNamespace(is_drift_policy_ready=Mock(return_value=True)),
+            cache=SimpleNamespace(is_backtesting=True),
+            _apply_drift_policy_outcome=Mock(return_value=False),
+            log=SimpleNamespace(debug=Mock()),
+        ),
+    )
+
+    should_abort = MLSignalActorFacade._handle_runtime_drift_policy(
+        actor,
+        bar=_stub_bar(),
+        features=np.array([1.0], dtype=np.float32),
+    )
+
+    assert should_abort is False
+    actor._model_warmup_component.is_drift_policy_ready.assert_called_once()
+    monitor.evaluate_policy.assert_called_once_with(
+        observation=observation,
+        policy_ready=True,
+    )
+    kwargs = actor._apply_drift_policy_outcome.call_args.kwargs
+    assert kwargs["action"] == DriftActionPolicy.LOG_ONLY
+    assert kwargs["reason"] == "runtime_feature_drift_replay_safe"
+    assert kwargs["drift_score"] == pytest.approx(1.0)
+    assert kwargs["threshold"] == pytest.approx(0.2)
+    assert "configured_action=fail_closed" in kwargs["detail"]
+
+
+@pytest.mark.runtime_correctness
+def test_handle_runtime_drift_policy_respects_warmup_gate() -> None:
+    observation = _drift_observation(score=1.0, policy_ready=True)
+    monitor = SimpleNamespace(
+        record_inference=Mock(return_value=observation),
+        evaluate_policy=Mock(return_value=None),
+        policy_config=_drift_policy_config(action=DriftActionPolicy.FAIL_CLOSED),
+    )
+    warmup = SimpleNamespace(is_drift_policy_ready=Mock(return_value=False))
+
+    actor = cast(
+        MLSignalActorFacade,
+        SimpleNamespace(
+            _drift_monitoring_component=monitor,
+            _model_warmup_component=warmup,
+            cache=SimpleNamespace(is_backtesting=False),
+            _apply_drift_policy_outcome=Mock(return_value=True),
+            log=SimpleNamespace(debug=Mock()),
+        ),
+    )
+
+    should_abort = MLSignalActorFacade._handle_runtime_drift_policy(
+        actor,
+        bar=_stub_bar(),
+        features=np.array([1.0], dtype=np.float32),
+    )
+
+    assert should_abort is False
+    warmup.is_drift_policy_ready.assert_called_once()
+    monitor.evaluate_policy.assert_called_once_with(
+        observation=observation,
+        policy_ready=False,
+    )
+    actor._apply_drift_policy_outcome.assert_not_called()
 
 
 def test_publish_signal_returns_when_bridge_missing(
@@ -649,6 +966,69 @@ def test_reset_signal_state_resets_components() -> None:
     assert actor._last_close_price is None
     actor._prediction_buffer_component.reset.assert_called_once()
     actor._adaptive_threshold_component.update_threshold.assert_called_once_with(0.0)
+
+
+def test_prepare_bar_runtime_state_resets_on_backstep() -> None:
+    actor = cast(
+        MLSignalActorFacade,
+        SimpleNamespace(
+            _last_processed_ts_event=200,
+            _reset_inference_runtime_state=Mock(),
+            log=SimpleNamespace(info=Mock()),
+        ),
+    )
+
+    MLSignalActorFacade._prepare_bar_runtime_state(actor, _stub_bar_with_ts_event(150))
+
+    actor._reset_inference_runtime_state.assert_called_once_with(
+        reason="replay_rewind_backstep",
+        ts_event=150,
+    )
+    assert actor._last_processed_ts_event == 150
+
+
+def test_prepare_bar_runtime_state_accepts_monotonic_timestamps() -> None:
+    actor = cast(
+        MLSignalActorFacade,
+        SimpleNamespace(
+            _last_processed_ts_event=100,
+            _reset_inference_runtime_state=Mock(),
+            log=SimpleNamespace(info=Mock()),
+        ),
+    )
+
+    MLSignalActorFacade._prepare_bar_runtime_state(actor, _stub_bar_with_ts_event(100))
+    MLSignalActorFacade._prepare_bar_runtime_state(actor, _stub_bar_with_ts_event(101))
+
+    actor._reset_inference_runtime_state.assert_not_called()
+    assert actor._last_processed_ts_event == 101
+
+
+def test_reset_inference_runtime_state_components_resets_facade_runtime() -> None:
+    indicator_manager = SimpleNamespace(reset=Mock())
+    feature_engineer = SimpleNamespace(reset=Mock())
+    drift_monitor = SimpleNamespace(reset_runtime_state=Mock())
+    actor = cast(
+        MLSignalActorFacade,
+        SimpleNamespace(
+            reset_signal_state=Mock(),
+            _indicator_manager=indicator_manager,
+            _feature_engineer=feature_engineer,
+            _drift_monitoring_component=drift_monitor,
+            _last_feature_time_ns=123,
+            _last_processed_ts_event=999,
+        ),
+    )
+
+    MLSignalActorFacade._reset_inference_runtime_state_components(actor)
+
+    actor.reset_signal_state.assert_called_once()
+    indicator_manager.reset.assert_called_once()
+    feature_engineer.reset.assert_called_once()
+    drift_monitor.reset_runtime_state.assert_called_once()
+    assert actor._indicator_manager is None
+    assert actor._last_feature_time_ns == 0
+    assert actor._last_processed_ts_event is None
 
 
 def test_history_and_threshold_overrides() -> None:

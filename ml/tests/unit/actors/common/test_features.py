@@ -450,6 +450,24 @@ def test_feature_cleanup_releases_resources(features_component):
     assert features_component.is_warmed_up() is False, "Warm-up status should be reset"
 
 
+def test_reset_runtime_state_clears_buffers_and_counters(features_component) -> None:
+    """Verify runtime reset clears warm-up/buffer state with one shared implementation."""
+    bars = create_bar_sequence(count=20)
+    for bar in bars:
+        features_component.compute_features(bar)
+
+    assert features_component._bars_processed > 0
+    assert features_component._feature_count >= 0
+
+    features_component.reset_runtime_state(reason="replay_rewind")
+
+    assert features_component._bars_processed == 0
+    assert features_component._feature_count == 0
+    assert features_component._total_feature_time == 0.0
+    assert features_component.is_warmed_up() is False
+    assert len(features_component.get_buffered_bars()) == 0
+
+
 # Test 1.10: test_feature_window_initialization
 def test_feature_window_initialization(
     basic_config,
@@ -1049,4 +1067,5 @@ def test_import_and_instantiate():
     assert hasattr(FeaturesComponent, "is_warmed_up")
     assert hasattr(FeaturesComponent, "validate_features")
     assert hasattr(FeaturesComponent, "persist_features_async")
+    assert hasattr(FeaturesComponent, "reset_runtime_state")
     assert hasattr(FeaturesComponent, "cleanup")

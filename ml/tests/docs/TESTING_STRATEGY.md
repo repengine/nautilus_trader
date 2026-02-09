@@ -221,6 +221,18 @@ Tip: prefer `uv run --active --no-sync` as a faster runner when available.
 - `HYPOTHESIS_PROFILE=ci` — deterministic, bounded property tests.
 - `PYTHONHASHSEED` — pin for reproducible dict ordering when needed.
 
+### Registry Strict-Policy Rules
+
+- Default to strict policy semantics in tests that exercise model registration/loading behavior.
+- Isolate policy env state with `isolated_registry_policy_env` so no ambient env variable can change expected outcomes.
+- Use `strict_registry_policy_env` when a test explicitly asserts strict gates.
+- Use `permissive_registry_policy_env` only in explicitly-scoped legacy/migration tests; never as a global suite default.
+- For non-policy behavior tests that register serveable models, construct strict-valid manifests:
+  - include `feature_set_id`
+  - ensure feature registry linkage exists with matching `feature_schema_hash`
+  - provide output semantics (`output_schema`, calibration where required)
+  - provide digest metadata where strict load paths require it (manifest or sidecar)
+
 ### Database Strategy
 
 - Unit/Contract: use JSON-backed registry/fakes; no DB.

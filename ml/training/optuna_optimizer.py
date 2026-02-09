@@ -54,7 +54,12 @@ class XGBoostOptunaOptimizer:
 
     """
 
-    def __init__(self, config: OptunaConfig) -> None:
+    def __init__(
+        self,
+        config: OptunaConfig,
+        *,
+        sampler_seed: int | None = None,
+    ) -> None:
         """
         Initialize Optuna optimizer.
 
@@ -62,9 +67,12 @@ class XGBoostOptunaOptimizer:
         ----------
         config : OptunaConfig
             Configuration for optimization parameters.
+        sampler_seed : int | None, optional
+            Deterministic seed propagated into Optuna samplers.
 
         """
         self.config = config
+        self._sampler_seed = sampler_seed
         self._optuna: Any = None
         self._study: Any = None
 
@@ -127,20 +135,22 @@ class XGBoostOptunaOptimizer:
                 n_ei_candidates=24,
                 multivariate=True,
                 constant_liar=True,
+                seed=self._sampler_seed,
             )
         elif self.config.sampler == "random":
-            return self._optuna.samplers.RandomSampler()
+            return self._optuna.samplers.RandomSampler(seed=self._sampler_seed)
         elif self.config.sampler == "cmaes":
             return self._optuna.samplers.CmaEsSampler(
                 n_startup_trials=10,
                 restart_strategy="ipop",
+                seed=self._sampler_seed,
             )
         elif self.config.sampler == "grid":
             # Note: Grid sampler requires predefined search space
             return self._optuna.samplers.GridSampler()
         else:
             # Default to TPE
-            return self._optuna.samplers.TPESampler()
+            return self._optuna.samplers.TPESampler(seed=self._sampler_seed)
 
     def _create_pruner(self) -> Any:
         """
@@ -493,8 +503,13 @@ __all__ = [
 class LightGBMOptunaOptimizer:
     """Thin wrapper reusing the XGBoost optimizer for LightGBM parameter sweeps."""
 
-    def __init__(self, config: OptunaConfig) -> None:
-        self._delegate = XGBoostOptunaOptimizer(config)
+    def __init__(
+        self,
+        config: OptunaConfig,
+        *,
+        sampler_seed: int | None = None,
+    ) -> None:
+        self._delegate = XGBoostOptunaOptimizer(config, sampler_seed=sampler_seed)
 
     def optimize(
         self,

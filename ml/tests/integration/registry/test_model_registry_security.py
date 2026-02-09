@@ -9,22 +9,26 @@ registration and verifies integrity during model loading.
 """
 
 import hashlib
-import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from ml.common.security import ArtifactIntegrityError
+from ml.config.policy import RegistryCompatibilityPolicyConfig
+from ml.config.registry import RegistryPolicyConfig
 from ml.registry import DataRequirements
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 pytestmark = pytest.mark.usefixtures(
     "isolated_prometheus_registry",
     "mock_tracing_backend",
+    "isolated_registry_policy_env",
     "isolated_orchestrator_env",
 )
 
@@ -35,10 +39,15 @@ class TestModelRegistryIntegrity:
     """
 
     @pytest.fixture
-    def registry(self, tmp_path: Path) -> ModelRegistry:
+    def registry(
+        self,
+        tmp_path: Path,
+        strict_registry_policy_env: None,
+    ) -> ModelRegistry:
         """
         Create a test model registry.
         """
+        del strict_registry_policy_env
         return ModelRegistry(registry_path=tmp_path)
 
     @pytest.fixture
@@ -53,18 +62,28 @@ class TestModelRegistryIntegrity:
         return model_file, digest
 
     @pytest.fixture
-    def sample_manifest(self) -> ModelManifest:
+    def sample_manifest(self, tmp_path: Path) -> ModelManifest:
         """
         Create a sample model manifest.
         """
+        schema_hash = "test_hash_123"
+        feature_set_id = register_feature_set_for_schema(
+            registry_path=tmp_path,
+            schema_hash=schema_hash,
+        )
         return ModelManifest(
             model_id="test_model_001",
             role=ModelRole.INFERENCE,
             data_requirements=DataRequirements.L1_ONLY,
             architecture="test_arch",
             feature_schema={"feature1": "float32", "feature2": "float32"},
-            feature_schema_hash="test_hash_123",
+            feature_schema_hash=schema_hash,
+            feature_set_id=feature_set_id,
             version="1.0.0",
+            serveable=True,
+            artifact_format="onnx",
+            output_schema=default_output_schema(),
+            calibration=default_calibration(),
         )
 
     def test_register_model_calculates_digest(
@@ -180,14 +199,27 @@ class TestModelRegistryIntegrity:
 
     def test_load_model_missing_digest_warning(
         self,
-        registry: ModelRegistry,
+        tmp_path: Path,
         sample_onnx_model: tuple[Path, str],
         sample_manifest: ModelManifest,
         mock_onnx_runtime: Any,
+        permissive_registry_policy_env: None,
     ) -> None:
         """
         Test that model loading warns when digest is missing.
         """
+        del permissive_registry_policy_env
+        registry = ModelRegistry(
+            registry_path=tmp_path,
+            policy_config=RegistryPolicyConfig(
+                compatibility_policy=RegistryCompatibilityPolicyConfig(
+                    strict_model_compatibility=False,
+                    allow_compatibility_migration_override=True,
+                    allow_unsigned_artifacts=True,
+                    require_output_semantics=False,
+                ),
+            ),
+        )
         model_path, _ = sample_onnx_model
 
         # Manually clear the digest to simulate old models without digests
@@ -314,10 +346,15 @@ class TestModelRegistrySecurityEdgeCases:
     """
 
     @pytest.fixture
-    def registry(self, tmp_path: Path) -> ModelRegistry:
+    def registry(
+        self,
+        tmp_path: Path,
+        strict_registry_policy_env: None,
+    ) -> ModelRegistry:
         """
         Create a test model registry.
         """
+        del strict_registry_policy_env
         return ModelRegistry(registry_path=tmp_path)
 
     @pytest.fixture
@@ -332,18 +369,28 @@ class TestModelRegistrySecurityEdgeCases:
         return model_file, digest
 
     @pytest.fixture
-    def sample_manifest(self) -> ModelManifest:
+    def sample_manifest(self, tmp_path: Path) -> ModelManifest:
         """
         Create a sample model manifest.
         """
+        schema_hash = "test_hash_123"
+        feature_set_id = register_feature_set_for_schema(
+            registry_path=tmp_path,
+            schema_hash=schema_hash,
+        )
         return ModelManifest(
             model_id="test_model_001",
             role=ModelRole.INFERENCE,
             data_requirements=DataRequirements.L1_ONLY,
             architecture="test_arch",
             feature_schema={"feature1": "float32", "feature2": "float32"},
-            feature_schema_hash="test_hash_123",
+            feature_schema_hash=schema_hash,
+            feature_set_id=feature_set_id,
             version="1.0.0",
+            serveable=True,
+            artifact_format="onnx",
+            output_schema=default_output_schema(),
+            calibration=default_calibration(),
         )
 
     def test_digest_calculation_large_file(
@@ -373,7 +420,6 @@ class TestModelRegistrySecurityEdgeCases:
         """
         Test that concurrent model registration maintains integrity.
         """
-        import threading
         from concurrent.futures import ThreadPoolExecutor
 
         # Create multiple model files
@@ -385,6 +431,11 @@ class TestModelRegistrySecurityEdgeCases:
             model_file = tmp_path / f"concurrent_model_{i}.onnx"
             content = f"concurrent model {i} content".encode()
             model_file.write_bytes(content)
+            schema_hash = f"hash_{i}"
+            feature_set_id = register_feature_set_for_schema(
+                registry_path=tmp_path,
+                schema_hash=schema_hash,
+            )
 
             manifest = ModelManifest(
                 model_id=f"concurrent_model_{i}",
@@ -392,8 +443,13 @@ class TestModelRegistrySecurityEdgeCases:
                 data_requirements=DataRequirements.L1_ONLY,
                 architecture="test_arch",
                 feature_schema={"feature1": "float32"},
-                feature_schema_hash=f"hash_{i}",
+                feature_schema_hash=schema_hash,
+                feature_set_id=feature_set_id,
                 version="1.0.0",
+                serveable=True,
+                artifact_format="onnx",
+                output_schema=default_output_schema(),
+                calibration=default_calibration(),
             )
 
             model_files.append(model_file)
@@ -429,6 +485,11 @@ class TestModelRegistrySecurityEdgeCases:
         model_file = tmp_path / "test_model.onnx"
         content = b"test model content"
         model_file.write_bytes(content)
+        schema_hash = "test_hash"
+        feature_set_id = register_feature_set_for_schema(
+            registry_path=tmp_path,
+            schema_hash=schema_hash,
+        )
 
         manifest = ModelManifest(
             model_id="test_model",
@@ -436,8 +497,13 @@ class TestModelRegistrySecurityEdgeCases:
             data_requirements=DataRequirements.L1_ONLY,
             architecture="test_arch",
             feature_schema={"feature1": "float32"},
-            feature_schema_hash="test_hash",
+            feature_schema_hash=schema_hash,
+            feature_set_id=feature_set_id,
             version="1.0.0",
+            serveable=True,
+            artifact_format="onnx",
+            output_schema=default_output_schema(),
+            calibration=default_calibration(),
         )
 
         model_id = registry.register_model(model_path=model_file, manifest=manifest)

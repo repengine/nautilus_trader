@@ -386,6 +386,31 @@ def position_management_component(
 # ---------------------------------------------------------------------------
 
 
+class TestProtocolStubs:
+    """Cover protocol and no-op logger declarations."""
+
+    def test_protocol_methods_and_noop_logger_are_callable(self) -> None:
+        from ml.strategies.common import position_management as module
+
+        sentinel = object()
+
+        assert module.CacheProtocol.account_for_venue(sentinel, sentinel) is None
+        assert module.CacheProtocol.instrument(sentinel, sentinel) is None
+        assert module.CacheProtocol.trade_tick(sentinel, sentinel) is None
+        assert module.CacheProtocol.quote_tick(sentinel, sentinel) is None
+        assert module.CacheProtocol.positions_open(sentinel) is None
+
+        assert module.PositionSizerProtocol.calculate(sentinel, sentinel, sentinel, []) is None
+        assert module.RiskManagerProtocol.check_position(sentinel, sentinel, sentinel, sentinel) is None
+        assert module.PortfolioManagerProtocol.allocate_signals(sentinel, [], 1.0) is None
+
+        logger = module._NoOpLogger()
+        logger.debug("msg")
+        logger.info("msg")
+        logger.warning("msg")
+        logger.error("msg")
+
+
 class TestCalculatePositionSizeBasic:
     """Tests for basic position sizing from balance percentage."""
 
@@ -1223,6 +1248,21 @@ class TestComponentConfiguration:
         assert position_management_component.position_size_pct == 0.10
         assert position_management_component.instrument_id == new_instrument_id
 
+    def test_update_config_accepts_batching_and_fallback_flags(
+        self,
+        position_management_component: PositionManagementComponent,
+    ) -> None:
+        from ml.strategies.common.position_management import PortfolioBatchingConfig
+
+        batching = PortfolioBatchingConfig(enabled=False, min_batch_size=1)
+        position_management_component.update_config(
+            portfolio_batching_config=batching,
+            allow_min_quantity_fallback=True,
+        )
+
+        assert position_management_component._portfolio_batching_config is batching
+        assert position_management_component._allow_min_quantity_fallback is True
+
 
 # ---------------------------------------------------------------------------
 # Test: Edge Cases and Error Handling
@@ -1390,6 +1430,227 @@ class TestEdgeCases:
         result = component.calculate_position_size()
 
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Test: Fallback and Risk Branches
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackAndRiskBranches:
+    """Tests for fallback and risk edge branches."""
+
+    def test_size_and_validate_uses_min_quantity_fallback_when_enabled(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify min-quantity fallback is used when account is missing."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        cache = MockCache(
+            instrument=mock_instrument,
+            account=None,
+            trade_tick=MockTradeTick(price=MockPrice(100.0)),
+        )
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            cache=cache,
+            instrument_id=instrument_id,
+            allow_min_quantity_fallback=True,
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is not None
+        assert float(result.as_double()) >= float(mock_instrument.min_quantity.as_double())
+        assert component.get_last_rejection_reason() is None
+
+    def test_size_and_validate_sets_account_missing_when_fallback_unavailable(
+        self,
+        instrument_id: InstrumentId,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify rejection reason is recorded when fallback cannot be resolved."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        instrument = MockInstrument(
+            id=instrument_id,
+            venue=instrument_id.venue,
+            min_quantity=MockQuantity(0.0),
+        )
+
+        cache = MockCache(
+            instrument=instrument,
+            account=None,
+            trade_tick=MockTradeTick(price=MockPrice(100.0)),
+        )
+
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            cache=cache,
+            instrument_id=instrument_id,
+            allow_min_quantity_fallback=True,
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is None
+        assert component.get_last_rejection_reason() == "account_missing"
+
+    def test_size_and_validate_warns_when_risk_manager_has_no_portfolio(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify risk checks continue with warning when portfolio is missing."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        risk_manager = MockRiskManager(return_value=Quantity.from_str("500.0"))
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            risk_manager=risk_manager,
+            cache=mock_cache,
+            instrument_id=instrument_id,
+            allow_min_quantity_fallback=True,
+            portfolio=None,
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is not None
+        assert len(risk_manager.check_position_calls) == 1
+        assert mock_logger.warning_calls
+
+    def test_size_and_validate_returns_none_when_risk_manager_raises(
+        self,
+        instrument_id: InstrumentId,
+        mock_cache: MockCache,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify risk exceptions short-circuit the sizing pipeline."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        risk_manager = MockRiskManager(should_raise=True)
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            risk_manager=risk_manager,
+            cache=mock_cache,
+            instrument_id=instrument_id,
+            portfolio=object(),
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is None
+        assert len(risk_manager.check_position_calls) == 1
+        assert mock_logger.debug_calls
+
+    def test_apply_portfolio_allocation_returns_proposed_when_balance_unavailable(
+        self,
+        instrument_id: InstrumentId,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify account balance errors fall back to proposed value."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        class BrokenAccount:
+            def balance_total(self) -> Any:
+                raise AttributeError("balance unavailable")
+
+        portfolio_manager = MockPortfolioManager(allocations={instrument_id: 100.0})
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            portfolio_manager=portfolio_manager,
+            log=mock_logger,
+        )
+
+        result = component.apply_portfolio_allocation(
+            signal=mock_signal,
+            proposed_value=250.0,
+            account=BrokenAccount(),
+        )
+
+        assert result == 250.0
+        assert mock_logger.debug_calls
+
+    def test_size_and_validate_falls_back_to_cache_positions_on_provider_error(
+        self,
+        instrument_id: InstrumentId,
+        mock_instrument: MockInstrument,
+        mock_account: MockAccount,
+        mock_signal: MockMLSignal,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify cache positions are used if positions provider fails."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        class BrokenPositionsProvider:
+            def get_positions_snapshot(self, *, instrument_id: Any) -> Any:
+                del instrument_id
+                raise RuntimeError("snapshot failed")
+
+        sizer = MockPositionSizer(return_value=Quantity.from_str("500.0"))
+        cache = MockCache(
+            instrument=mock_instrument,
+            account=mock_account,
+            trade_tick=MockTradeTick(price=MockPrice(100.0)),
+            positions=[object()],
+        )
+        component = PositionManagementComponent(
+            position_size_pct=0.05,
+            position_sizer=sizer,
+            cache=cache,
+            instrument_id=instrument_id,
+            positions_provider=BrokenPositionsProvider(),
+            log=mock_logger,
+        )
+
+        result = component.size_and_validate(mock_signal)
+
+        assert result is not None
+        assert len(sizer.calculate_calls) == 1
+        assert len(sizer.calculate_calls[0][2]) == 1
+        assert mock_logger.debug_calls
+
+    def test_resolve_market_price_falls_back_to_cache_price_api(
+        self,
+        instrument_id: InstrumentId,
+        mock_logger: MockLogger,
+    ) -> None:
+        """Verify price API is used when ticks are unavailable."""
+        from ml.strategies.common.position_management import PositionManagementComponent
+
+        class PriceCache(MockCache):
+            def price(self, instrument: Any, price_type: Any) -> MockPrice:
+                del instrument, price_type
+                return MockPrice(88.0)
+
+        cache = PriceCache(
+            trade_tick=None,
+            quote_tick=None,
+        )
+        component = PositionManagementComponent(
+            cache=cache,
+            instrument_id=instrument_id,
+            log=mock_logger,
+        )
+
+        price = component.resolve_market_price(instrument_id)
+
+        assert price == pytest.approx(88.0)
 
 
 # ---------------------------------------------------------------------------

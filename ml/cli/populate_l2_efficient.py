@@ -13,9 +13,9 @@ from pathlib import Path
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
+from ml.data.ingest import PopulateL2TaskConfig
+from ml.data.ingest import populate_l2_efficient
 from ml.data.ingest.l2_efficient import L2PopulateResult
-from ml.tasks.ingest import PopulateL2TaskConfig
-from ml.tasks.ingest import populate_l2_efficient
 
 
 __all__ = ["main"]

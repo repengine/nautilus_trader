@@ -12,6 +12,9 @@ from ml.registry import ModelRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 def test_get_model_returns_info(tmp_path: Path) -> None:
@@ -33,7 +36,12 @@ def test_get_model_returns_info(tmp_path: Path) -> None:
         feature_schema_hash="hash",
         serveable=True,
         artifact_format="onnx",
-        feature_set_id=None,
+        feature_set_id=register_feature_set_for_schema(
+            registry_path=reg_dir,
+            schema_hash="hash",
+        ),
+        output_schema=default_output_schema(),
+        calibration=default_calibration(),
     )
     mid = reg.register_model(model_path=model_path, manifest=manifest, auto_deploy=False)
     info = reg.get_model(mid)

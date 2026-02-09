@@ -26,6 +26,7 @@ from ml.registry import ModelManifest
 from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 from ml.tests.fixtures.model_factory import TestDataFactory
 from ml.tests.fixtures.model_factory import TestModelFactory
+from ml.tests.utils.model_artifacts import ensure_strict_onnx_sidecar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import ComponentId
 from nautilus_trader.model.identifiers import InstrumentId
@@ -125,13 +126,14 @@ def dummy_onnx_model() -> Path:
 
     """
     model_path = create_dummy_onnx_model()
+    ensure_strict_onnx_sidecar(model_path)
     yield model_path
     # Cleanup
     if model_path.exists():
         model_path.unlink()
-    meta_path = model_path.with_suffix(".onnx.meta")
-    if meta_path.exists():
-        meta_path.unlink()
+    sidecar_path = model_path.with_suffix(".meta.json")
+    if sidecar_path.exists():
+        sidecar_path.unlink()
 
 
 @pytest.fixture
@@ -162,9 +164,13 @@ def perf_dummy_onnx_model(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
     model_dir = tmp_path_factory.mktemp("perf_dummy_onnx")
     model_path = create_dummy_onnx_model(model_dir / "dummy_model.onnx")
+    ensure_strict_onnx_sidecar(model_path)
     yield model_path
     if model_path.exists():
         model_path.unlink()
+    sidecar_path = model_path.with_suffix(".meta.json")
+    if sidecar_path.exists():
+        sidecar_path.unlink()
 
 
 @pytest.fixture(scope="session")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Feature registry CLI wrappers leveraging :mod:`ml.tasks.registry`.
+Feature registry CLI wrappers leveraging :mod:`ml.registry`.
 """
 
 from __future__ import annotations
@@ -10,12 +10,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from ml.registry import FeaturePromotionGate
+from ml.registry import deprecate_feature_set
+from ml.registry import promote_feature_set
+from ml.registry import register_default_feature_set
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureRole
-from ml.tasks.registry import FeaturePromotionGate
-from ml.tasks.registry import deprecate_feature_set
-from ml.tasks.registry import promote_feature_set
-from ml.tasks.registry import register_default_feature_set
 
 
 def _parse_gates(raw_gates: Sequence[dict[str, Any]]) -> list[FeaturePromotionGate]:

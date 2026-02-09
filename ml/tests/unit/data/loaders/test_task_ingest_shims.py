@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+import ml.data.ingest as data_ingest_package
+from ml.cli.ingest_backfill import main as canonical_ingest_backfill_main
+from ml.data.ingest.l2_efficient import PopulateL2TaskConfig as CanonicalPopulateL2TaskConfig
+from ml.data.ingest.l2_efficient import populate_l2_efficient as canonical_populate_l2_efficient
+from ml.data.loaders.alternative import PopulateAlternativeDataTaskConfig as CanonicalPopulateAlternativeDataTaskConfig
+from ml.data.loaders.alternative import populate_alternative_data_task as canonical_populate_alternative_data_task
+from ml.data.loaders.ohlcv_recent import BackfillRecentOhlcvTaskConfig as CanonicalBackfillRecentOhlcvTaskConfig
+from ml.data.loaders.ohlcv_recent import OhlcvRecentBackfillResult as CanonicalOhlcvRecentBackfillResult
+from ml.data.loaders.ohlcv_recent import SymbolBackfillStatus as CanonicalSymbolBackfillStatus
+from ml.data.loaders.ohlcv_recent import backfill_recent_ohlcv as canonical_backfill_recent_ohlcv
+from ml.data.loaders.supplementary import PopulateSupplementaryTaskConfig as CanonicalPopulateSupplementaryTaskConfig
+from ml.data.loaders.supplementary import PopulateYahooDataTaskConfig as CanonicalPopulateYahooDataTaskConfig
+from ml.data.loaders.supplementary import populate_supplementary_data as canonical_populate_supplementary_data
+from ml.data.loaders.supplementary import populate_yahoo_data as canonical_populate_yahoo_data
+
+
+def test_data_ingest_package_exports_canonical_symbols() -> None:
+    assert data_ingest_package.PopulateAlternativeDataTaskConfig is CanonicalPopulateAlternativeDataTaskConfig
+    assert data_ingest_package.populate_alternative_data_task is canonical_populate_alternative_data_task
+    assert data_ingest_package.PopulateSupplementaryTaskConfig is CanonicalPopulateSupplementaryTaskConfig
+    assert data_ingest_package.populate_supplementary_data is canonical_populate_supplementary_data
+    assert data_ingest_package.PopulateYahooDataTaskConfig is CanonicalPopulateYahooDataTaskConfig
+    assert data_ingest_package.populate_yahoo_data is canonical_populate_yahoo_data
+    assert data_ingest_package.BackfillRecentOhlcvTaskConfig is CanonicalBackfillRecentOhlcvTaskConfig
+    assert data_ingest_package.OhlcvRecentBackfillResult is CanonicalOhlcvRecentBackfillResult
+    assert data_ingest_package.SymbolBackfillStatus is CanonicalSymbolBackfillStatus
+    assert data_ingest_package.backfill_recent_ohlcv is canonical_backfill_recent_ohlcv
+    assert data_ingest_package.PopulateL2TaskConfig is CanonicalPopulateL2TaskConfig
+    assert data_ingest_package.populate_l2_efficient is canonical_populate_l2_efficient
+
+
+def test_ingest_backfill_cli_main_is_importable() -> None:
+    assert callable(canonical_ingest_backfill_main)

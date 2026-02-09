@@ -42,7 +42,7 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import OperationalError
 
 from ml.core.db_engine import EngineManager
-from ml.tasks.db import MigrationSchema
+from ml.stores.migrations_runner import MigrationSchema
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -337,7 +337,7 @@ class DatabaseLifecycleComponent:
 
     def run_migrations(self) -> None:
         """
-        Run database migrations using the shared task plan builder.
+        Run database migrations using the shared migration plan builder.
 
         Attempts to use the shared migration helpers first. If unavailable,
         falls back to applying a hardcoded list of base migrations inline.
@@ -369,10 +369,10 @@ class DatabaseLifecycleComponent:
 
         engine = EngineManager.get_engine(self.db_connection)
 
-        # Prefer the shared task helpers to keep in sync
+        # Prefer the shared migration helpers to keep in sync
         try:
-            from ml.tasks.db import apply_migration_files as _apply
-            from ml.tasks.db import build_migration_plan as _build
+            from ml.stores.migrations_runner import apply_migration_files as _apply
+            from ml.stores.migrations_runner import build_migration_plan as _build
 
             plan = _build(include_optional=full, schema=schema_enum)
             result = _apply(engine, plan, dry_run=False)
@@ -393,9 +393,9 @@ class DatabaseLifecycleComponent:
                 "ml/stores/migrations_bootstrap/001_bootstrap.sql",
             ]
 
-            # Use the same splitter as the shared task helper when available
+            # Use the same splitter as the shared migration helper when available
             try:
-                from ml.tasks.db import split_sql_statements as _splitter
+                from ml.stores.common.sql_splitter import split_sql_statements as _splitter
             except Exception:
 
                 def _splitter(sql: str) -> Iterable[str]:

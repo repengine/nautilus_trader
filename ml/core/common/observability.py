@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
@@ -602,4 +603,77 @@ class ObservabilityComponent:
             return None
 
 
-__all__ = ["ObservabilityComponent"]
+def seed_sample_observability(component: ObservabilityComponent) -> None:
+    """
+    Seed minimal observability rows for CLI smoke flows.
+
+    Args:
+        component: Observability component receiving sample rows.
+    """
+    component.initialize_observability_pipeline()
+    service = getattr(component, "observability_service", None)
+    if service is None:
+        return
+    service.add_latency_stage(
+        correlation_id="00000000-0000-0000-0000-000000000001",
+        instrument_id="EURUSD.SIM",
+        pipeline_stage="data_ingestion",
+        ts_stage_start=1,
+        ts_stage_end=2,
+    )
+    service.add_metric(
+        metric_name="ml_predictions_total",
+        metric_type="counter",
+        value=1.0,
+        timestamp=1,
+        labels={"instrument_id": "EURUSD.SIM"},
+    )
+    service.add_correlation(
+        correlation_id="00000000-0000-0000-0000-000000000001",
+        event_id="00000000-0000-0000-0000-000000000002",
+        parent_event_id=None,
+        instrument_id="EURUSD.SIM",
+        domain="data",
+        lineage_depth=0,
+        ts_event=1,
+        propagation_path=["data"],
+    )
+    service.add_health(
+        component_id="data_store",
+        health_score=0.9,
+        subsystem_scores={"db": 1.0},
+        timestamp=2,
+        measurement_window_ms=100,
+    )
+
+
+def normalize_async_worker_status(status: Mapping[str, object]) -> tuple[bool, int]:
+    """
+    Normalize async-worker status payload into printable CLI values.
+
+    Args:
+        status: Status mapping from ``get_observability_async_status``.
+
+    Returns:
+        Tuple of ``(running, queue_size)``.
+    """
+    running_obj = status.get("running", False)
+    queue_obj = status.get("queue_size", 0)
+    running = bool(running_obj) if isinstance(running_obj, (bool, int, str)) else False
+    if isinstance(queue_obj, (int, float)):
+        queue_size = int(queue_obj)
+    elif isinstance(queue_obj, str):
+        try:
+            queue_size = int(queue_obj)
+        except ValueError:
+            queue_size = 0
+    else:
+        queue_size = 0
+    return running, queue_size
+
+
+__all__ = [
+    "ObservabilityComponent",
+    "normalize_async_worker_status",
+    "seed_sample_observability",
+]

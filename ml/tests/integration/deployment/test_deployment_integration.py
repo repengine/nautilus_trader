@@ -225,6 +225,7 @@ class TestDeploymentIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
+    @pytest.mark.serial
     @pytest.mark.skipif(
         _XDIST_WORKER_COUNT > 1,
         reason="xdist workers crash under concurrent node startup; full-suite runs hit an Execnet segfault while tearing down this async test",
@@ -376,7 +377,9 @@ class TestDeploymentIntegration:
 
         mock_strategy_trading = AsyncMock()
         mock_strategy_trading.stop_async = AsyncMock()
-        mock_strategy_trading.trader.strategies.return_value = {}
+        mock_strategy_trader = Mock()
+        mock_strategy_trader.strategies = Mock(return_value={})
+        mock_strategy_trading.trader = mock_strategy_trader
         strategy_node.node = mock_strategy_trading
         strategy_node.running = True
 

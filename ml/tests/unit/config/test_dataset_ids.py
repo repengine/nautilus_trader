@@ -7,6 +7,7 @@ and accessible from the public ml.config API.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 import pytest
@@ -15,6 +16,8 @@ DATASET_ID_EXPECTATIONS: Final[tuple[tuple[str, str], ...]] = (
     ("EARNINGS_ACTUALS_DATASET_ID", "ml.earnings_actuals"),
     ("EARNINGS_ESTIMATES_DATASET_ID", "ml.earnings_estimates"),
     ("EQUS_MINI_DATASET_ID", "EQUS.MINI"),
+    ("EQUS_MINI_MBO_DATASET_ID", "EQUS.MINI_MBO"),
+    ("EQUS_MINI_MBP10_DATASET_ID", "EQUS.MINI_MBP10"),
     ("EQUS_MINI_MBP1_DATASET_ID", "EQUS.MINI_MBP1"),
     ("EQUS_MINI_QUOTES_DATASET_ID", "EQUS.MINI_QUOTES"),
     ("EQUS_MINI_TBBO_DATASET_ID", "EQUS.MINI_TBBO"),
@@ -26,6 +29,20 @@ DATASET_ID_EXPECTATIONS: Final[tuple[tuple[str, str], ...]] = (
     ("MACRO_RELEASES_DATASET_ID", "ml.macro_release_calendar"),
     ("MICRO_MINUTE_DATASET_ID", "ml.microstructure_minute"),
 )
+
+
+def _natural_sort_key(value: str) -> tuple[tuple[int, str | int], ...]:
+    """
+    Build an isort-style natural sort key for API export ordering checks.
+    """
+    parts = re.split(r"(\d+)", value)
+    key: list[tuple[int, str | int]] = []
+    for part in parts:
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part))
+    return tuple(key)
 
 
 def test_dataset_ids_accessible_from_config() -> None:
@@ -105,8 +122,8 @@ def test_dataset_ids_public_api_is_alphabetically_sorted() -> None:
     # Get the __all__ list
     all_exports = dataset_ids.__all__
 
-    # Verify it's sorted
-    assert all_exports == sorted(all_exports), (
+    # Verify it's sorted using isort-style natural ordering.
+    assert all_exports == sorted(all_exports, key=_natural_sort_key), (
         f"__all__ is not alphabetically sorted: {all_exports}"
     )
 

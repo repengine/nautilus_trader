@@ -249,6 +249,8 @@ __all__ = [
     "LightGBMTrainer",
     "ModelExportMixin",
     "ModelType",
+    "QuickTFTTrainConfig",
+    "QuickTFTTrainResult",
     "TFTScriptAdapter",
     "TFTTeacher",
     "TFTTeacherConfig",
@@ -261,6 +263,7 @@ __all__ = [
     "export_tft_to_torchscript_from_batch",
     "safe_torch_load",
     "save_model_with_metadata",
+    "train_tft_quick",
 ]
 
 
@@ -364,6 +367,18 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - import side-effect util
         from .teacher.tft_torchscript import TFTScriptAdapter
 
         return TFTScriptAdapter
+    elif name == "QuickTFTTrainConfig":
+        from .teacher.quick import QuickTFTTrainConfig
+
+        return QuickTFTTrainConfig
+    elif name == "QuickTFTTrainResult":
+        from .teacher.quick import QuickTFTTrainResult
+
+        return QuickTFTTrainResult
+    elif name == "train_tft_quick":
+        from .teacher.quick import train_tft_quick
+
+        return train_tft_quick
 
     # Backward compatibility - legacy names
     elif name == "UnifiedXGBoostTrainer":

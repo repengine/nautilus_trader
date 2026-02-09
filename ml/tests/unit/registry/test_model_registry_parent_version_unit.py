@@ -12,6 +12,9 @@ from ml.registry import ModelRole
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.tests.builders import RegistryBuilder
+from ml.tests.utils.model_artifacts import default_calibration
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
@@ -56,6 +59,12 @@ def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
         parent_id=teacher_id,
         version="",
     )
+    s_manifest.feature_set_id = register_feature_set_for_schema(
+        registry_path=reg_dir,
+        schema_hash=s_manifest.feature_schema_hash,
+    )
+    s_manifest.output_schema = default_output_schema()
+    s_manifest.calibration = default_calibration()
     student_id = reg.register_model(model_path=student_path, manifest=s_manifest, auto_deploy=False)
 
     # Save and fetch - use flush() for facade, _save_registry for legacy

@@ -1177,7 +1177,7 @@ class PartitionedParquetCoverageProvider(CoverageProviderProtocol):
                     continue
             ts_series = frame[spec.timestamp_field]
             if pd_local.api.types.is_datetime64_any_dtype(ts_series):
-                numeric_ts = ts_series.view("int64")
+                numeric_ts = ts_series.astype("int64", copy=False)
             else:
                 numeric_ts = pd_local.to_numeric(ts_series, errors="coerce")
             numeric_ts = numeric_ts.dropna()

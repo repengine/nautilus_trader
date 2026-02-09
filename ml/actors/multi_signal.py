@@ -220,10 +220,38 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 exc,
             )
 
+    def _is_inference_halted(self) -> bool:
+        """
+        Return whether inference has been halted by remediation policy.
+        """
+        if not bool(getattr(self, "_ml_inference_halted", False)):
+            return False
+        if not bool(getattr(self, "_ml_halt_logged", False)):
+            self.log.error(
+                f"multi_signal.inference_halted reason={getattr(self, '_ml_failure_reason', None) or 'unknown'}",
+            )
+            self._ml_halt_logged = True
+        return True
+
+    def _resolve_ts_event(self, bar: Bar) -> int:
+        """
+        Resolve event timestamp from a bar-like object.
+        """
+        ts_event = getattr(bar, "ts_event", None)
+        if ts_event is not None:
+            return int(ts_event)
+        try:
+            return int(self.clock.timestamp_ns())
+        except Exception:
+            return 0
+
     # --------------------------------- Hot path ---------------------------------
     def on_bar(self, bar: Bar) -> None:
         # Skip if circuit breaker open
         if self._circuit_breaker and not self._circuit_breaker.can_execute():
+            return
+
+        if self._is_inference_halted():
             return
 
         # Only process instruments in the universe if one is defined
@@ -275,8 +303,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
         import time as _time
 
         t0 = _time.perf_counter()
+        batch_size = self._batch_size
         try:
-            features_view = self._batch_features[: self._batch_size, : self._feature_dim]
+            features_view = self._batch_features[:batch_size, : self._feature_dim]
             # Optional OpenTelemetry span (best-effort, does not affect hot path)
             span_ctx: Any
             try:
@@ -293,30 +322,70 @@ class MultiInstrumentSignalActor(MLSignalActor):
 
             with span_ctx:
                 # Compute batch predictions once and stash for per-instrument pipeline
+                inference_start = _time.perf_counter()
                 preds, confs = self._infer_batch(features_view)
+                batch_inference_time_ms = (_time.perf_counter() - inference_start) * 1000.0
                 self._prepared_preds = list(zip(preds.tolist(), confs.tolist()))
+            per_row_inference_time_ms = (
+                batch_inference_time_ms / float(batch_size) if batch_size > 0 else 0.0
+            )
             # Dispatch per-instrument using existing protected helper for signal pipeline
-            for i in range(self._batch_size):
+            for i in range(batch_size):
+                if self._is_inference_halted():
+                    break
+
+                bar = self._batch_bars[i]
+                if self._apply_inference_deadline_guard(
+                    inference_time_ms=per_row_inference_time_ms,
+                    ts_event=self._resolve_ts_event(bar),
+                ):
+                    if self._prepared_preds:
+                        self._prepared_preds.pop(0)
+                    if self._is_inference_halted():
+                        break
+                    continue
+
                 try:
-                    self._generate_prediction_protected(self._batch_bars[i], features_view[i])
+                    self._generate_prediction_protected(bar, features_view[i])
                 except Exception as exc:
-                    # Best-effort; do not break other instruments
+                    self._record_prediction_failure_state()
                     self.log.warning(
                         "multi_signal.prediction_pipeline_failed "
                         f"instrument={self._batch_instruments[i]} index={i} "
-                        f"batch_size={self._batch_size} error={exc!r}",
+                        f"batch_size={batch_size} error={exc!r}",
+                        exc_info=True,
                     )
+                    self._apply_configured_ml_failure_action(
+                        reason="batch_prediction_pipeline_exception",
+                        ts_event=self._resolve_ts_event(bar),
+                        detail=repr(exc),
+                    )
+                    if self._is_inference_halted():
+                        break
             # Observability (best-effort)
             try:
                 self._batch_total.labels(actor=self.id).inc()
-                self._batch_size_hist.labels(actor=self.id).observe(self._batch_size)
+                self._batch_size_hist.labels(actor=self.id).observe(batch_size)
                 self._batch_seconds.labels(actor=self.id).observe(_time.perf_counter() - t0)
             except Exception as metric_exc:
                 self.log.exception(
                     "multi_signal.metrics_emit_failed "
-                    f"actor={self.id} batch_size={self._batch_size} error={metric_exc!r}",
+                    f"actor={self.id} batch_size={batch_size} error={metric_exc!r}",
                     metric_exc,
                 )
+        except Exception as exc:
+            self._record_prediction_failure_state()
+            ts_event = self._resolve_ts_event(self._batch_bars[0]) if self._batch_bars else None
+            self.log.warning(
+                "multi_signal.batch_inference_failed "
+                f"actor={self.id} batch_size={batch_size} error={exc!r}",
+                exc_info=True,
+            )
+            self._apply_configured_ml_failure_action(
+                reason="batch_inference_exception",
+                ts_event=ts_event,
+                detail=repr(exc),
+            )
         finally:
             # Reset batch in O(1)
             self._batch_instruments.clear()

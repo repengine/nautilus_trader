@@ -2,13 +2,13 @@
 
 ## Overview
 
-The ML CLI module provides 42+ command-line interfaces for managing the Nautilus Trader ML pipeline, spanning dataset building, training, data ingestion, registry management, system health monitoring, and observability. The CLI layer follows a **thin wrapper delegation pattern**: most CLIs are lightweight entry points (10-150 lines) that parse arguments and delegate to task functions in `ml/tasks/`, ensuring separation of concerns and testability.
+The ML CLI module provides 42+ command-line interfaces for managing the Nautilus Trader ML pipeline, spanning dataset building, training, data ingestion, registry management, system health monitoring, and observability. The CLI layer follows a **thin wrapper delegation pattern**: most CLIs are lightweight entry points (10-150 lines) that parse arguments and delegate to canonical domain services under `ml/<domain>/`, ensuring separation of concerns and testability.
 
 **Total CLI Module Size**: 5,807 lines across 42 files (as of October 2025)
 
 **Key Architectural Patterns:**
 
-1. **Thin Wrapper Pattern**: CLIs parse args → call task functions in `ml/tasks/`
+1. **Thin Wrapper Pattern**: CLIs parse args → call canonical domain services under `ml/<domain>/`
 2. **Standard ArgParse Flow**: `parse_args()` → `main()` → `raise SystemExit(main())`
 3. **Progressive Fallback**: PostgreSQL → JSON backends with automatic detection
 4. **Config-Driven**: Environment variables + CLI overrides via dataclass configs
@@ -118,19 +118,19 @@ python -m ml.cli.dashboard_welcome --compose-file docker-compose.yml
 
 ### Standard CLI Pattern (Thin Wrapper Delegation)
 
-**Pattern**: CLIs are thin wrappers (10-150 lines) that delegate to `ml/tasks/`:
+**Pattern**: CLIs are thin wrappers (10-150 lines) that delegate to canonical domain modules (`ml/<domain>/`):
 
 ```python
 #!/usr/bin/env python3
 """
-Thin wrapper delegating to :mod:`ml.tasks.{area}.{task}`.
+Thin wrapper delegating to canonical domain APIs (for example `ml.data`, `ml.training.teacher`, or `ml.orchestration`).
 """
 from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
 
-from ml.tasks.{area} import {task_function}
+from ml.<domain> import <service_function>
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -160,10 +160,10 @@ if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
 
 **Examples of Thin Wrappers:**
 
-- `ml/cli/health.py` (48 lines): Delegates to `ml.tasks.monitoring.aggregate_integration_health`
-- `ml/cli/observability.py` (21 lines): Delegates to `ml.tasks.observability.flush.main`
-- `ml/cli/coverage.py` (56 lines): Delegates to `ml.tasks.monitoring.coverage.main`
-- `ml/cli/train_tft_quick.py` (100 lines): Delegates to `ml.tasks.training.train_tft_quick`
+- `ml/cli/health.py` (48 lines): Delegates to `ml.core.common.health_monitoring.aggregate_integration_health`
+- `ml/cli/observability.py` (21 lines): Delegates to `ml.cli.observability.main`
+- `ml/cli/coverage.py` (56 lines): Delegates to `ml.cli.coverage.main`
+- `ml/cli/train_tft_quick.py` (100 lines): Delegates to `ml.training.teacher.train_tft_quick`
 - `ml/cli/pipeline_orchestrator.py` (11 lines): Pure delegation to `ml.orchestration.pipeline_orchestrator.main`
 
 ### Backend Configuration Strategy
@@ -207,7 +207,7 @@ export ML_STREAMING_PERSISTENCE_STATE_PATH="./checkpoints/streaming_state.json"
 
 **Core Functionality:**
 
-- Delegates to `ml.tasks.datasets.build_tft_dataset`
+- Delegates to `ml.data.build_tft_dataset`
 - Configures via `TFTDatasetTaskConfig` dataclass
 - Supports macro (FRED), micro (OHLCV), L2 (order book), events, earnings data
 - Optional feature registry registration
@@ -272,7 +272,7 @@ python -m ml.cli.build_tft_dataset \
 
 **Integration Points:**
 
-- `ml/tasks/datasets/tft.py`: Dataset building logic
+- `ml/data/build.py`: Dataset building logic
 - `ml/config/market_data.py`: Market data input configuration
 - `ml/data/vintage.py`: Vintage policy handling
 - `ml/preprocessing/vintage_age.py`: Vintage → age conversion
@@ -281,15 +281,15 @@ python -m ml.cli.build_tft_dataset \
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/build_tft_dataset.py` (lines 1-232)
-- `/home/nate/projects/nautilus_trader/ml/tasks/datasets/tft.py`
+- `/home/nate/projects/nautilus_trader/ml/data/build.py`
 
 ---
 
 #### build_production_dataset.py (68 lines)
 
-**Purpose**: Build production datasets via `ml.tasks.datasets.build_production_dataset`
+**Purpose**: Build production datasets via `ml.data.build_production_dataset`
 
-**Delegates to**: `ml.tasks.datasets.ProductionDatasetConfig` + `build_production_dataset`
+**Delegates to**: `ml.data.ProductionDatasetConfig` + `build_production_dataset`
 
 **Example:**
 
@@ -305,7 +305,7 @@ python -m ml.cli.build_production_dataset \
 
 **Purpose**: Generate dataset quality reports
 
-**Delegates to**: `ml.tasks.datasets.generate_dataset_report`
+**Delegates to**: `ml.data.generate_dataset_report`
 
 **Example:**
 
@@ -385,7 +385,7 @@ python -m ml.cli.validate_training_claims \
 
 **Core Functionality:**
 
-- Delegates to `ml.tasks.training.train_tft_quick`
+- Delegates to `ml.training.teacher.train_tft_quick`
 - Configures via `QuickTFTTrainConfig` dataclass
 - Outputs JSON summary with dataset shape, target distribution, sample predictions
 
@@ -429,13 +429,13 @@ python -m ml.cli.train_tft_quick \
 
 **Integration Points:**
 
-- `ml/tasks/training/quick.py`: Quick training logic
+- `ml/training/teacher/quick.py`: Quick training logic
 - `ml/common/logging_config.py`: Structured logging setup
 
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/train_tft_quick.py` (lines 1-100)
-- `/home/nate/projects/nautilus_trader/ml/tasks/training/quick.py`
+- `/home/nate/projects/nautilus_trader/ml/training/teacher/quick.py`
 
 ---
 
@@ -734,7 +734,7 @@ python -m ml.cli.ingest_dbn_archive \
 
 **Purpose**: Backfill recent OHLCV data for symbols
 
-**Delegates to**: `ml.tasks.ingest.backfill_recent_ohlcv`
+**Delegates to**: `ml.cli.ingest_backfill_recent_ohlcv`
 
 **Example:**
 
@@ -751,7 +751,7 @@ python -m ml.cli.backfill_ohlcv_recent \
 
 **Purpose**: Ingest Yahoo Finance data
 
-**Delegates to**: `ml.tasks.ingest.populate_yahoo_data`
+**Delegates to**: `ml.data.ingest.populate_yahoo_data`
 
 **Example:**
 
@@ -768,7 +768,7 @@ python -m ml.cli.populate_yahoo_data \
 
 **Purpose**: Ingest L2 market depth data efficiently
 
-**Delegates to**: `ml.tasks.ingest.populate_l2_efficient`
+**Delegates to**: `ml.data.ingest.populate_l2_efficient`
 
 **Example:**
 
@@ -785,7 +785,7 @@ python -m ml.cli.populate_l2_efficient \
 
 **Purpose**: Ingest alternative data sources
 
-**Delegates to**: `ml.tasks.ingest.populate_alternative_data_task`
+**Delegates to**: `ml.data.ingest.populate_alternative_data_task`
 
 **Example:**
 
@@ -802,7 +802,7 @@ python -m ml.cli.populate_alternative_data \
 
 **Purpose**: Ingest supplementary data (simple mode)
 
-**Delegates to**: `ml.tasks.ingest.populate_supplementary_data`
+**Delegates to**: `ml.data.ingest.populate_supplementary_data`
 
 **Example:**
 
@@ -817,7 +817,7 @@ python -m ml.cli.populate_supplementary_simple \
 
 **Purpose**: Gap backfill orchestration with pluggable coverage and writers
 
-**Delegates to**: `ml.tasks.ingest.backfill.main`
+**Delegates to**: `ml.cli.ingest_backfill.main`
 
 **Options:**
 
@@ -874,7 +874,7 @@ python -m ml.cli.ingest_backfill \
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/ingest_backfill.py` (lines 1-21)
-- `/home/nate/projects/nautilus_trader/ml/tasks/ingest/backfill.py`
+- `/home/nate/projects/nautilus_trader/ml/cli/ingest_backfill.py`
 
 ---
 
@@ -894,8 +894,8 @@ python -m ml.cli.ingest_backfill \
 **Key Functions:**
 
 - `convert_simple_to_ml_format()`: Wide → long format conversion
-- Reads: `data/fred/fred_indicators_updated.parquet`
-- Writes: `data/fred/fred_indicators_ml_format.parquet`
+- Reads: `data/features/macro/fred_indicators_updated.parquet`
+- Writes: `data/features/macro/fred_indicators_ml_format.parquet`
 
 **Output Format:**
 
@@ -923,8 +923,8 @@ python -m ml.cli.ingest_backfill \
 
 ```bash
 python -m ml.cli.fred_export_ml_parquet \
-  --input data/fred/raw \
-  --output data/fred/ml_format.parquet
+  --input data/features/macro/raw \
+  --output data/features/macro/ml_format.parquet
 ```
 
 ---
@@ -950,7 +950,7 @@ python -m ml.cli.check_databento_subscription \
 
 **Core Functionality:**
 
-- Delegates to `ml.tasks.registry` functions
+- Delegates to `ml.registry.feature_operations` functions
 - Three subcommands: `register-default`, `promote`, `deprecate`
 
 **Subcommands:**
@@ -987,7 +987,7 @@ python -m ml.cli.feature_cli deprecate \
 
 **Integration Points:**
 
-- `ml/tasks/registry.py`: Task functions
+- `ml/registry/feature_operations.py`: Task functions
   - `register_default_feature_set()`
   - `promote_feature_set()`
   - `deprecate_feature_set()`
@@ -997,7 +997,7 @@ python -m ml.cli.feature_cli deprecate \
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/feature_cli.py` (lines 1-147)
-- `/home/nate/projects/nautilus_trader/ml/tasks/registry.py`
+- `/home/nate/projects/nautilus_trader/ml/registry/feature_operations.py`
 
 ---
 
@@ -1055,8 +1055,8 @@ Completed: 2, Failed: 0, Total rows: 150000
 
 **Integration Points:**
 
-- `ml/stores/feature_store.py`: `FeatureStore.compute_historical_parallel()`
-- `ml/features/engineering.py`: `FeatureConfig`
+- `ml/stores/feature_store_facade.py`: `FeatureStore.compute_historical_parallel()`
+- `ml/features/config.py`: `FeatureConfig`
 
 **File References:**
 
@@ -1100,7 +1100,7 @@ python -m ml.cli.update_artifact \
 
 **Purpose**: Comprehensive data coverage analysis and automated backfill orchestration
 
-**Delegates to**: `ml.tasks.monitoring.coverage.main`
+**Delegates to**: `ml.cli.coverage.main`
 
 **Commands:**
 
@@ -1149,7 +1149,7 @@ Raw Data → CATALOG_WRITTEN → FEATURE_COMPUTED → PREDICTION_EMITTED → SIG
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/coverage.py` (lines 1-56)
-- `/home/nate/projects/nautilus_trader/ml/tasks/monitoring/coverage.py`
+- `/home/nate/projects/nautilus_trader/ml/cli/coverage.py`
 
 ---
 
@@ -1159,7 +1159,7 @@ Raw Data → CATALOG_WRITTEN → FEATURE_COMPUTED → PREDICTION_EMITTED → SIG
 
 **Core Functionality:**
 
-- Delegates to `ml.tasks.monitoring.aggregate_integration_health`
+- Delegates to `ml.core.common.health_monitoring.aggregate_integration_health`
 - Utilizes `MLIntegrationManager` for comprehensive health checks
 - Aggregates health status across all ML components (stores, registries, actors)
 - Outputs JSON-formatted health summaries suitable for monitoring dashboards
@@ -1197,13 +1197,13 @@ python -m ml.cli.health \
 
 **Integration Points:**
 
-- `ml/tasks/monitoring/__init__.py`: `aggregate_integration_health()`
+- `ml/monitoring/__init__.py`: `aggregate_integration_health()`
 - `ml/core/integration.py`: `MLIntegrationManager`
 
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/health.py` (lines 1-48)
-- `/home/nate/projects/nautilus_trader/ml/tasks/monitoring/__init__.py`
+- `/home/nate/projects/nautilus_trader/ml/monitoring/__init__.py`
 
 ---
 
@@ -1211,7 +1211,7 @@ python -m ml.cli.health \
 
 **Purpose**: Pipeline health checks
 
-**Delegates to**: `ml.tasks.monitoring.health.main`
+**Delegates to**: `ml.monitoring.health.main`
 
 **Example:**
 
@@ -1241,7 +1241,7 @@ python -m ml.cli.check_symbol_datasets \
 
 **Purpose**: Dev sanity checks for rapid validation
 
-**Delegates to**: `ml.tasks.dev.sanity_check.main`
+**Delegates to**: `ml.tools.sanity_check.main`
 
 **Example:**
 
@@ -1272,7 +1272,7 @@ python -m ml.cli.compare_databento_spy_ohlcv \
 
 **Purpose**: Observability data management with multiple sinks and background processing
 
-**Delegates to**: `ml.tasks.observability.flush.main`
+**Delegates to**: `ml.cli.observability.main`
 
 **Commands:**
 
@@ -1303,13 +1303,13 @@ python -m ml.cli.observability flush-db \
 
 **Integration Points:**
 
-- `ml/tasks/observability/flush.py`: Flush logic
+- `ml/cli/observability.py`: Flush logic
 - `ml/core/integration.py`: `MLIntegrationManager`
 
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/observability.py` (lines 1-21)
-- `/home/nate/projects/nautilus_trader/ml/tasks/observability/flush.py`
+- `/home/nate/projects/nautilus_trader/ml/cli/observability.py`
 
 ---
 
@@ -1317,7 +1317,7 @@ python -m ml.cli.observability flush-db \
 
 **Purpose**: Backfill observability data from historical sources
 
-**Delegates to**: `ml.tasks.observability.backfill.main`
+**Delegates to**: `ml.cli.observability_backfill.main`
 
 **Example:**
 
@@ -1461,7 +1461,7 @@ python -m ml.cli.pipeline_orchestrator \
 
 **Purpose**: Pipeline scheduling and cron-like execution
 
-**Delegates to**: `ml.tasks.pipelines.run_pipeline_schedule`
+**Delegates to**: `ml.orchestration.run_pipeline_schedule`
 
 **Example:**
 
@@ -1476,7 +1476,7 @@ python -m ml.cli.pipeline_scheduler \
 
 **Purpose**: Pipeline runner for ad-hoc execution
 
-**Delegates to**: `ml.tasks.pipelines.runner.run_pipeline`
+**Delegates to**: `ml.orchestration.pipeline_runner.run_pipeline`
 
 **Example:**
 
@@ -1508,7 +1508,7 @@ python -m ml.cli.scheduler_smoke
 
 **Core Functionality:**
 
-- Delegates to `ml.tasks.db` module
+- Delegates to `ml.stores.migrations_runner` module
 - Supports schema selection (market_data, ml_observability, both)
 - Optional migrations (hardening, views, fixes)
 - Dry-run and print-only modes
@@ -1568,7 +1568,7 @@ Files Applied:
 
 **Integration Points:**
 
-- `ml/tasks/db.py`: Migration logic
+- `ml/stores/migrations_runner.py`: Migration logic
   - `apply_database_migrations()`
   - `build_migration_plan()`
   - `split_sql_statements()`
@@ -1579,7 +1579,7 @@ Files Applied:
 **File References:**
 
 - `/home/nate/projects/nautilus_trader/ml/cli/apply_migrations.py` (lines 1-121)
-- `/home/nate/projects/nautilus_trader/ml/tasks/db.py`
+- `/home/nate/projects/nautilus_trader/ml/stores/migrations_runner.py`
 
 ---
 
@@ -1691,12 +1691,12 @@ Raw Data → CATALOG_WRITTEN → FEATURE_COMPUTED → PREDICTION_EMITTED → SIG
 
 ### Tasks Layer Integration
 
-**Critical Pattern**: CLIs are **thin wrappers** that delegate to `ml/tasks/`:
+**Critical Pattern**: CLIs are **thin wrappers** that delegate to canonical domain modules (`ml/<domain>/`):
 
 ```
 ml/cli/{name}.py (10-150 lines)
     ↓ delegates to
-ml/tasks/{area}/{task}.py (100-1000+ lines)
+ml/<domain>/<service>.py (canonical business-logic owners)
     ↓ uses
 ml/stores/, ml/registry/, ml/features/, ml/data/, etc.
 ```
@@ -1705,14 +1705,14 @@ ml/stores/, ml/registry/, ml/features/, ml/data/, etc.
 
 | CLI | Lines | Delegates To | Task Module |
 |-----|-------|--------------|-------------|
-| `health.py` | 48 | `ml.tasks.monitoring.aggregate_integration_health` | `ml/tasks/monitoring/__init__.py` |
-| `coverage.py` | 56 | `ml.tasks.monitoring.coverage.main` | `ml/tasks/monitoring/coverage.py` |
-| `observability.py` | 21 | `ml.tasks.observability.flush.main` | `ml/tasks/observability/flush.py` |
-| `train_tft_quick.py` | 100 | `ml.tasks.training.train_tft_quick` | `ml/tasks/training/quick.py` |
-| `build_tft_dataset.py` | 232 | `ml.tasks.datasets.build_tft_dataset` | `ml/tasks/datasets/tft.py` |
-| `feature_cli.py` | 147 | `ml.tasks.registry.*` | `ml/tasks/registry.py` |
-| `apply_migrations.py` | 121 | `ml.tasks.db.*` | `ml/tasks/db.py` |
-| `ingest_backfill.py` | 21 | `ml.tasks.ingest.backfill.main` | `ml/tasks/ingest/backfill.py` |
+| `health.py` | 48 | `ml.core.common.health_monitoring.aggregate_integration_health` | `ml/monitoring/__init__.py` |
+| `coverage.py` | 56 | `ml.cli.coverage.main` | `ml/cli/coverage.py` |
+| `observability.py` | 21 | `ml.cli.observability.main` | `ml/cli/observability.py` |
+| `train_tft_quick.py` | 100 | `ml.training.teacher.train_tft_quick` | `ml/training/teacher/quick.py` |
+| `build_tft_dataset.py` | 232 | `ml.data.build_tft_dataset` | `ml/data/build.py` |
+| `feature_cli.py` | 147 | `ml.registry.feature_operations.*` | `ml/registry/feature_operations.py` |
+| `apply_migrations.py` | 121 | `ml.stores.migrations_runner.*` | `ml/stores/migrations_runner.py` |
+| `ingest_backfill.py` | 21 | `ml.cli.ingest_backfill.main` | `ml/cli/ingest_backfill.py` |
 
 **Benefits:**
 
@@ -1873,7 +1873,7 @@ bind_log_context(run_id=run_id, component="ml.cli.build_tft_dataset")
 CLIs use dataclass configs for all tunable values:
 
 ```python
-from ml.tasks.datasets import TFTDatasetTaskConfig
+from ml.data import TFTDatasetTaskConfig
 
 cfg = TFTDatasetTaskConfig(
     data_dir=Path(args.data_dir),
@@ -2180,7 +2180,7 @@ export ML_DEBUG="1"  # Enable debug logging
 
 ## Summary
 
-The ML CLI module provides 42+ command-line interfaces totaling 5,807 lines of code. The architecture follows a **thin wrapper delegation pattern** where CLIs (10-150 lines) parse arguments and delegate to task functions in `ml/tasks/` (100-1000+ lines), ensuring separation of concerns, testability, and reusability.
+The ML CLI module provides 42+ command-line interfaces totaling 5,807 lines of code. The architecture follows a **thin wrapper delegation pattern** where CLIs (10-150 lines) parse arguments and delegate to canonical domain services under `ml/<domain>/` (100-1000+ lines), ensuring separation of concerns, testability, and reusability.
 
 **Key Strengths:**
 
@@ -2194,7 +2194,7 @@ The ML CLI module provides 42+ command-line interfaces totaling 5,807 lines of c
 
 **Architecture Highlights:**
 
-- **Thin Wrapper Pattern**: CLIs are lightweight entry points, business logic in `ml/tasks/`
+- **Thin Wrapper Pattern**: CLIs are lightweight entry points, business logic in canonical domain modules (`ml/<domain>/`)
 - **Standard Exit Codes**: 0 (success), 1 (error), 2 (business failure)
 - **Structured Logging**: All CLIs use `ml.common.logging_config` for consistent logging
 - **Error Handling**: Input validation, progressive fallback, resource cleanup
@@ -2204,4 +2204,4 @@ The ML CLI module provides 42+ command-line interfaces totaling 5,807 lines of c
 - 4-store pattern (FeatureStore, ModelStore, DataStore, StrategyStore)
 - 4-registry pattern (FeatureRegistry, ModelRegistry, DataRegistry, StrategyRegistry)
 - External systems (Databento, PostgreSQL, Redis, Docker)
-- Tasks layer (`ml/tasks/`) for all business logic
+- Canonical domain layer (`ml/<domain>/`) for all business logic

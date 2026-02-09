@@ -18,6 +18,7 @@ from ml.orchestration.config_types import DatasetBuildConfig
 from ml.orchestration.config_types import OrchestratorConfig
 from ml.orchestration.config_types import StudentDistillConfig
 from ml.orchestration.config_types import TeacherTrainConfig
+from ml.orchestration.dataset_builder import DatasetBuilder
 from ml.tests.utils.targets import build_default_target_semantics_payload
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
@@ -151,9 +152,9 @@ class TestMultiSymbolOrchestration:
 
             return 0
 
-        # Use patch on the class method (works with __slots__)
+        # Patch the canonical dataset builder path used by StageController.
         with patch.object(
-            MLPipelineOrchestrator,
+            DatasetBuilder,
             "build_dataset",
             side_effect=mock_build_dataset,
         ):
@@ -258,9 +259,9 @@ class TestMultiSymbolOrchestration:
             df.to_csv(dataset_path, index=False)
             return 0
 
-        # Use patch on the class method (works with __slots__)
+        # Patch the canonical dataset builder path used by StageController.
         with patch.object(
-            MLPipelineOrchestrator,
+            DatasetBuilder,
             "build_dataset",
             side_effect=mock_build_dataset,
         ):

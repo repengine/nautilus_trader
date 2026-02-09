@@ -22,29 +22,25 @@ def _create_facade_manager(
     *,
     ensure_healthy: bool = False,
 ) -> Any:
+    import ml.core.integration_facade as integration_facade
+    from ml.core.common.database_lifecycle import DatabaseLifecycleComponent
+    from ml.core.common.store_initialization import StoreInitializationComponent
+    from ml.core.integration_facade import MLIntegrationManagerFacade
+
     mock_candidates = MagicMock(urls=(TEST_DB_CONNECTION,))
     monkeypatch.setattr(
-        "ml.core.integration_facade.collect_postgres_candidates",
+        integration_facade,
+        "collect_postgres_candidates",
         lambda *args, **kwargs: mock_candidates,
     )
+    monkeypatch.setattr(DatabaseLifecycleComponent, "is_postgres_running", lambda self: False)
+    monkeypatch.setattr(StoreInitializationComponent, "enable_file_fallback", lambda self: False)
+    monkeypatch.setattr(MLIntegrationManagerFacade, "_init_partition_manager", lambda self: None)
     monkeypatch.setattr(
-        "ml.core.common.database_lifecycle.DatabaseLifecycleComponent.is_postgres_running",
-        lambda self: False,
-    )
-    monkeypatch.setattr(
-        "ml.core.common.store_initialization.StoreInitializationComponent.enable_file_fallback",
-        lambda self: False,
-    )
-    monkeypatch.setattr(
-        "ml.core.integration_facade.MLIntegrationManagerFacade._init_partition_manager",
+        MLIntegrationManagerFacade,
+        "_maybe_run_backfill_on_start",
         lambda self: None,
     )
-    monkeypatch.setattr(
-        "ml.core.integration_facade.MLIntegrationManagerFacade._maybe_run_backfill_on_start",
-        lambda self: None,
-    )
-
-    from ml.core.integration_facade import MLIntegrationManagerFacade
 
     return MLIntegrationManagerFacade(
         db_connection=TEST_DB_CONNECTION,

@@ -1089,7 +1089,7 @@ class FREDDataLoader:
             # Ensure timestamp exists
             cur = df
             if "timestamp" not in cur.columns and "timestamp_ns" in cur.columns:
-                cur = cur.with_columns(_pl.from_epoch("timestamp_ns", unit="ns").alias("timestamp"))
+                cur = cur.with_columns(_pl.from_epoch("timestamp_ns", time_unit="ns").alias("timestamp"))
             # Select and rename
             if "value" not in cur.columns:
                 # Some sources might use series_id as value column name; skip those

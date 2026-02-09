@@ -97,6 +97,8 @@ class DatasetBuildConfig:
     threshold: float = 0.001
     target_semantics: dict[str, object] | None = None
     lookback_periods: int = 30
+    random_seed: int | None = None
+    deterministic_mode: bool | None = None
     emit_dataset_events: bool = False
     start_iso: str | None = None
     end_iso: str | None = None

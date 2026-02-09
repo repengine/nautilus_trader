@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from ml.common.in_memory_bus import InMemoryPublisher
 from ml.config.events import EventStatus, Stage
@@ -92,4 +92,25 @@ def test_publisher_is_non_blocking_on_failure() -> None:
         is_live=True,
         status=EventStatus.SUCCESS,
     )
+    assert ok is False
+
+
+def test_publisher_returns_false_when_payload_build_fails() -> None:
+    bus = InMemoryPublisher()
+    pub = StrategyDecisionPublisher(bus, scheme="domain_op")
+
+    ok = pub.publish(
+        strategy_id="S",
+        instrument_id="X",
+        signal_type="HOLD",
+        strength=0.0,
+        model_predictions={},
+        risk_metrics=None,
+        execution_params=None,
+        decision_metadata=cast(Any, object()),
+        ts_event=0,
+        is_live=True,
+        status=EventStatus.SUCCESS,
+    )
+
     assert ok is False

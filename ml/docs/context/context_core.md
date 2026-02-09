@@ -838,7 +838,7 @@ class ActorStoresRegistries:
 - `ml.common.message_bus`: Message bus publisher factory and configuration
 - `ml.observability.*`: Optional comprehensive monitoring service integration
 - `ml.config.*`: Configuration classes with validation and environment variable support
-- `ml.tasks.db`: Database migration schema and utilities
+- `ml.stores.migrations_runner`: Database migration schema and utilities
 - `ml.preprocessing.event_ingestion`: Event normalization pipeline utilities
 - `nautilus_trader.core.data`: Core Nautilus data types and timestamp standards
 - `nautilus_trader.persistence.catalog.parquet`: Optional Parquet catalog integration
@@ -1069,7 +1069,7 @@ from ml.preprocessing.event_ingestion import EventIngestionConfig
 cfg = EventIngestionConfig(
     start=datetime(2024, 1, 1, tzinfo=UTC),
     end=datetime(2024, 1, 31, tzinfo=UTC),
-    out_dir=Path("./data/events"),
+    out_dir=Path("./data/features/events"),
 )
 
 # Run normalized event ingestion

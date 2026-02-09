@@ -13,6 +13,20 @@ from ml.data.ingest.symbology import SymbologyResolutionError
 pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
 
 
+def _metric_sample_value(
+    isolated_prometheus_registry: Any,
+    metric_name: str,
+    labels: dict[str, str],
+) -> float:
+    sample = isolated_prometheus_registry.registry.get_sample_value(
+        metric_name,
+        labels=labels,
+    )
+    if sample is None:
+        return 0.0
+    return float(sample)
+
+
 class _AliasAwareClient:
     def __init__(self, successes: dict[str, str]) -> None:
         self._successes = {symbol.upper(): inst for symbol, inst in successes.items()}
@@ -48,15 +62,22 @@ class _AliasAwareClient:
 def test_resolver_uses_alias_for_brk(isolated_prometheus_registry: Any) -> None:
     client = _AliasAwareClient({"BRK.B": "991"})
     resolver = DatabentoSymbologyResolver(client=client)
+    labels = {"dataset": "EQUS.MINI"}
+    before = _metric_sample_value(
+        isolated_prometheus_registry,
+        "nautilus_ml_symbology_alias_hits_total",
+        labels,
+    )
     result = resolver.resolve(dataset="EQUS.MINI", symbol="BRK")
     assert result.preferred == "BRK.B"
     assert result.instrument_id == "991"
     assert client.calls == [("EQUS.MINI", "BRK"), ("EQUS.MINI", "BRK.B")]
-    metric_value = isolated_prometheus_registry.registry.get_sample_value(
+    after = _metric_sample_value(
+        isolated_prometheus_registry,
         "nautilus_ml_symbology_alias_hits_total",
-        labels={"dataset": "EQUS.MINI"},
+        labels,
     )
-    assert metric_value == 1.0
+    assert after - before == 1.0
 
 
 def test_resolver_alias_fallback_propagates_when_missing() -> None:
@@ -111,15 +132,22 @@ def test_resolver_retries_server_error_then_succeeds(isolated_prometheus_registr
         retry_attempts=3,
         retry_backoff_seconds=0.0,
     )
+    labels = {"dataset": "EQUS.MINI", "status": "502"}
+    before = _metric_sample_value(
+        isolated_prometheus_registry,
+        "nautilus_ml_symbology_retry_total",
+        labels,
+    )
     result = resolver.resolve(dataset="EQUS.MINI", symbol="DIS")
     assert result.preferred == "DIS"
     assert result.instrument_id == "123"
     assert client.calls == 2
-    metric_value = isolated_prometheus_registry.registry.get_sample_value(
+    after = _metric_sample_value(
+        isolated_prometheus_registry,
         "nautilus_ml_symbology_retry_total",
-        labels={"dataset": "EQUS.MINI", "status": "502"},
+        labels,
     )
-    assert metric_value == 1.0
+    assert after - before == 1.0
 
 
 def test_resolver_raises_after_retry_budget_exhausted(isolated_prometheus_registry: Any) -> None:
@@ -129,11 +157,18 @@ def test_resolver_raises_after_retry_budget_exhausted(isolated_prometheus_regist
         retry_attempts=2,
         retry_backoff_seconds=0.0,
     )
+    labels = {"dataset": "EQUS.MINI", "status": "502"}
+    before = _metric_sample_value(
+        isolated_prometheus_registry,
+        "nautilus_ml_symbology_retry_total",
+        labels,
+    )
     with pytest.raises(SymbologyResolutionError):
         resolver.resolve(dataset="EQUS.MINI", symbol="DIS")
     assert client.calls == 2
-    metric_value = isolated_prometheus_registry.registry.get_sample_value(
+    after = _metric_sample_value(
+        isolated_prometheus_registry,
         "nautilus_ml_symbology_retry_total",
-        labels={"dataset": "EQUS.MINI", "status": "502"},
+        labels,
     )
-    assert metric_value == 1.0
+    assert after - before == 1.0

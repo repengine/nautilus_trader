@@ -28,10 +28,13 @@ from numpy.typing import NDArray
 from ml.common import current_rss_mb
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.common.reproducibility import ReproducibilityValue
+from ml.common.reproducibility import build_configured_reproducibility_provenance
 from ml.config.feature_cache import FeatureCachePolicy
 from ml.config.feature_cache import normalize_feature_cache_policy
 from ml.config.market_data import MarketDatasetInput
 from ml.config.market_data import load_market_feed_descriptors
+from ml.config.policy import ActorRemediationPolicyConfig
 from ml.config.targets import TargetSemanticsConfig
 from ml.data.common.capability_flags import capability_flags_from_builder
 from ml.data.common.dataset_csv import resolve_write_csv as _resolve_write_csv
@@ -61,6 +64,9 @@ from ml.data.validation import DatasetValidationResult
 from ml.data.validation import validate_dataset
 from ml.data.vintage import VintagePolicy
 from ml.ml_types import PolarsDF
+from ml.preprocessing.vintage_age import convert_vintage_timestamps_to_age
+from ml.preprocessing.vintage_age import update_metadata_with_vintage_age
+from ml.preprocessing.vintage_age import write_metadata
 from ml.stores.protocols import DataStoreFacadeProtocol
 
 
@@ -181,6 +187,8 @@ class DatasetBuildConfig:
     micro_base_dir: Path | None = None
     l2_base_dir: Path | None = None
     lookback_periods: int = 30
+    random_seed: int | None = None
+    deterministic_mode: bool | None = None
     # Optional window
     start: datetime | None = None
     end: datetime | None = None
@@ -228,6 +236,8 @@ class DatasetBuildConfig:
                 label="l2_cache_policy",
             ),
         )
+        if self.random_seed is not None and int(self.random_seed) < 0:
+            raise ValueError("random_seed must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -250,6 +260,158 @@ class BuildResult:
     feature_names: list[str]
     feature_set_id: str | None = None
     metadata: DatasetMetadata | None = None
+
+
+FeatureRoleName = Literal["teacher", "student", "inference_support"]
+
+
+@dataclass(slots=True, frozen=True)
+class TFTDatasetTaskConfig:
+    """
+    Compatibility configuration for legacy TFT task dataset builders.
+
+    This dataclass preserves the public API previously exposed by the
+    legacy task-layer dataset builder while delegating execution to
+    canonical data-domain build logic.
+    """
+
+    data_dir: Path
+    out_dir: Path
+    symbols: Sequence[str]
+    target_semantics: TargetSemanticsConfig
+    instrument_ids: Sequence[str] | None = None
+    lookback_periods: int = 30
+    include_macro: bool = True
+    macro_lag_days: int = 1
+    include_micro: bool = False
+    include_l2: bool = False
+    include_events: bool = False
+    include_calendar: bool = False
+    include_earnings: bool = False
+    earnings_lag_days: int = 1
+    include_macro_deltas: bool = False
+    include_calendar_lags: bool = False
+    include_clustering_tags: bool = False
+    include_context_features: bool = False
+    micro_base_dir: Path | None = None
+    l2_base_dir: Path | None = None
+    chunk_days: int = 0
+    start: datetime | None = None
+    end: datetime | None = None
+    write_csv: bool | None = None
+    csv_max_rows: int = 1_000_000
+    csv_sample_rows: int = 0
+    register_features: bool = False
+    feature_registry_dir: Path | None = None
+    feature_role: FeatureRoleName = "teacher"
+    emit_dataset_events: bool = False
+    fred_vintage_dir: Path | None = None
+    events_base_dir: Path | None = None
+    student_mode: bool = False
+    random_seed: int | None = None
+    deterministic_mode: bool | None = None
+    auto_refresh_macro: bool = True
+    macro_staleness_hours: int = 24
+    macro_series_ids: tuple[str, ...] | None = None
+    macro_fred_path: Path | None = None
+    validation: DatasetValidationConfig | None = None
+    market_dataset_id: str | None = None
+    market_inputs: tuple[MarketDatasetInput, ...] | None = None
+    vintage_policy: VintagePolicy = VintagePolicy.REAL_TIME
+    vintage_as_of: datetime | None = None
+    convert_vintage_to_age: bool = False
+    include_macro_revisions: bool = False
+    macro_revision_mode: Literal["minimal", "core", "full"] = "core"
+    macro_revision_windows: tuple[int, ...] | None = None
+
+
+def build_tft_dataset_from_task_config(
+    cfg: TFTDatasetTaskConfig,
+    *,
+    data_store: DataStoreFacadeProtocol | None = None,
+) -> BuildResult:
+    """
+    Build a TFT dataset from legacy task-style configuration.
+
+    Parameters
+    ----------
+    cfg : TFTDatasetTaskConfig
+        Legacy task wrapper configuration.
+    data_store : DataStoreFacadeProtocol, optional
+        Canonical DataStore facade for raw data access.
+
+    Returns
+    -------
+    BuildResult
+        Artifact bundle for the built dataset.
+    """
+    dataset_cfg = DatasetBuildConfig(
+        data_dir=cfg.data_dir,
+        out_dir=cfg.out_dir,
+        symbols=[symbol.upper() for symbol in cfg.symbols],
+        instrument_ids=[inst for inst in cfg.instrument_ids] if cfg.instrument_ids else None,
+        target_semantics=cfg.target_semantics,
+        include_macro=cfg.include_macro,
+        macro_lag_days=cfg.macro_lag_days,
+        include_micro=cfg.include_micro,
+        include_l2=cfg.include_l2,
+        include_events=cfg.include_events,
+        include_calendar=cfg.include_calendar,
+        include_macro_deltas=cfg.include_macro_deltas,
+        include_calendar_lags=cfg.include_calendar_lags,
+        include_clustering_tags=cfg.include_clustering_tags,
+        include_context_features=cfg.include_context_features,
+        include_earnings=cfg.include_earnings,
+        earnings_lag_days=cfg.earnings_lag_days,
+        micro_base_dir=cfg.micro_base_dir,
+        l2_base_dir=cfg.l2_base_dir,
+        lookback_periods=cfg.lookback_periods,
+        start=cfg.start,
+        end=cfg.end,
+        chunk_days=cfg.chunk_days,
+        write_csv=cfg.write_csv,
+        csv_max_rows=cfg.csv_max_rows,
+        csv_sample_rows=cfg.csv_sample_rows,
+        register_features=cfg.register_features,
+        feature_registry_dir=cfg.feature_registry_dir,
+        feature_role=cfg.feature_role,
+        emit_dataset_events=cfg.emit_dataset_events,
+        fred_vintage_dir=cfg.fred_vintage_dir,
+        events_base_dir=cfg.events_base_dir,
+        student_mode=cfg.student_mode,
+        random_seed=cfg.random_seed,
+        deterministic_mode=cfg.deterministic_mode,
+        auto_refresh_macro=cfg.auto_refresh_macro,
+        macro_staleness_hours=cfg.macro_staleness_hours,
+        macro_series_ids=cfg.macro_series_ids,
+        macro_fred_path=cfg.macro_fred_path,
+        validation=cfg.validation,
+        market_dataset_id=cfg.market_dataset_id,
+        market_inputs=cfg.market_inputs,
+        vintage_policy=cfg.vintage_policy,
+        vintage_as_of=cfg.vintage_as_of,
+        include_macro_revisions=cfg.include_macro_revisions,
+        macro_revision_mode=cfg.macro_revision_mode,
+        macro_revision_windows=cfg.macro_revision_windows,
+    )
+    result = build_tft_dataset(dataset_cfg, data_store=data_store)
+    if not cfg.convert_vintage_to_age:
+        return result
+
+    destination = result.dataset_parquet.with_name("dataset_with_vintage_age.parquet")
+    conversion = convert_vintage_timestamps_to_age(result.dataset_parquet, destination)
+    metadata_path = result.dataset_parquet.with_name("dataset_metadata.json")
+    if not metadata_path.exists():
+        msg = f"Metadata file not found for dataset: {metadata_path}"
+        raise FileNotFoundError(msg)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    updated_metadata = update_metadata_with_vintage_age(
+        metadata,
+        vintage_columns=conversion.vintage_columns,
+        age_columns=conversion.age_columns,
+    )
+    write_metadata(metadata_path, updated_metadata)
+    return replace(result, dataset_parquet=destination)
 
 
 def _resolve_target_semantics(cfg: DatasetBuildConfig) -> TargetSemanticsConfig:
@@ -285,6 +447,30 @@ def _resolve_binary_target_column(target_semantics: TargetSemanticsConfig) -> st
         Binary target column name if available.
     """
     return resolve_binary_target_column(target_semantics)
+
+
+def _resolve_dataset_reproducibility(
+    cfg: DatasetBuildConfig,
+) -> dict[str, ReproducibilityValue]:
+    """
+    Resolve canonical reproducibility provenance for dataset metadata.
+
+    Args:
+        cfg: Dataset build configuration.
+
+    Returns:
+        Canonical reproducibility payload.
+    """
+    deterministic_mode = (
+        bool(cfg.deterministic_mode)
+        if cfg.deterministic_mode is not None
+        else ActorRemediationPolicyConfig.from_env().deterministic_mode
+    )
+    return build_configured_reproducibility_provenance(
+        primary_seed=cfg.random_seed,
+        deterministic_mode=deterministic_mode,
+        context="dataset reproducibility seed",
+    )
 
 
 def _sorted_tuple(values: Sequence[str] | None) -> tuple[str, ...]:
@@ -732,6 +918,7 @@ def _build_dataset_chunked(
     from ml.training.datasets.target_generator import build_target_semantics_metadata
 
     target_semantics_metadata = build_target_semantics_metadata(target_semantics)
+    reproducibility_metadata = _resolve_dataset_reproducibility(cfg)
 
     cursor = cast(datetime, cfg.start)
     end = cast(datetime, cfg.end)
@@ -846,6 +1033,7 @@ def _build_dataset_chunked(
             capability_flags=capability_flags,
             market_bindings=binding_metadata,
             target_semantics=target_semantics_metadata,
+            reproducibility=reproducibility_metadata,
         )
         write_dataset_metadata(metadata, out_dir=cfg.out_dir)
         validation_result = DatasetValidationResult(
@@ -1056,6 +1244,7 @@ def _build_dataset_chunked(
         capability_flags=capability_flags,
         market_bindings=binding_metadata,
         target_semantics=target_semantics_metadata,
+        reproducibility=reproducibility_metadata,
     )
 
     write_dataset_metadata(metadata, out_dir=cfg.out_dir)
@@ -1127,8 +1316,23 @@ def build_tft_dataset(
 
     vintage_as_of = normalize_vintage_as_of(cfg.vintage_as_of)
 
-    descriptor_map = load_market_feed_descriptors().as_mapping()
-    resolved_bindings = resolve_market_dataset_bindings(
+    # Resolve via ml.data package first so legacy monkeypatch points continue to
+    # affect build contracts without requiring internal module patching.
+    import ml.data as data_module
+
+    descriptor_loader = getattr(
+        data_module,
+        "load_market_feed_descriptors",
+        load_market_feed_descriptors,
+    )
+    binding_resolver = getattr(
+        data_module,
+        "resolve_market_dataset_bindings",
+        resolve_market_dataset_bindings,
+    )
+
+    descriptor_map = descriptor_loader().as_mapping()
+    resolved_bindings = binding_resolver(
         symbols=cfg.symbols,
         instrument_ids=cfg.instrument_ids,
         market_dataset_id=cfg.market_dataset_id,
@@ -1173,6 +1377,7 @@ def build_tft_dataset(
     from ml.training.datasets.target_generator import build_target_semantics_metadata
 
     target_semantics_metadata = build_target_semantics_metadata(target_semantics)
+    reproducibility_metadata = _resolve_dataset_reproducibility(cfg)
     primary_horizon_minutes = (
         int(target_semantics.horizons[0].minutes)
         if target_semantics.horizons
@@ -1252,6 +1457,7 @@ def build_tft_dataset(
         getattr(cfg, "dataset_id", None),
         getattr(validation_result, "macro_observation_counts", {}),
         target_semantics_metadata,
+        reproducibility_metadata,
     )
     binding_metadata = _binding_stats_to_metadata(builder.get_binding_stats())
     metadata = replace(metadata, market_bindings=binding_metadata, capability_flags=capability_flags)
@@ -1320,6 +1526,9 @@ def build_tft_dataset(
 __all__ = [
     "BuildResult",
     "DatasetBuildConfig",
+    "FeatureRoleName",
+    "TFTDatasetTaskConfig",
     "build_tft_dataset",
+    "build_tft_dataset_from_task_config",
     "compute_dataset_pipeline_signature",
 ]

@@ -9,8 +9,8 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from ml.tasks.datasets import DatasetReportConfig
-from ml.tasks.datasets import generate_dataset_report
+from ml.data import DatasetReportConfig
+from ml.data import generate_dataset_report
 
 
 __all__ = ["main"]

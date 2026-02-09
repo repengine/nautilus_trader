@@ -10,8 +10,10 @@ from ml.data.loaders.alfred_loader import ALFREDDataLoader
 from ml.data.loaders.alternative import AlternativeDataConfig
 from ml.data.loaders.alternative import AlternativeDataResult
 from ml.data.loaders.alternative import AlternativeSource
+from ml.data.loaders.alternative import PopulateAlternativeDataTaskConfig
 from ml.data.loaders.alternative import load_tier1_symbols
 from ml.data.loaders.alternative import populate_alternative_data
+from ml.data.loaders.alternative import populate_alternative_data_task
 from ml.data.loaders.alternative import save_alternative_data
 from ml.data.loaders.fama_french_loader import FamaFrenchDatasetSpec
 from ml.data.loaders.fama_french_loader import FamaFrenchLoader
@@ -19,6 +21,7 @@ from ml.data.loaders.fama_french_loader import download_fama_french_dataset
 from ml.data.loaders.fred_loader import FREDConfig
 from ml.data.loaders.fred_loader import FREDDataLoader
 from ml.data.loaders.fred_loader import FREDIndicator
+from ml.data.loaders.ohlcv_recent import BackfillRecentOhlcvTaskConfig
 from ml.data.loaders.ohlcv_recent import OhlcvRecentBackfillConfig
 from ml.data.loaders.ohlcv_recent import OhlcvRecentBackfillResult
 from ml.data.loaders.ohlcv_recent import SymbolBackfillStatus
@@ -27,12 +30,16 @@ from ml.data.loaders.ohlcv_recent import backfill_recent_ohlcv
 from ml.data.loaders.supplementary import DEFAULT_BASE_SYMBOLS
 from ml.data.loaders.supplementary import DEFAULT_SPREADS
 from ml.data.loaders.supplementary import SUPPLEMENTARY_SYMBOLS
+from ml.data.loaders.supplementary import PopulateSupplementaryTaskConfig
+from ml.data.loaders.supplementary import PopulateYahooDataTaskConfig
 from ml.data.loaders.supplementary import SpreadDefinition
 from ml.data.loaders.supplementary import SupplementaryDataConfig
 from ml.data.loaders.supplementary import SupplementaryOutputs
 from ml.data.loaders.supplementary import calculate_correlations
 from ml.data.loaders.supplementary import calculate_spreads
 from ml.data.loaders.supplementary import create_synthetic_supplementary_data
+from ml.data.loaders.supplementary import populate_supplementary_data
+from ml.data.loaders.supplementary import populate_yahoo_data
 from ml.data.loaders.supplementary import write_supplementary_outputs
 
 
@@ -45,6 +52,7 @@ __all__ = [
     "AlternativeDataConfig",
     "AlternativeDataResult",
     "AlternativeSource",
+    "BackfillRecentOhlcvTaskConfig",
     "FREDConfig",
     "FREDDataLoader",
     "FREDIndicator",
@@ -52,6 +60,9 @@ __all__ = [
     "FamaFrenchLoader",
     "OhlcvRecentBackfillConfig",
     "OhlcvRecentBackfillResult",
+    "PopulateAlternativeDataTaskConfig",
+    "PopulateSupplementaryTaskConfig",
+    "PopulateYahooDataTaskConfig",
     "SpreadDefinition",
     "SupplementaryDataConfig",
     "SupplementaryOutputs",
@@ -64,6 +75,9 @@ __all__ = [
     "download_fama_french_dataset",
     "load_tier1_symbols",
     "populate_alternative_data",
+    "populate_alternative_data_task",
+    "populate_supplementary_data",
+    "populate_yahoo_data",
     "save_alternative_data",
     "write_supplementary_outputs",
 ]

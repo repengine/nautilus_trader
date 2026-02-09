@@ -7,9 +7,13 @@ and persistence for the DataRegistry lineage tracking extracted from legacy Data
 """
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from typing import TYPE_CHECKING
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -78,6 +82,24 @@ def sample_lineage_record() -> DatasetLineageRecord:
         ts_range={"start_ns": 1_000_000_000_000, "end_ns": 2_000_000_000_000},
         parameters={"lookback_bars": 20},
         created_at=time.time(),
+    )
+
+
+def _build_stub_persistence(
+    *,
+    backend: BackendType,
+    session: Any | None = None,
+) -> Any:
+    from ml.registry.common.data_persistence import DataPersistenceComponent
+
+    return SimpleNamespace(
+        _lock=threading.RLock(),
+        backend=backend,
+        _lineage=[],
+        _manifests={},
+        _save_registry=MagicMock(),
+        persistence=SimpleNamespace(get_session=lambda: session),
+        _lineage_from_row=DataPersistenceComponent._lineage_from_row,
     )
 
 
@@ -559,6 +581,179 @@ class TestPipelineSignature:
 
         with pytest.raises(ValueError, match="cannot be empty"):
             component.set_pipeline_signature(sample_dataset_manifest.dataset_id, "")
+
+    def test_set_pipeline_signature_missing_dataset_raises(
+        self,
+        tmp_path: Path,
+        json_persistence_config: PersistenceConfig,
+    ) -> None:
+        from ml.registry.common.data_persistence import DataPersistenceComponent
+        from ml.registry.common.lineage_tracker import LineageTrackerComponent
+
+        persistence = DataPersistenceComponent(
+            registry_path=tmp_path / "registry",
+            persistence_config=json_persistence_config,
+        )
+        component = LineageTrackerComponent(persistence=persistence)
+
+        with pytest.raises(ValueError, match="Dataset 'missing' not found"):
+            component.set_pipeline_signature("missing", "sig")
+
+
+class TestPostgresBranches:
+    def test_link_lineage_postgres_success_and_failure_paths(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from ml.registry.common.lineage_tracker import LineageTrackerComponent
+
+        monkeypatch.setattr("ml.registry.common.lineage_tracker.time.time", lambda: 10.0)
+
+        session_success = MagicMock()
+        persistence_success = _build_stub_persistence(
+            backend=BackendType.POSTGRES,
+            session=session_success,
+        )
+        component_success = LineageTrackerComponent(cast(Any, persistence_success))
+        component_success.link_lineage(
+            child_dataset_id="child",
+            parent_ids=["p1", "p2"],
+            transform_id="transform",
+            ts_range={"start_ns": 1, "end_ns": 2},
+            params={"lookback": 20},
+        )
+
+        assert session_success.execute.call_count == 2
+        session_success.commit.assert_called_once()
+        session_success.close.assert_called_once()
+
+        session_failure = MagicMock()
+        session_failure.execute.side_effect = RuntimeError("insert-failed")
+        persistence_failure = _build_stub_persistence(
+            backend=BackendType.POSTGRES,
+            session=session_failure,
+        )
+        component_failure = LineageTrackerComponent(cast(Any, persistence_failure))
+
+        with pytest.raises(RuntimeError, match="insert-failed"):
+            component_failure.link_lineage(
+                child_dataset_id="child",
+                parent_ids=["p1"],
+                transform_id="transform",
+                ts_range={"start_ns": 1, "end_ns": 2},
+                params={},
+            )
+
+        session_failure.rollback.assert_called_once()
+
+    def test_link_lineage_postgres_raises_when_session_missing(self) -> None:
+        from ml.registry.common.lineage_tracker import LineageTrackerComponent
+
+        persistence = _build_stub_persistence(backend=BackendType.POSTGRES, session=None)
+        component = LineageTrackerComponent(cast(Any, persistence))
+
+        with pytest.raises(RuntimeError, match="Failed to get database session"):
+            component.link_lineage(
+                child_dataset_id="child",
+                parent_ids=["p1"],
+                transform_id="transform",
+                ts_range={"start_ns": 1, "end_ns": 2},
+                params={},
+            )
+
+    def test_iter_lineage_json_invalid_payload_and_postgres_query_paths(self) -> None:
+        from ml.registry.common.lineage_tracker import LineageTrackerComponent
+
+        json_persistence = _build_stub_persistence(backend=BackendType.JSON)
+        json_persistence._lineage = [
+            {
+                "transform_id": "transform",
+                "child_dataset_id": "child",
+                "parent_dataset_id": "parent",
+                "ts_range": "{invalid",
+                "parameters": "{invalid",
+                "created_at": 2.0,
+            },
+        ]
+        json_component = LineageTrackerComponent(cast(Any, json_persistence))
+        records = list(json_component.iter_lineage(child="child", parent="parent", limit=1))
+        assert len(records) == 1
+        assert records[0].ts_range == {}
+        assert records[0].parameters == {}
+
+        pg_session = MagicMock()
+        pg_session.execute.return_value.fetchall.return_value = [
+            {
+                "transform_id": "transform",
+                "child_dataset_id": "child",
+                "parent_dataset_id": "parent",
+                "ts_range": '{"start_ns": 1, "end_ns": 2}',
+                "parameters": '{"window": 5}',
+                "created_at": 12.0,
+            },
+        ]
+        pg_persistence = _build_stub_persistence(backend=BackendType.POSTGRES, session=pg_session)
+        pg_component = LineageTrackerComponent(cast(Any, pg_persistence))
+        pg_records = list(pg_component.iter_lineage(child="child", parent="parent", limit=1))
+        assert len(pg_records) == 1
+        assert pg_records[0].transform_id == "transform"
+        assert "LIMIT :limit" in str(pg_session.execute.call_args.args[0])
+        assert pg_session.execute.call_args.args[1] == {
+            "child": "child",
+            "parent": "parent",
+            "limit": 1,
+        }
+        pg_session.close.assert_called_once()
+
+    def test_iter_lineage_postgres_raises_when_session_missing(self) -> None:
+        from ml.registry.common.lineage_tracker import LineageTrackerComponent
+
+        persistence = _build_stub_persistence(backend=BackendType.POSTGRES, session=None)
+        component = LineageTrackerComponent(cast(Any, persistence))
+
+        with pytest.raises(RuntimeError, match="Failed to get database session"):
+            list(component.iter_lineage())
+
+    def test_get_pipeline_signature_fallback_and_exception_paths(self) -> None:
+        from ml.registry.common.lineage_tracker import LineageTrackerComponent
+
+        persistence = _build_stub_persistence(backend=BackendType.JSON)
+        manifest = DatasetManifest(
+            dataset_id="dataset_sig",
+            dataset_type=DatasetType.FEATURES,
+            storage_kind=StorageKind.PARQUET,
+            location="/tmp/features",
+            partitioning={},
+            retention_days=7,
+            schema={"instrument_id": "str", "ts_event": "int64", "ts_init": "int64"},
+            ts_field="ts_event",
+            seq_field=None,
+            primary_keys=["instrument_id", "ts_event"],
+            schema_hash="",
+            constraints={},
+            lineage=[],
+            pipeline_signature="from_manifest",
+            version="1.0.0",
+            metadata={"pipeline_signature": 123},
+        )
+        persistence._manifests["dataset_sig"] = manifest
+        component = LineageTrackerComponent(cast(Any, persistence))
+        assert component.get_pipeline_signature("dataset_sig") == "from_manifest"
+
+        class _KeyErrorMap(dict[str, DatasetManifest]):
+            def __contains__(self, key: object) -> bool:
+                del key
+                return True
+
+            def __getitem__(self, key: str) -> DatasetManifest:
+                del key
+                raise KeyError("missing")
+
+        persistence._manifests = _KeyErrorMap()
+        assert component.get_pipeline_signature("missing") is None
+
+        persistence._manifests = {"dataset_bad": cast(Any, object())}
+        assert component.get_pipeline_signature("dataset_bad") is None
 
 
 if __name__ == "__main__":

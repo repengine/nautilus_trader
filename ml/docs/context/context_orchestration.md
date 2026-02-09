@@ -1,22 +1,19 @@
 # Pipeline Orchestration Context
 
-**Last Updated:** 2025-10-19
+**Last Updated:** 2025-11-19
 **Target:** ml/orchestration/
-**Status:** Component migration in progress (strangler fig pattern)
+**Status:** Facade-only (legacy removed)
 
 ---
 
 ## Executive Summary
 
-The `ml/orchestration/` directory implements cold-path ML pipeline orchestration. It manages the complete lifecycle: ingestion → dataset building → training → promotion. A **strangler fig migration** is decomposing the 4,650-line legacy monolith (`pipeline_orchestrator_legacy.py`) into 5 focused components.
+The `ml/orchestration/` directory implements cold-path ML pipeline orchestration. It manages the complete lifecycle: ingestion → dataset building → training → promotion.
 
 **Current State:**
-- Legacy implementation is **default** (`ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=0`)
-- Component facade exists but **opt-in only**
-- Ingestion + dataset stages migrated; training stages remain in legacy
-- 100% backward compatibility maintained via wrapper pattern
-
-**Gap:** Training-related operations (HPO, teacher, student distill) not yet migrated to components.
+- Component facade is canonical (legacy orchestrator removed; no feature flags).
+- CLI glue lives in `pipeline_orchestrator_cli.py`, facade wiring in `pipeline_orchestrator_facade.py`.
+- Ingestion, dataset, training, and promotion flow through component stack.
 
 ---
 
@@ -25,9 +22,8 @@ The `ml/orchestration/` directory implements cold-path ML pipeline orchestration
 ```
 ml/orchestration/
 ├── __init__.py                         106 lines   # Public API
-├── pipeline_orchestrator.py            258 lines   # Runtime router (feature flags)
-├── pipeline_orchestrator_component.py  676 lines   # Component-based facade (opt-in)
-├── pipeline_orchestrator_legacy.py   4,650 lines   # Legacy monolith (default)
+├── pipeline_orchestrator_cli.py      2,214 lines   # CLI glue + orchestration helpers
+├── pipeline_orchestrator_facade.py     330 lines   # Facade wiring (component stack)
 │
 ├── config_types.py                     235 lines   # Typed config dataclasses
 ├── config_loader.py                    680 lines   # TOML/JSON loader
@@ -42,49 +38,21 @@ ml/orchestration/
 ├── promotions.py                       757 lines   # Model promotion helpers
 └── scheduler.py                        362 lines   # Pipeline scheduler
 
-Total: ~12,439 lines
+Total: ~10,900 lines
 ```
 
 ---
 
-## Architecture: Strangler Fig Pattern
-
-### Feature Flag Routing
-
-**File:** `ml/orchestration/pipeline_orchestrator.py:17-37`
-
-```python
-def _use_component_impl() -> bool:
-    """Determine whether component facade should be activated."""
-    # Precedence (highest to lowest):
-    # 1. ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=1 explicitly opts in
-    # 2. ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=0 explicitly opts out
-    # 3. ML_USE_LEGACY_PIPELINE_ORCHESTRATOR continues to work (backward compat)
-    # 4. Default: False (legacy)
-
-    component_flag = os.getenv("ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR")
-    if component_flag is not None:
-        return component_flag.strip() == "1"
-
-    legacy_flag = os.getenv("ML_USE_LEGACY_PIPELINE_ORCHESTRATOR")
-    if legacy_flag is not None:
-        return legacy_flag.strip() == "0"  # Legacy=0 means use component
-
-    return False  # Default: legacy
-```
-
-### Component Decomposition
+## Architecture: Facade Composition
 
 ```
-MLPipelineOrchestrator (Facade)
+MLPipelineOrchestratorFacade
 ├── ConfigResolver          # Market inputs, window bounds, symbol maps
 ├── DiscoveryClient         # Dataset discovery via ingestion service
 ├── BindingResolver         # Market binding + coverage validation
 ├── IngestionCoordinator    # Backfill, auto-fill, pre-ingestion
 └── DatasetBuilder          # Dataset construction + validation
 ```
-
-**Integration Point:** `_CompatibleLegacyOrchestrator` (lines 81-209 in `pipeline_orchestrator.py`) wraps legacy implementation to accept new component-based kwargs while maintaining backward compatibility.
 
 ---
 
@@ -265,6 +233,9 @@ def build_dataset(self, cfg: DatasetBuildConfig) -> int:
     return exit_code
 ```
 
+Metadata helpers for this flow live in `ml/data/metadata.py`, and the macro/vintage
+refresh + validation utilities are centralized in `ml/data/common/macro_vintage.py`.
+
 **Build Artifacts (lines 52-61):**
 ```python
 @dataclass(slots=True, frozen=True)
@@ -436,7 +407,7 @@ def compute_next_run(
 **File:** `ml/cli/pipeline_orchestrator.py`
 
 ```python
-from ml.orchestration.pipeline_orchestrator import main
+from ml.orchestration.pipeline_orchestrator_cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())
@@ -452,18 +423,11 @@ python -m ml.cli.pipeline_orchestrator \
 ### Tests
 
 **Key Test Files:**
-- `ml/tests/e2e/test_pipeline_orchestrator_e2e.py` - E2E tests for both legacy and component implementations
+- `ml/tests/e2e/test_pipeline_orchestrator_e2e.py` - E2E tests for facade-only orchestration
 - `ml/tests/integration/orchestration/test_ml_pipeline_orchestrator_facade.py` - Facade compatibility tests
 - `ml/tests/unit/orchestration/test_config_resolver.py` - ConfigResolver unit tests
 - `ml/tests/unit/orchestration/test_binding_resolver.py` - BindingResolver unit tests
 - `ml/tests/unit/orchestration/test_discovery_client.py` - DiscoveryClient unit tests
-
-**Feature Flag Testing (from `ml/tests/e2e/test_pipeline_orchestrator_e2e.py:286`):**
-```python
-os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "0"  # Use component impl
-# Run test
-os.environ["ML_USE_LEGACY_PIPELINE_ORCHESTRATOR"] = "1"  # Restore legacy
-```
 
 ### Dashboard Integration
 
@@ -483,12 +447,10 @@ Uses `load_orchestrator_config` to display pipeline status and configuration in 
 4. **Ingestion Coordination** - IngestionCoordinator (100% complete)
 5. **Dataset Building** - DatasetBuilder (90% complete, validation method stub)
 
-### ⚠️ Not Yet Migrated (Remain in Legacy)
+### ⚠️ Follow-ups
 
-1. **HPO Execution** - Hyperparameter optimization loop
-2. **Teacher Training** - Full teacher model training flow
-3. **Student Distillation** - Knowledge distillation pipeline
-4. **Full Pipeline Runs** - TRAIN and FULL stage orchestration
+1. Validate HPO/teacher/student flows end-to-end under facade-only orchestrator.
+2. Keep parity coverage focused on training + promotions for regressions.
 
 **Reason:** Training-related operations are deferred to Phase 2+ of the strangler fig migration.
 
@@ -501,7 +463,7 @@ Uses `load_orchestrator_config` to display pipeline status and configuration in 
    ```
    Protocol defines method but implementation missing. Dataset validation currently happens inline during `build_dataset`.
 
-2. **Feature Flag Default**: Component implementation is opt-in (`ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=0` by default). This should eventually flip to make component the default.
+2. **Facade-only**: Component implementation is the only path; legacy switches are removed.
 
 3. **Error Recovery**: Circuit breakers and backpressure skeletons exist but not fully implemented for all failure modes.
 
@@ -580,19 +542,10 @@ def backfill(self, dataset_id, schema, instrument_id, lookback_days):
 
 ## Developer Guidelines
 
-### When to Use Components vs Legacy
+### Orchestrator Implementation
 
-**Use Component Implementation:**
-- New tests or code paths
-- When extending configuration resolution
-- When adding new discovery or binding logic
-- Set `ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=1`
-
-**Use Legacy Implementation:**
-- Production pipelines (default)
-- Training-related flows (HPO, teacher, student)
-- When encountering component bugs (fallback)
-- Set `ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1` (or unset flags)
+- Component facade is the canonical path for orchestration.
+- Legacy pipeline switches are removed; use facade components for all changes.
 
 ### Adding New Configuration Options
 
@@ -631,12 +584,10 @@ def backfill(self, dataset_id, schema, instrument_id, lookback_days):
 
 **Integration Tests:**
 - Test component interactions via facade
-- Verify feature flag switching works correctly
-- Ensure backward compatibility with legacy implementation
+- Validate orchestration flows remain backward-compatible at the API level
 
 **E2E Tests:**
 - Full pipeline runs from config → artifacts
-- Test both legacy and component implementations
 - Validate dataset metadata, feature registration, model promotion
 
 **Property Tests:**
@@ -696,18 +647,6 @@ from ml.orchestration import (
 )
 ```
 
-### Feature Flags
-
-```bash
-# Use component implementation
-export ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=1
-
-# Use legacy implementation (default)
-export ML_USE_LEGACY_PIPELINE_ORCHESTRATOR=1
-# OR
-export ML_USE_COMPONENT_PIPELINE_ORCHESTRATOR=0
-```
-
 ### Running Pipeline
 
 ```bash
@@ -717,7 +656,7 @@ python -m ml.cli.pipeline_orchestrator \
     --stage full
 
 # Via scheduler
-python -m ml.tasks.pipelines.scheduler \
+python -m ml.cli.pipeline_scheduler \
     --config ml/config/orchestrator/production_full.toml \
     --schedule-time "02:00"
 ```

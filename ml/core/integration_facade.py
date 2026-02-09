@@ -44,10 +44,8 @@ from typing import (
 
 from sqlalchemy import text
 
-from ml.common import metrics_bootstrap
 from ml.common.db_connections import ConnectionRole
 from ml.common.db_connections import collect_postgres_candidates
-from ml.common.metrics_bootstrap import get_counter
 from ml.common.protocols import MLComponentProtocol
 from ml.core.common import ActorFactoryComponent
 from ml.core.common import DatabaseLifecycleComponent
@@ -56,7 +54,6 @@ from ml.core.common import HealthMonitoringComponent
 from ml.core.common import ObservabilityComponent
 from ml.core.common import RegistryInitializationComponent
 from ml.core.common import StoreInitializationComponent
-from ml.core.db_engine import EngineManager
 from ml.registry.base import DummyRegistry
 from ml.registry.data_registry import DataRegistry
 from ml.registry.feature_registry import FeatureRegistry
@@ -95,6 +92,32 @@ logger = logging.getLogger(__name__)
 
 
 ActorT = TypeVar("ActorT")
+
+
+def _emit_fallback_activation_metric(*, component: str, level: str) -> None:
+    """Emit the canonical fallback activation metric with component/level labels."""
+    try:
+        from ml.common.metrics_bootstrap import get_counter
+
+        get_counter(
+            "ml_fallback_activations_total",
+            "Fallback activations",
+            labelnames=("component", "level"),
+        ).labels(component=component, level=level).inc()
+    except Exception:
+        logger.debug(
+            "Fallback metric emit failed for component=%s level=%s",
+            component,
+            level,
+            exc_info=True,
+        )
+
+
+def _engine_manager_runtime() -> type[Any]:
+    """Resolve EngineManager at call time to avoid stale module-level aliases in tests."""
+    from ml.core.db_engine import EngineManager as RuntimeEngineManager
+
+    return RuntimeEngineManager
 
 
 class ComponentHealthStatus(TypedDict):
@@ -556,18 +579,10 @@ class MLIntegrationManagerFacade:
                     logger.warning(
                         "PostgreSQL unavailable - falling back to JSON registries and dummy stores",
                     )
-                    try:
-                        get_counter(
-                            "ml_fallback_activations_total",
-                            "Fallback activations",
-                            labelnames=("component", "level"),
-                        ).labels(component="ml_integration_manager", level="json").inc()
-                    except Exception as exc:
-                        logger.debug(
-                            "Fallback metric emit failed (json mode): %s",
-                            exc,
-                            exc_info=True,
-                        )
+                    _emit_fallback_activation_metric(
+                        component="ml_integration_manager",
+                        level="json",
+                    )
                 else:
                     self._registry_init.file_fallback = True
 
@@ -1543,9 +1558,10 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
 
     db_connection = cast(str | None, getattr(config, "db_connection", None))
     backend = BackendType.POSTGRES
+    engine_manager = _engine_manager_runtime()
     if not db_connection:
         try:
-            test_engine = EngineManager.get_engine(
+            test_engine = engine_manager.get_engine(
                 "postgresql://postgres:postgres@localhost:5432/nautilus",
             )
             with test_engine.connect() as conn:
@@ -1558,22 +1574,11 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             )
             backend = BackendType.JSON
             db_connection = ""
-            try:
-                metrics_bootstrap.get_counter(
-                    "ml_fallback_activations_total",
-                    "Fallback activations",
-                    labelnames=("component", "level"),
-                ).labels(component="actor_stores", level="dummy").inc()
-            except Exception as metric_exc:
-                logger.debug(
-                    "Fallback metric emit failed (initial probe): %s",
-                    metric_exc,
-                    exc_info=True,
-                )
+            _emit_fallback_activation_metric(component="actor_stores", level="dummy")
 
     if db_connection and backend == BackendType.POSTGRES:
         try:
-            engine = EngineManager.get_engine(str(db_connection))
+            engine = engine_manager.get_engine(str(db_connection))
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
         except Exception:
@@ -1584,18 +1589,10 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             )
             if getattr(config, "allow_dummy_fallback", True):
                 backend = BackendType.JSON
-                try:
-                    metrics_bootstrap.get_counter(
-                        "ml_fallback_activations_total",
-                        "Fallback activations",
-                        labelnames=("component", "level"),
-                    ).labels(component="actor_stores", level="dummy").inc()
-                except Exception as metric_exc:
-                    logger.debug(
-                        "Fallback metric emit failed (dummy backend activation): %s",
-                        metric_exc,
-                        exc_info=True,
-                    )
+                _emit_fallback_activation_metric(
+                    component="actor_stores",
+                    level="dummy",
+                )
             else:
                 raise
 
@@ -1647,14 +1644,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             strategy_store = FileStrategyStore(base_path=file_store_path / "strategies")
             file_data_store = FileDataStore(base_path=file_store_path / "datastore")
 
-            try:
-                metrics_bootstrap.get_counter(
-                    "ml_fallback_activations_total",
-                    "Fallback activations",
-                    labelnames=("component", "level"),
-                ).labels(component="actor_stores", level="file").inc()
-            except Exception:
-                logger.debug("File fallback metric emit failed", exc_info=True)
+            _emit_fallback_activation_metric(component="actor_stores", level="file")
 
             return ActorStoresRegistries(
                 feature_store=feature_store,
@@ -1674,6 +1664,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
                 "File-backed fallback unavailable for actor stores",
                 exc_info=True,
             )
+            _emit_fallback_activation_metric(component="actor_stores", level="dummy")
 
         return ActorStoresRegistries(
             feature_store=DummyStore(),
@@ -1733,14 +1724,7 @@ def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
             "EarningsStore initialization failed; using DummyEarningsStore",
             exc_info=True,
         )
-        try:
-            get_counter(
-                "ml_fallback_activations_total",
-                "Fallback activations",
-                labelnames=("component", "level"),
-            ).labels(component="earnings_store", level="dummy").inc()
-        except Exception:
-            logger.debug("EarningsStore fallback metric emit failed", exc_info=True)
+        _emit_fallback_activation_metric(component="earnings_store", level="dummy")
         earnings_store = DummyEarningsStore()
 
     raw_reader: RawReaderProtocol | None = None

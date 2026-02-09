@@ -5,7 +5,7 @@ This module tests the database lifecycle management component extracted from
 MLIntegrationManager (Phase 3.6.1). Tests cover:
 
 - Happy path: connection probing, migrations, container startup
-- Error conditions: all candidates fail, operational errors, CLI unavailable
+- Error conditions: all candidates fail, operational errors, helpers unavailable
 - Edge cases: empty candidates, already exists errors
 
 """
@@ -344,8 +344,8 @@ class TestErrorConditions:
         original_import = builtins.__import__
 
         def mock_import(name: str, *args: object, **kwargs: object) -> object:
-            if "ml.tasks.db" in name:
-                raise ImportError("No module named 'ml.tasks.db'")
+            if "ml.stores.migrations_runner" in name:
+                raise ImportError("No module named 'ml.stores.migrations_runner'")
             return original_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
@@ -430,7 +430,7 @@ class TestEdgeCases:
         original_import = builtins.__import__
 
         def mock_import(name: str, *args: object, **kwargs: object) -> object:
-            if "ml.tasks.db" in name:
+            if "ml.stores.migrations_runner" in name:
                 raise ImportError("No module")
             return original_import(name, *args, **kwargs)
 

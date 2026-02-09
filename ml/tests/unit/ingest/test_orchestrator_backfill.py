@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -13,6 +14,7 @@ from ml.config.events import Stage
 from ml.data.ingest.market_bindings import ResolvedMarketBinding
 from ml.data.ingest.orchestrator import BackfillWindowList
 from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.data.ingest.orchestrator import execute_backfill_plan
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.resume import IngestState
 from ml.registry.dataclasses import DatasetManifest
@@ -403,3 +405,93 @@ def test_normalize_time_columns_uses_ts_exchange_fallback() -> None:
 
     assert normalized["ts_event"].tolist() == ts_exchange
     assert normalized["ts_init"].tolist() == ts_exchange
+
+
+def test_execute_backfill_plan_processes_each_binding_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    binding = ResolvedMarketBinding(
+        binding_id="binding-spy",
+        symbol="SPY",
+        instrument_ids=("SPY.XNAS", "SPY.BATS"),
+        dataset_id="EQUS.MINI",
+        descriptor_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        storage_kind=StorageKind.POSTGRES,
+        license_start=None,
+        license_end=None,
+        start=None,
+        end=None,
+        source="descriptor",
+    )
+
+    monkeypatch.setattr(
+        IngestionOrchestrator,
+        "resolve_market_bindings",
+        staticmethod(lambda **_: (binding,)),
+    )
+
+    orchestrator_mock = MagicMock()
+    orchestrator_mock.backfill_binding.return_value = {
+        "SPY.XNAS": BackfillWindowList(((1, 2),), requested=((1, 2),)),
+        "SPY.BATS": BackfillWindowList(((3, 4),), requested=((3, 4),)),
+    }
+    messages: list[str] = []
+    summary = execute_backfill_plan(
+        orchestrator=orchestrator_mock,
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instruments=("SPY.XNAS", "SPY.BATS"),
+        lookback_days=5,
+        binding_dataset_id="EQUS.BINDINGS",
+        market_inputs=None,
+        state=None,
+        emit=messages.append,
+    )
+
+    assert summary.total_windows == 2
+    assert summary.processed_bindings == ("binding-spy",)
+    assert orchestrator_mock.backfill_binding.call_count == 1
+    assert orchestrator_mock.backfill_gaps.call_count == 0
+    assert "SPY.XNAS: planned 1 day window(s) via binding binding-spy" in messages
+    assert "SPY.BATS: planned 1 day window(s) via binding binding-spy" in messages
+
+
+def test_execute_backfill_plan_warns_when_binding_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        IngestionOrchestrator,
+        "resolve_market_bindings",
+        staticmethod(lambda **_: ()),
+    )
+
+    orchestrator_mock = MagicMock()
+    orchestrator_mock.backfill_gaps.return_value = BackfillWindowList(
+        ((1, 2), (2, 3)),
+        requested=((1, 2), (2, 3)),
+    )
+
+    messages: list[str] = []
+    summary = execute_backfill_plan(
+        orchestrator=orchestrator_mock,
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instruments=("QQQ.XNAS",),
+        lookback_days=3,
+        binding_dataset_id="EQUS.BINDINGS",
+        market_inputs=None,
+        state=None,
+        emit=messages.append,
+    )
+
+    assert summary.total_windows == 2
+    assert summary.processed_bindings == ()
+    orchestrator_mock.backfill_gaps.assert_called_once_with(
+        dataset_id="EQUS.MINI",
+        schema="ohlcv-1m",
+        instrument_id="QQQ.XNAS",
+        lookback_days=3,
+        state=None,
+    )
+    assert (
+        "Warning: no binding resolved for QQQ.XNAS; using legacy dataset EQUS.MINI/ohlcv-1m"
+        in messages
+    )
+    assert "QQQ.XNAS: planned 2 day window(s)" in messages

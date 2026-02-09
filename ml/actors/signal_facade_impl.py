@@ -1,5 +1,5 @@
 """
-MLSignalActorFacade - Facade integrating all 5 signal actor components.
+MLSignalActorFacade - Facade integrating actor signal/runtime components.
 
 This module implements Component 6 of Phase 2.5, integrating:
 - Component 1: SignalStrategyComponent (signal generation strategies)
@@ -7,6 +7,7 @@ This module implements Component 6 of Phase 2.5, integrating:
 - Component 3: AdaptiveThresholdComponent (threshold calculation and regime detection)
 - Component 4: PerformanceMonitoringComponent (performance metrics and timing)
 - Component 5: ModelWarmUpComponent (model loading, warm-up, and hot reload)
+- Component 6: DriftMonitoringComponent (runtime feature drift + action policy)
 
 The facade orchestrates these components while inheriting 4-store integration
 from BaseMLInferenceActor (FeatureStore, ModelStore, StrategyStore, DataStore).
@@ -52,7 +53,11 @@ from nautilus_trader.model.data import Bar
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.actors.common import build_prediction_surface_metadata
+from ml.actors.common.drift_monitoring import DriftMonitoringComponent
+from ml.actors.common.drift_monitoring import resolve_drift_policy_config
+from ml.actors.common.drift_monitoring import resolve_replay_safe_drift_action
 from ml.actors.common.features import build_feature_dict
+from ml.actors.common.features import is_monotonic_ingress_timestamp
 from ml.actors.common.model_warmup import ModelWarmUpComponent
 from ml.common import decision_from_probability
 from ml.common import normalize_prediction_output
@@ -66,6 +71,9 @@ from ml.config.names import FEATURE_TIME_BUCKETS
 
 if TYPE_CHECKING:
     from ml.actors.common.adaptive_threshold import AdaptiveThresholdComponent
+    from ml.actors.common.drift_monitoring import DriftObservation
+    from ml.actors.common.drift_monitoring import DriftPolicyConfig
+    from ml.actors.common.drift_monitoring import DriftPolicyOutcome
     from ml.actors.common.performance_monitoring import PerformanceMonitoringComponent
     from ml.actors.common.prediction_buffer import PredictionBufferComponent
     from ml.actors.common.signal_strategy import SignalGenerationStrategy
@@ -153,7 +161,7 @@ def _record_feature_time_metric(
 
 class MLSignalActorFacade(BaseMLInferenceActor):
     """
-    Facade integrating all 5 signal actor components.
+    Facade integrating signal actor components.
 
     This facade orchestrates:
     - SignalStrategyComponent: Signal generation strategies
@@ -161,6 +169,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
     - AdaptiveThresholdComponent: Threshold calculation and regime detection
     - PerformanceMonitoringComponent: Performance metrics and timing
     - ModelWarmUpComponent: Model loading, warm-up, and hot reload
+    - DriftMonitoringComponent: Runtime feature drift policy evaluation
 
     Inherits 4-store integration from BaseMLInferenceActor:
     - FeatureStore, ModelStore, StrategyStore, DataStore
@@ -173,18 +182,18 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         ...     signal_strategy="adaptive",
         ... )
         >>> actor = MLSignalActorFacade(config)
-        >>> # Actor automatically initializes all 5 components and 4 stores
+        >>> # Actor automatically initializes runtime components and 4 stores
 
     """
 
     def __init__(self, config: MLSignalActorConfig) -> None:
         """
-        Initialize facade with all 5 components.
+        Initialize facade with runtime components.
 
         This method:
         1. Initializes base class (4 stores + 4 registries)
         2. Extracts configuration objects
-        3. Creates all 5 components with proper dependencies
+        3. Creates runtime components with proper dependencies
         4. Initializes strategy via component
         5. Sets up performance metrics
 
@@ -312,7 +321,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         self._strat_config = strat_config
         self._feature_config_internal = feature_config
 
-        # 5. Create all 5 components
+        # 5. Create runtime components
         actor_id_str = str(self.id) if self.id else "unknown"
 
         # Component 1: SignalStrategyComponent
@@ -367,6 +376,17 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             )
         )
 
+        # Component 5: DriftMonitoringComponent
+        drift_policy_config: DriftPolicyConfig = resolve_drift_policy_config(config)
+        drift_feature_set_id = str(getattr(config, "feature_set_id", None) or "default")
+        self._drift_monitoring_component: DriftMonitoringComponent = DriftMonitoringComponent(
+            n_features=n_features,
+            policy_config=drift_policy_config,
+            actor_id=actor_id_str,
+            feature_set_id=drift_feature_set_id,
+            log=self.log,
+        )
+
         # Optional overrides for legacy-style tests (setters below).
         self._prediction_history_override: list[float] | None = None
         self._confidence_history_override: list[float] | None = None
@@ -376,7 +396,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         self._window_count_override: int | None = None
         self._volatility_window_override: npt.NDArray[np.float32] | None = None
 
-        # Component 5: ModelWarmUpComponent (conditionally initialized)
+        # Component 6: ModelWarmUpComponent (conditionally initialized)
         # Only initialize if model_path is provided and exists
         self._model_warmup_component: ModelWarmUpComponent | None = None
         if config.model_path and Path(config.model_path).exists():
@@ -415,6 +435,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
 
         # Indicator manager (initialized lazily in _compute_features)
         self._indicator_manager: IndicatorManager | None = None
+        self._last_processed_ts_event: int | None = None
 
         # 8. Initialize performance metrics (module-level)
         self._performance_monitoring_component.initialize_metrics()
@@ -437,7 +458,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         self.log.info(
             f"MLSignalActorFacade initialized with strategy: {strategy_name_str}, "
             f"optimization: {opt_config.level}, features: {n_features}, "
-            f"components: 5/5 initialized",
+            f"components: 6/6 initialized",
         )
 
     # =========================================================================
@@ -457,9 +478,10 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         2. Generate prediction (base class)
         3. Update buffer (hot path)
         4. Detect regime (warm path)
-        5. Generate signal (hot path)
-        6. Record performance (warm path)
-        7. Update health monitor (warm path)
+        5. Apply runtime drift policy (warm path)
+        6. Generate signal (hot path)
+        7. Record performance (warm path)
+        8. Update health monitor (warm path)
 
         Parameters
         ----------
@@ -477,17 +499,33 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         start_time = time.perf_counter()
 
         try:
-            # 1. Hot reload check (Component 5 - cold path, infrequent)
+            # 1. Hot reload check (Component 6 - cold path, infrequent)
             if self._should_hot_reload():
                 self._execute_hot_reload()
 
             # 2. Generate prediction (or force in test mode)
+            inference_start = time.perf_counter()
             if os.getenv("FORCE_SIGNAL_MODE", "false").lower() == "true":
                 prediction, confidence = 1.0, 1.0
             else:
                 prediction, confidence = self._predict(features)
+            inference_time_ms = (time.perf_counter() - inference_start) * 1000.0
 
             self._prediction_count += 1
+
+            if self._apply_inference_deadline_guard(
+                inference_time_ms=inference_time_ms,
+                ts_event=int(bar.ts_event),
+            ):
+                total_time_ns = int((time.perf_counter() - start_time) * 1_000_000_000)
+                feature_time_ns = self._last_feature_time_ns
+                inference_time_ns = max(0, int(inference_time_ms * 1_000_000.0))
+                self._performance_monitoring_component.record_timing(
+                    feature_time_ns=feature_time_ns,
+                    inference_time_ns=inference_time_ns,
+                    total_time_ns=total_time_ns,
+                )
+                return
 
             # 3. Update buffer (Component 2 - hot path)
             volatility = self._calculate_volatility(bar)
@@ -498,6 +536,19 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             volatility_window = self._prediction_buffer_component.volatility_window
             count = self._prediction_buffer_component.window_count
             self._adaptive_threshold_component.detect_regime(volatility_window, count)
+
+            # Runtime drift policy check (Component 5)
+            drift_handler = getattr(self, "_handle_runtime_drift_policy", None)
+            if callable(drift_handler) and drift_handler(bar=bar, features=features):
+                total_time_ns = int((time.perf_counter() - start_time) * 1_000_000_000)
+                feature_time_ns = self._last_feature_time_ns
+                inference_time_ns = max(0, int(inference_time_ms * 1_000_000.0))
+                self._performance_monitoring_component.record_timing(
+                    feature_time_ns=feature_time_ns,
+                    inference_time_ns=inference_time_ns,
+                    total_time_ns=total_time_ns,
+                )
+                return
 
             # Persist prediction to model store (same as legacy)
             self._persist_prediction(bar, features, prediction, confidence, start_time)
@@ -518,10 +569,15 @@ class MLSignalActorFacade(BaseMLInferenceActor):
             # 7. Update health monitor (base class)
             self._record_success()
 
-        except Exception as e:
-            self.log.exception(f"Error in prediction pipeline: {e}", e)
+        except Exception as exc:
+            self.log.exception(f"Error in prediction pipeline: {exc}", exc)
             self._performance_monitoring_component.record_error()
             self._record_failure()
+            self._apply_configured_ml_failure_action(
+                reason="prediction_exception",
+                ts_event=int(bar.ts_event),
+                detail=repr(exc),
+            )
 
     def _try_generate_signal(
         self,
@@ -815,6 +871,49 @@ class MLSignalActorFacade(BaseMLInferenceActor):
     # Cold Path Methods
     # =========================================================================
 
+    def _prepare_bar_runtime_state(self, bar: Bar) -> None:
+        """
+        Detect replay/rewind backsteps and reset runtime state before inference.
+        """
+        ts_event = int(getattr(bar, "ts_event", 0))
+        last_ts_event = self._last_processed_ts_event
+        if not is_monotonic_ingress_timestamp(
+            ts_event=ts_event,
+            previous_ts_event=last_ts_event,
+        ):
+            previous_ts_event = int(last_ts_event) if last_ts_event is not None else -1
+            self.log.info(
+                "ml_signal_actor.rewind_detected_resetting_runtime "
+                f"previous_ts_event={previous_ts_event} current_ts_event={int(ts_event)}",
+            )
+            self._reset_inference_runtime_state(
+                reason="replay_rewind_backstep",
+                ts_event=ts_event,
+            )
+        self._last_processed_ts_event = ts_event
+
+    def _reset_inference_runtime_state_components(self) -> None:
+        """
+        Reset facade-specific runtime state for replay/rewind invalidation.
+        """
+        self.reset_signal_state()
+
+        indicator_manager = getattr(self, "_indicator_manager", None)
+        if indicator_manager is not None:
+            indicator_manager.reset()
+            self._indicator_manager = None
+
+        feature_engineer = getattr(self, "_feature_engineer", None)
+        if feature_engineer is not None and hasattr(feature_engineer, "reset"):
+            feature_engineer.reset()
+
+        drift_component = getattr(self, "_drift_monitoring_component", None)
+        if drift_component is not None and hasattr(drift_component, "reset_runtime_state"):
+            drift_component.reset_runtime_state()
+
+        self._last_feature_time_ns = 0
+        self._last_processed_ts_event = None
+
     def reset_signal_state(self) -> None:
         """
         Reset all component state.
@@ -1020,6 +1119,91 @@ class MLSignalActorFacade(BaseMLInferenceActor):
     # Helper Methods (extracted from legacy)
     # =========================================================================
 
+    def _handle_runtime_drift_policy(
+        self,
+        *,
+        bar: Bar,
+        features: npt.NDArray[np.float32],
+    ) -> bool:
+        """
+        Record runtime drift and apply configured drift remediation policy.
+
+        Parameters
+        ----------
+        bar : Bar
+            Current bar used for timestamp/context labels.
+        features : npt.NDArray[np.float32]
+            Inference feature vector.
+
+        Returns
+        -------
+        bool
+            ``True`` when drift policy triggered fail-closed halt semantics and
+            the current inference flow should abort.
+
+        """
+        monitor = getattr(self, "_drift_monitoring_component", None)
+        if monitor is None:
+            return False
+
+        try:
+            observation: DriftObservation = monitor.record_inference(features)
+            policy_config: DriftPolicyConfig = monitor.policy_config
+            policy_ready = observation.policy_ready
+
+            warmup = getattr(self, "_model_warmup_component", None)
+            if warmup is not None:
+                policy_ready = warmup.is_drift_policy_ready(
+                    baseline_samples=observation.baseline_samples,
+                    observed_samples=observation.sample_count,
+                    min_baseline_samples=policy_config.min_baseline_samples,
+                    min_observed_samples=policy_config.min_observed_samples,
+                )
+
+            outcome: DriftPolicyOutcome | None = monitor.evaluate_policy(
+                observation=observation,
+                policy_ready=policy_ready,
+            )
+            if outcome is None:
+                return False
+
+            cache_obj = getattr(self, "cache", None)
+            is_backtesting = (
+                bool(getattr(cache_obj, "is_backtesting", False)) if cache_obj else False
+            )
+            effective_action = resolve_replay_safe_drift_action(
+                action=outcome.action,
+                is_backtesting=is_backtesting,
+            )
+            reason = outcome.reason
+            if effective_action != outcome.action:
+                reason = f"{reason}_replay_safe"
+            detail = (
+                f"drift_score={float(outcome.drift_score):.6f},"
+                f"threshold={float(outcome.threshold):.6f},"
+                f"configured_action={outcome.configured_action.value}"
+            )
+
+            return bool(
+                self._apply_drift_policy_outcome(
+                    action=effective_action,
+                    reason=reason,
+                    drift_score=float(outcome.drift_score),
+                    threshold=float(outcome.threshold),
+                    ts_event=int(bar.ts_event),
+                    detail=detail,
+                ),
+            )
+        except Exception as exc:
+            log_best_effort(
+                self.log,
+                "debug",
+                "ml_signal_actor.runtime_drift_policy_failed",
+                exc_info=True,
+                extra={"error": str(exc)},
+            )
+            return False
+
     def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
         """
         Update prediction history and volatility buffers (legacy compatibility).
@@ -1175,7 +1359,7 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         Execute hot reload of the model if a new version is available.
 
-        Delegates to Component 5 if available, otherwise uses legacy implementation.
+        Delegates to Component 6 if available, otherwise uses legacy implementation.
 
         """
         try:
@@ -1213,9 +1397,12 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         Record successful prediction in metrics.
         """
+        record = getattr(self, "_record_prediction_success_state", None)
+        if callable(record):
+            record()
+            return
         if self._health_monitor:
             self._health_monitor.update_prediction_success()
-
         if self._circuit_breaker:
             self._circuit_breaker.record_success()
 
@@ -1223,9 +1410,12 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         Record failed prediction in metrics.
         """
+        record = getattr(self, "_record_prediction_failure_state", None)
+        if callable(record):
+            record()
+            return
         if self._health_monitor:
             self._health_monitor.update_prediction_failure()
-
         if self._circuit_breaker:
             self._circuit_breaker.record_failure()
 
@@ -1237,12 +1427,12 @@ class MLSignalActorFacade(BaseMLInferenceActor):
         """
         Load the ML model from disk.
 
-        Delegates to Component 5 (ModelWarmUpComponent) if available, otherwise the
+        Delegates to Component 6 (ModelWarmUpComponent) if available, otherwise the
         model is loaded by the base class.
 
         """
         # Model loading is handled by base class _load_model_with_metadata
-        # Component 5 provides warm-up and parity checking
+        # Component 6 provides warm-up and parity checking
         if self._model_warmup_component is not None:
             model, metadata = self._model_warmup_component.load_model()
             self._model = model

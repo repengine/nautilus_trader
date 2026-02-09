@@ -94,6 +94,7 @@ class MockConfig:
 
     optuna_config: MockOptunaConfig | None = None
     target_semantics: TargetSemanticsConfig | None = None
+    random_seed: int | None = 42
 
 
 class TestableTrainer:
@@ -643,6 +644,20 @@ class TestCalculateSharpeMetric:
 class TestBuildOptunaSampler:
     """Tests for _build_optuna_sampler method."""
 
+    def test_build_optuna_sampler_tpe_uses_trainer_random_seed(self) -> None:
+        config = MockConfig(random_seed=77)
+        trainer = TestableTrainer(config)
+        hp_component = HyperparameterComponent(trainer)
+        optuna_cfg = MockOptunaConfig(sampler="tpe")
+
+        sampler_stub = MagicMock()
+        with patch("ml.training.common.hyperparameter.optuna.samplers.TPESampler") as sampler_ctor:
+            sampler_ctor.return_value = sampler_stub
+            sampler = hp_component._build_optuna_sampler(optuna_cfg)
+
+        sampler_ctor.assert_called_once_with(seed=77)
+        assert sampler is sampler_stub
+
     def test_build_optuna_sampler_tpe(
         self,
         trainer_fixture: TestableTrainer,
@@ -672,6 +687,20 @@ class TestBuildOptunaSampler:
         sampler = hp_component._build_optuna_sampler(optuna_config_fixture)
 
         assert isinstance(sampler, optuna.samplers.RandomSampler)
+
+    def test_build_optuna_sampler_random_uses_trainer_random_seed(self) -> None:
+        config = MockConfig(random_seed=19)
+        trainer = TestableTrainer(config)
+        hp_component = HyperparameterComponent(trainer)
+        optuna_cfg = MockOptunaConfig(sampler="random")
+
+        sampler_stub = MagicMock()
+        with patch("ml.training.common.hyperparameter.optuna.samplers.RandomSampler") as sampler_ctor:
+            sampler_ctor.return_value = sampler_stub
+            sampler = hp_component._build_optuna_sampler(optuna_cfg)
+
+        sampler_ctor.assert_called_once_with(seed=19)
+        assert sampler is sampler_stub
 
     def test_build_optuna_sampler_cmaes(
         self,
@@ -705,6 +734,20 @@ class TestBuildOptunaSampler:
 
         assert isinstance(sampler, optuna.samplers.TPESampler)
         assert any("grid sampler" in record.message.lower() for record in caplog.records)
+
+    def test_build_optuna_sampler_when_seed_missing_uses_none(self) -> None:
+        config = MockConfig(random_seed=None)
+        trainer = TestableTrainer(config)
+        hp_component = HyperparameterComponent(trainer)
+        optuna_cfg = MockOptunaConfig(sampler="tpe")
+
+        sampler_stub = MagicMock()
+        with patch("ml.training.common.hyperparameter.optuna.samplers.TPESampler") as sampler_ctor:
+            sampler_ctor.return_value = sampler_stub
+            sampler = hp_component._build_optuna_sampler(optuna_cfg)
+
+        sampler_ctor.assert_called_once_with(seed=None)
+        assert sampler is sampler_stub
 
 
 # ============================================================================

@@ -38,11 +38,20 @@ from ml.actors.common import StoreOperationsComponent
 from ml.actors.common import build_prediction_surface_metadata
 from ml.actors.common import build_signal_metadata
 from ml.actors.common.features import build_feature_dict
+from ml.actors.common.features import is_monotonic_ingress_timestamp
+from ml.actors.common.remediation import evaluate_inference_deadline_guard
+from ml.actors.common.remediation import evaluate_ml_failure_action
 from ml.common import normalize_prediction_output
 from ml.common import resolve_output_is_logits
 from ml.common import resolve_positive_class_index
+from ml.common.logging_utils import log_best_effort
+from ml.common.metrics import causality_monotonic_violations_total
+from ml.common.metrics import drift_policy_actions_total
+from ml.common.metrics import inference_deadline_timeouts_total
+from ml.common.metrics import ml_failure_actions_total
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_manager import MetricsManager
+from ml.common.model_load_policy import apply_direct_model_load_policy
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
@@ -54,6 +63,10 @@ from ml.config.names import LABEL_MODEL_NAME
 from ml.config.names import METRIC_PREDICTION_LATENCY_SECONDS
 from ml.config.names import METRIC_PREDICTIONS_TOTAL
 from ml.config.names import METRIC_SIGNAL_CONFIDENCE
+from ml.config.policy import CausalityMonotonicEnforcement
+from ml.config.policy import DriftActionPolicy
+from ml.config.policy import InferenceTimeoutAction
+from ml.config.policy import MLFailureAction
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
@@ -440,6 +453,27 @@ class CircuitBreaker:
             "next_attempt": self._next_attempt,
         }
 
+    def reset_state(self) -> None:
+        """
+        Reset circuit breaker state and counters.
+        """
+        self._state = CircuitBreakerState.CLOSED
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time = 0.0
+        self._next_attempt = 0.0
+        try:
+            mm = MetricsManager.default()
+            mm.set_gauge(
+                "nautilus_ml_circuit_breaker_state",
+                "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+                0.0,
+                labels={"component": self._component_id},
+                labelnames=("component",),
+            )
+        except Exception as exc:
+            logger.debug("Circuit breaker metrics (reset) failed: %s", exc, exc_info=True)
+
 
 # Model loading supports both registry (preferred) and direct path (fallback)
 # Registry path follows Universal ML Architecture Pattern #1
@@ -569,19 +603,25 @@ class ProductionModelLoader(ModelLoader):
             # ONNX model with integrity verification
             from ml.common.security import secure_onnx_load
 
-            # Note: Expected digest not available in direct path loading
-            # Security verification is handled at the registry level
+            policy_result = apply_direct_model_load_policy(
+                model_path=model_path,
+                model_id=model_path.stem,
+                context="actor_direct_path_onnx_load",
+            )
             session = secure_onnx_load(
                 file_path=model_path,
-                expected_digest=None,  # No digest available for direct path loading
-                strict_integrity=False,  # Don't fail on missing digest for backward compatibility
+                expected_digest=policy_result.expected_digest,
+                strict_integrity=policy_result.strict_integrity,
             )
-            metadata = {
-                "type": "onnx",
-                "format": "onnx",
-                "input_names": [inp.name for inp in session.get_inputs()],
-                "output_names": [out.name for out in session.get_outputs()],
-            }
+            metadata = dict(policy_result.metadata)
+            metadata.update(
+                {
+                    "type": "onnx",
+                    "format": "onnx",
+                    "input_names": [inp.name for inp in session.get_inputs()],
+                    "output_names": [out.name for out in session.get_outputs()],
+                },
+            )
             return session, metadata
         else:
             raise ValueError(f"Unsupported model format: {path}")
@@ -610,32 +650,40 @@ class ONNXModelLoader(ModelLoader):
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
 
+        policy_result = apply_direct_model_load_policy(
+            model_path=model_path,
+            model_id=model_path.stem,
+            context="actor_direct_path_onnx_loader",
+        )
+
         # Create optimized ONNX Runtime session with integrity verification
         session_options, providers = to_session_options(self._runtime_config)
 
         from ml.common.security import secure_onnx_load
 
-        # Note: Expected digest not available in direct ONNX loader
-        # Security verification is handled at the registry level
         session = secure_onnx_load(
             file_path=model_path,
-            expected_digest=None,  # No digest available for direct path loading
+            expected_digest=policy_result.expected_digest,
             session_options=session_options,
             providers=providers,
-            strict_integrity=False,  # Don't fail on missing digest for backward compatibility
+            strict_integrity=policy_result.strict_integrity,
         )
 
         # Generate metadata
-        metadata = {
-            "path": str(model_path),
-            "size_bytes": model_path.stat().st_size,
-            "modified_time": model_path.stat().st_mtime,
-            "version": self.get_model_version(path),
-            "type": "onnx",
-            "input_names": [inp.name for inp in session.get_inputs()],
-            "output_names": [out.name for out in session.get_outputs()],
-            "providers": session.get_providers(),
-        }
+        metadata = dict(policy_result.metadata)
+        metadata.update(
+            {
+                "path": str(model_path),
+                "size_bytes": model_path.stat().st_size,
+                "modified_time": model_path.stat().st_mtime,
+                "version": self.get_model_version(path),
+                "type": "onnx",
+                "format": "onnx",
+                "input_names": [inp.name for inp in session.get_inputs()],
+                "output_names": [out.name for out in session.get_outputs()],
+                "providers": session.get_providers(),
+            },
+        )
 
         return session, metadata
 
@@ -941,6 +989,10 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         # Warm-up tracking
         self._bars_processed = 0
         self._is_warmed_up = False
+        self._ml_inference_halted = False
+        self._ml_failure_reason: str | None = None
+        self._ml_halt_logged = False
+        self._last_ingress_ts_event: int | None = None
 
         # Enhanced Prometheus metrics - use global instances
         self._inference_latency_metric = ml_prediction_latency
@@ -1327,6 +1379,80 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     def _verify_parity_requirements(self) -> None:  # pragma: no cover - default no-op
         return None
 
+    # Hook for subclass-specific replay/rewind preparation (no-op by default)
+    def _prepare_bar_runtime_state(self, _bar: Bar) -> None:  # pragma: no cover - default no-op
+        return None
+
+    def _record_causality_monotonic_violation_metric(
+        self,
+        *,
+        mode: CausalityMonotonicEnforcement,
+    ) -> None:
+        """
+        Record ingress monotonic causality violation metric.
+
+        Parameters
+        ----------
+        mode : CausalityMonotonicEnforcement
+            Active monotonic enforcement mode at violation time.
+
+        """
+        try:
+            causality_monotonic_violations_total.labels(
+                actor_id=self._actor_id_label(),
+                mode=str(mode.value),
+            ).inc()
+        except Exception as exc:
+            self.log.debug(
+                "ml_actor.causality_monotonic_violation_metric_failed",
+                exc_info=True,
+                extra={"error": str(exc), "mode": str(mode.value)},
+            )
+
+    def _apply_ingress_causality_monotonic_guard(self, bar: Bar) -> bool:
+        """
+        Enforce ingress monotonic/backstep contract before runtime state mutation.
+
+        Parameters
+        ----------
+        bar : Bar
+            Incoming market bar event.
+
+        Returns
+        -------
+        bool
+            ``True`` when processing should continue; ``False`` when dropped.
+
+        """
+        ts_event = int(getattr(bar, "ts_event", 0))
+        previous_ts_event = self._last_ingress_ts_event
+        if is_monotonic_ingress_timestamp(
+            ts_event=ts_event,
+            previous_ts_event=previous_ts_event,
+        ):
+            self._last_ingress_ts_event = ts_event
+            return True
+
+        mode = self._config.remediation_policy.causality_monotonic_enforcement
+        self._record_causality_monotonic_violation_metric(mode=mode)
+        self.log.warning(
+            "ml_actor.ingress_causality_non_monotonic "
+            f"previous_ts_event={int(previous_ts_event) if previous_ts_event is not None else 'none'} "
+            f"current_ts_event={ts_event} mode={mode.value}",
+        )
+
+        if mode == CausalityMonotonicEnforcement.DROP:
+            return False
+
+        if mode == CausalityMonotonicEnforcement.RESET:
+            self._reset_inference_runtime_state(
+                reason="ingress_non_monotonic_backstep",
+                ts_event=ts_event,
+            )
+
+        self._last_ingress_ts_event = ts_event
+        return True
+
     def on_bar(self, bar: Bar) -> None:
         """
         Process new bar data and potentially generate predictions.
@@ -1346,6 +1472,26 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         # Check circuit breaker before processing
         if self._circuit_breaker and not self._circuit_breaker.can_execute():
             return  # Circuit is open, skip processing
+
+        if not self._apply_ingress_causality_monotonic_guard(bar):
+            return
+
+        # Allow subclass hooks to invalidate state before halted checks/warmup.
+        try:
+            self._prepare_bar_runtime_state(bar)
+        except Exception as exc:
+            self.log.exception(
+                f"ml_actor.prepare_bar_runtime_state_failed error={exc!r}",
+            )
+
+        # Fail-closed only when explicit halt policy/action has transitioned state.
+        if self._ml_inference_halted:
+            if not self._ml_halt_logged:
+                self.log.error(
+                    f"ml_actor.inference_halted reason={self._ml_failure_reason or 'unknown'}",
+                )
+                self._ml_halt_logged = True
+            return
 
         # Track bars for warm-up period
         self._bars_processed += 1
@@ -1469,6 +1615,12 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             self._total_inference_time += inference_time
             self._prediction_count += 1
 
+            if self._apply_inference_deadline_guard(
+                inference_time_ms=inference_time,
+                ts_event=int(bar.ts_event),
+            ):
+                return
+
             # MANDATORY: Store features for parity tracking (prefer manifest names)
             feature_names: list[str] | None = None
             try:
@@ -1506,21 +1658,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 ts_event=bar.ts_event,
             )
 
-            # Record success in circuit breaker
-            if self._circuit_breaker:
-                self._circuit_breaker.record_success()
-
-            # Update health monitor
-            if self._health_monitor:
-                self._health_monitor.update_prediction_success()
-
-            # Check latency requirement
-            if inference_time > self._config.max_inference_latency_ms:
-                self.log.warning(
-                    f"Inference latency exceeded: {inference_time:.3f}ms > {self._config.max_inference_latency_ms}ms",
-                )
-                if self._health_monitor:
-                    self._health_monitor.update_latency_violation()
+            self._record_prediction_success_state()
 
             # Track metrics
             self._inference_latency_metric.labels(
@@ -1559,20 +1697,394 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 )
                 self._publish_signal(signal)
 
-        except Exception:
-            self.log.error(
-                "Prediction failed",
+        except Exception as exc:
+            self.log.exception(f"Prediction failed: {exc}", exc)
+            self._record_prediction_failure_state()
+            self._apply_configured_ml_failure_action(
+                reason="prediction_exception",
+                ts_event=int(bar.ts_event),
+                detail=repr(exc),
             )
 
-            # Record failure in circuit breaker
-            if self._circuit_breaker:
-                self._circuit_breaker.record_failure()
+    def _actor_id_label(self) -> str:
+        """
+        Return low-cardinality actor label for metrics.
 
-            # Update health monitor
-            if self._health_monitor:
-                self._health_monitor.update_prediction_failure()
+        Returns
+        -------
+        str
+            Actor identifier label used in remediation metrics.
 
-            # Log error (metrics tracking removed to avoid duplicate registration)
+        """
+        actor_id = getattr(self, "id", None)
+        return str(actor_id) if actor_id is not None else "unknown"
+
+    def _record_prediction_success_state(self) -> None:
+        """
+        Record successful prediction in health and circuit-breaker state.
+        """
+        if self._health_monitor:
+            self._health_monitor.update_prediction_success()
+        if self._circuit_breaker:
+            self._circuit_breaker.record_success()
+
+    def _record_prediction_failure_state(self) -> None:
+        """
+        Record failed prediction in health and circuit-breaker state.
+        """
+        if self._health_monitor:
+            self._health_monitor.update_prediction_failure()
+        if self._circuit_breaker:
+            self._circuit_breaker.record_failure()
+
+    def _record_inference_deadline_timeout_metric(
+        self,
+        *,
+        action: InferenceTimeoutAction,
+    ) -> None:
+        """
+        Record inference deadline timeout metric.
+
+        Parameters
+        ----------
+        action : InferenceTimeoutAction
+            Deadline policy action that was applied.
+
+        """
+        try:
+            inference_deadline_timeouts_total.labels(
+                actor_id=self._actor_id_label(),
+                action=str(action.value),
+            ).inc()
+        except Exception as exc:
+            self.log.debug(
+                "ml_actor.inference_deadline_timeout_metric_failed",
+                exc_info=True,
+                extra={"error": str(exc), "action": str(action.value)},
+            )
+
+    def _record_ml_failure_action_metric(
+        self,
+        *,
+        action: MLFailureAction,
+        reason: str,
+    ) -> None:
+        """
+        Record ML failure action metric.
+
+        Parameters
+        ----------
+        action : MLFailureAction
+            Failure action applied.
+        reason : str
+            Low-cardinality reason label.
+
+        """
+        try:
+            ml_failure_actions_total.labels(
+                actor_id=self._actor_id_label(),
+                action=str(action.value),
+                reason=reason,
+            ).inc()
+        except Exception as exc:
+            self.log.debug(
+                "ml_actor.ml_failure_action_metric_failed",
+                exc_info=True,
+                extra={
+                    "error": str(exc),
+                    "action": str(action.value),
+                    "reason": reason,
+                },
+            )
+
+    def _record_drift_policy_action_metric(
+        self,
+        *,
+        action: DriftActionPolicy,
+        reason: str,
+    ) -> None:
+        """
+        Record runtime drift policy action metric.
+
+        Parameters
+        ----------
+        action : DriftActionPolicy
+            Drift action applied.
+        reason : str
+            Low-cardinality reason label.
+
+        """
+        try:
+            drift_policy_actions_total.labels(
+                actor_id=self._actor_id_label(),
+                action=str(action.value),
+                reason=reason,
+            ).inc()
+        except Exception as exc:
+            self.log.debug(
+                "ml_actor.drift_policy_action_metric_failed",
+                exc_info=True,
+                extra={
+                    "error": str(exc),
+                    "action": str(action.value),
+                    "reason": reason,
+                },
+            )
+
+    def _emit_risk_halt_transition_hook(
+        self,
+        *,
+        reason: str,
+        detail: str | None,
+        ts_event: int | None,
+    ) -> bool:
+        """
+        Emit best-effort risk-halt transition hook to strategy store.
+
+        Parameters
+        ----------
+        reason : str
+            Halt reason label.
+        detail : str | None
+            Optional detail payload.
+        ts_event : int | None
+            Event timestamp in nanoseconds.
+
+        Returns
+        -------
+        bool
+            ``True`` when transition event write succeeds, otherwise ``False``.
+
+        """
+        writer = getattr(self._strategy_store, "write_risk_halt_event", None)
+        if not callable(writer):
+            log_best_effort(
+                self.log,
+                "error",
+                "ml_actor.failure_state_transition_hook_unavailable",
+                extra={"reason": reason},
+            )
+            return False
+        cache_obj = getattr(self, "cache", None)
+        is_backtesting = bool(getattr(cache_obj, "is_backtesting", False)) if cache_obj else False
+        if ts_event is None:
+            ts_event = int(self.clock.timestamp_ns())
+        try:
+            writer(
+                strategy_id=str(self.id) if self.id else "ml_actor",
+                instrument_id=str(self._config.instrument_id),
+                event_type="halted",
+                reason=reason,
+                detail=detail,
+                ts_event=int(ts_event),
+                is_live=not is_backtesting,
+            )
+            return True
+        except Exception as exc:
+            log_best_effort(
+                self.log,
+                "error",
+                "ml_actor.failure_state_transition_hook_failed",
+                exc_info=True,
+                extra={"error": str(exc), "reason": reason},
+            )
+            return False
+
+    def _apply_ml_failure_action(
+        self,
+        *,
+        action: MLFailureAction,
+        reason: str,
+        ts_event: int | None,
+        detail: str | None = None,
+    ) -> None:
+        """
+        Apply ML failure action transition semantics.
+
+        Parameters
+        ----------
+        action : MLFailureAction
+            Action policy to evaluate.
+        reason : str
+            Low-cardinality reason label.
+        ts_event : int | None
+            Event timestamp for transition hooks.
+        detail : str | None, optional
+            Optional detail payload for transition hooks.
+
+        """
+        decision = evaluate_ml_failure_action(action=action)
+        if decision.halt_inference and self._ml_inference_halted:
+            return
+
+        self._record_ml_failure_action_metric(action=decision.action, reason=reason)
+
+        if decision.transition_degraded and self._health_monitor is not None:
+            self._health_monitor.status = HealthStatus.DEGRADED
+
+        if decision.halt_inference:
+            self._ml_inference_halted = True
+            self._ml_failure_reason = reason
+            self._ml_halt_logged = False
+            if self._health_monitor is not None:
+                self._health_monitor.status = HealthStatus.UNHEALTHY
+            emitted = self._emit_risk_halt_transition_hook(
+                reason=reason,
+                detail=detail,
+                ts_event=ts_event,
+            )
+            if not emitted:
+                self._ml_failure_reason = "risk_state_transition_unavailable"
+                self.log.error(
+                    "ml_actor.failure_state_transition_required_but_missing "
+                    f"requested_reason={reason}",
+                )
+
+    def _apply_drift_policy_outcome(
+        self,
+        *,
+        action: DriftActionPolicy,
+        reason: str,
+        drift_score: float,
+        threshold: float,
+        ts_event: int | None,
+        detail: str | None = None,
+    ) -> bool:
+        """
+        Apply runtime drift policy outcome.
+
+        Parameters
+        ----------
+        action : DriftActionPolicy
+            Effective drift action.
+        reason : str
+            Low-cardinality reason label.
+        drift_score : float
+            Drift score that triggered the action.
+        threshold : float
+            Threshold used to trigger the action.
+        ts_event : int | None
+            Event timestamp in nanoseconds.
+        detail : str | None, optional
+            Optional detail payload for hooks/logging.
+
+        Returns
+        -------
+        bool
+            ``True`` when current inference should be aborted (fail-closed/halt).
+
+        """
+        self._record_drift_policy_action_metric(action=action, reason=reason)
+
+        if action == DriftActionPolicy.LOG_ONLY:
+            return False
+
+        if action == DriftActionPolicy.DEGRADED:
+            if self._health_monitor is not None:
+                self._health_monitor.status = HealthStatus.DEGRADED
+            return False
+
+        # Fail-closed routes through existing halt transition semantics.
+        self._record_prediction_failure_state()
+        drift_detail = (
+            detail
+            if detail is not None
+            else (
+                f"drift_score={float(drift_score):.6f},"
+                f"threshold={float(threshold):.6f}"
+            )
+        )
+        self._apply_ml_failure_action(
+            action=MLFailureAction.HALT,
+            reason=reason,
+            ts_event=ts_event,
+            detail=drift_detail,
+        )
+        return True
+
+    def _apply_configured_ml_failure_action(
+        self,
+        *,
+        reason: str,
+        ts_event: int | None,
+        detail: str | None = None,
+    ) -> None:
+        """
+        Apply configured ML failure policy action.
+
+        Parameters
+        ----------
+        reason : str
+            Low-cardinality reason label.
+        ts_event : int | None
+            Event timestamp in nanoseconds.
+        detail : str | None, optional
+            Optional detail payload.
+
+        """
+        if self._ml_inference_halted:
+            return
+
+        policy = self._config.remediation_policy
+        self._apply_ml_failure_action(
+            action=policy.ml_failure_action,
+            reason=reason,
+            ts_event=ts_event,
+            detail=detail,
+        )
+
+    def _apply_inference_deadline_guard(
+        self,
+        *,
+        inference_time_ms: float,
+        ts_event: int | None,
+    ) -> bool:
+        """
+        Apply inference deadline guard policy and return abort decision.
+
+        Parameters
+        ----------
+        inference_time_ms : float
+            Measured inference latency.
+        ts_event : int | None
+            Event timestamp in nanoseconds.
+
+        Returns
+        -------
+        bool
+            ``True`` when the current prediction should be dropped.
+
+        """
+        max_latency_ms = float(self._config.max_inference_latency_ms)
+        if float(inference_time_ms) <= max_latency_ms:
+            return False
+
+        self.log.warning(
+            f"Inference latency exceeded: {inference_time_ms:.3f}ms > {max_latency_ms:.3f}ms",
+        )
+        if self._health_monitor:
+            self._health_monitor.update_latency_violation()
+
+        policy = self._config.remediation_policy
+        decision = evaluate_inference_deadline_guard(
+            elapsed_ms=float(inference_time_ms),
+            deadline_ms=max_latency_ms,
+            enabled=bool(policy.enable_inference_deadline_guard),
+            timeout_action=policy.inference_timeout_action,
+        )
+        if not decision.drop_prediction:
+            return False
+
+        self._record_inference_deadline_timeout_metric(action=decision.action)
+        if decision.halt_inference:
+            self._record_prediction_failure_state()
+            self._apply_ml_failure_action(
+                action=MLFailureAction.HALT,
+                reason="inference_deadline_timeout",
+                ts_event=ts_event,
+                detail=f"inference_time_ms={float(inference_time_ms):.6f}",
+            )
+        return True
 
     def _record_persistence_drop(self, *, kind: str, reason: str) -> None:
         """
@@ -2084,6 +2596,91 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         # to restore their specific indicators
         self.log.debug("Restoring indicator state (base implementation)")
 
+    def _reset_inference_runtime_state_components(self) -> None:  # pragma: no cover - default no-op
+        """
+        Reset subclass-specific runtime state during replay/rewind invalidation.
+        """
+        return None
+
+    def _reset_inference_runtime_state(
+        self,
+        *,
+        reason: str,
+        ts_event: int | None = None,
+    ) -> None:
+        """
+        Reset shared inference runtime state for replay/rewind safety.
+
+        Parameters
+        ----------
+        reason : str
+            Low-cardinality reason label for logs.
+        ts_event : int | None, optional
+            Timestamp associated with the reset trigger.
+
+        """
+        self._ml_inference_halted = False
+        self._ml_failure_reason = None
+        self._ml_halt_logged = False
+        self._bars_processed = 0
+        self._is_warmed_up = False
+        self._prediction_count = 0
+        self._total_inference_time = 0.0
+        self._total_feature_time = 0.0
+        self._last_prediction_time = 0
+        self._last_ingress_ts_event = None
+        self._sync_prediction_fallback_disabled_logged = False
+        self._feature_window.clear()
+        self._indicator_state_backup.clear()
+
+        feature_component = getattr(self, "_features_component", None)
+        if feature_component is not None:
+            reset_runtime_state = getattr(feature_component, "reset_runtime_state", None)
+            cleanup = getattr(feature_component, "cleanup", None)
+            try:
+                if callable(reset_runtime_state):
+                    reset_runtime_state(reason=reason)
+                elif callable(cleanup):
+                    cleanup()
+            except Exception as exc:
+                self.log.exception(
+                    "ml_actor.feature_runtime_reset_failed "
+                    f"reason={reason} error={exc!r}",
+                )
+
+        if self._health_monitor is not None:
+            self._health_monitor = HealthMonitor(config=self._config.health_config)
+
+        if feature_component is not None:
+            update_dependencies = getattr(feature_component, "update_dependencies", None)
+            if callable(update_dependencies):
+                try:
+                    update_dependencies(
+                        health_monitor=self._health_monitor,
+                        persistence_worker=self._persistence_worker,
+                    )
+                except Exception as exc:
+                    self.log.exception(
+                        "ml_actor.feature_dependency_refresh_failed "
+                        f"reason={reason} error={exc!r}",
+                    )
+
+        if self._circuit_breaker is not None:
+            self._circuit_breaker.reset_state()
+
+        try:
+            self._reset_inference_runtime_state_components()
+        except Exception as exc:
+            self.log.exception(
+                "ml_actor.subclass_runtime_reset_failed "
+                f"reason={reason} error={exc!r}",
+            )
+
+        self.log.info(
+            "ml_actor.inference_runtime_state_reset "
+            f"reason={reason} ts_event={int(ts_event) if ts_event is not None else 'none'}",
+        )
+
     def get_health_status(self) -> dict[str, Any]:
         """
         Get current health status of the actor.
@@ -2120,7 +2717,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         Reset health monitoring statistics.
         """
         if self._health_monitor:
-            self._health_monitor = HealthMonitor()
+            self._health_monitor = HealthMonitor(config=self._config.health_config)
+            self._features_component.update_dependencies(
+                health_monitor=self._health_monitor,
+                persistence_worker=self._persistence_worker,
+            )
             self.log.info("Health status reset")
 
 

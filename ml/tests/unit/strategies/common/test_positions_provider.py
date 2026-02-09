@@ -106,6 +106,16 @@ class DummyPortfolioPositions:
 pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
 
 
+def _counter_value(
+    registry: Any,
+    *,
+    name: str,
+    labels: dict[str, str],
+) -> float:
+    sample = registry.get_sample_value(name, labels=labels)
+    return float(sample) if sample is not None else 0.0
+
+
 def test_provider_uses_cache_open_and_respects_full_list() -> None:
     inst_a = InstrumentId.from_str("AAA.SIM")
     inst_b = InstrumentId.from_str("BBB.SIM")
@@ -256,23 +266,35 @@ def test_provider_records_snapshot_metrics(isolated_prometheus_registry: Any) ->
     cache = DummyCache([DummyPosition(inst_a)])
     config = PositionsConfig(source_priority=[PositionsSource.CACHE_OPEN])
     provider = NautilusPositionsProvider(cache=cache, portfolio=None, config=config)
+    registry = isolated_prometheus_registry.registry
+    total_before = _counter_value(
+        registry,
+        name="ml_positions_snapshot_total",
+        labels={"source": "cache_positions_open"},
+    )
+    empty_before = _counter_value(
+        registry,
+        name="ml_positions_snapshot_empty_total",
+        labels={"source": "cache_positions_open"},
+    )
 
     provider.get_positions_snapshot()
     provider_empty = NautilusPositionsProvider(cache=DummyCache([]), portfolio=None, config=config)
     provider_empty.get_positions_snapshot()
 
-    registry = isolated_prometheus_registry.registry
-    total_value = registry.get_sample_value(
-        "ml_positions_snapshot_total",
+    total_after = _counter_value(
+        registry,
+        name="ml_positions_snapshot_total",
         labels={"source": "cache_positions_open"},
     )
-    empty_value = registry.get_sample_value(
-        "ml_positions_snapshot_empty_total",
+    empty_after = _counter_value(
+        registry,
+        name="ml_positions_snapshot_empty_total",
         labels={"source": "cache_positions_open"},
     )
 
-    assert total_value == 2.0
-    assert empty_value == 1.0
+    assert total_after - total_before == 2.0
+    assert empty_after - empty_before == 1.0
 
 
 def test_provider_health_check_reports_unavailable_positions(

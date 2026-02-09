@@ -418,7 +418,6 @@ class TestEndToEndPipeline:
             num_class=3,
             device="cpu",
             tree_method="hist",
-            predictor="cpu_predictor",
         )
         model.fit(X, _y)
 

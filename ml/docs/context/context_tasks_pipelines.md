@@ -2,10 +2,10 @@
 
 ## Overview
 
-The `ml/tasks/` and `ml/pipelines/` modules provide **cold-path orchestration** for ML workflows. They expose **typed, reusable functions** that CLI entry points import and use. No hot-path code should import these modules.
+Canonical domain modules under `ml/<domain>/` and orchestration modules under `ml/orchestration/` provide cold-path ML workflow orchestration. CLI entry points import typed services from these canonical owners. No hot-path code should import orchestration modules.
 
 ### Key Distinction
-- **ml/tasks/**: Function-based helpers (config + business logic). Consumed by CLI entry points in `ml/cli/`.
+- **ml/<domain>/**: Function-based helpers (config + business logic). Consumed by CLI entry points in `ml/cli/`.
 - **ml/pipelines/**: Higher-level pipeline composition (dataset → training → distillation). Thin wrappers over orchestration.
 - **ml.data**: Underlying data processing APIs that tasks wrap for CLI integration.
 
@@ -15,10 +15,10 @@ The `ml/tasks/` and `ml/pipelines/` modules provide **cold-path orchestration** 
 
 ## Directory Structure
 
-### ml/tasks/ (Cold-Path Helpers)
+### Canonical Domain Services (Cold-Path)
 
 ```
-ml/tasks/
+ml/<domain>/
 ├── __init__.py                 # Lazy module loader (41 lines)
 ├── registry.py                 # Feature registration & promotion (97 lines)
 ├── db.py                        # Database migrations (346 lines)
@@ -73,7 +73,7 @@ ml/pipelines/
 
 ## Key Modules
 
-### Registry Tasks (ml/tasks/registry.py)
+### Registry Tasks (ml/registry/feature_operations.py)
 
 **Purpose**: Feature promotion, registration, deprecation.
 
@@ -94,7 +94,7 @@ def register_default_feature_set(...) -> str:
     return registry.register_feature_set(manifest)
 ```
 
-### Database Tasks (ml/tasks/db.py)
+### Database Tasks (ml/stores/migrations_runner.py)
 
 **Purpose**: SQL migration planning & execution. Canonical baseline consolidated 2025-10-01 from 18 fragmented migrations.
 
@@ -128,9 +128,9 @@ IDEMPOTENT_ERROR_PHRASES = (
 
 **Used by**: `ml/cli/apply_migrations.py` and deployment scripts.
 
-### Dataset Building (ml/tasks/datasets/)
+### Dataset Building (ml/data/)
 
-**TFT Dataset Config** (ml/tasks/datasets/tft.py):
+**TFT Dataset Config** (ml/data/build.py):
 - **`TFTDatasetTaskConfig`**: 30-field frozen dataclass (lines 29-69)
   - Core params: `horizon_minutes`, `threshold`, `lookback_periods`
   - Feature toggles: `include_macro/micro/l2/events/calendar/earnings`
@@ -154,7 +154,7 @@ dataset_cfg = DatasetBuildConfig(
 result = _build_tft_dataset(dataset_cfg)
 ```
 
-**Dataset Report** (ml/tasks/datasets/report.py):
+**Dataset Report** (ml/data/validation.py):
 - `DatasetReportConfig`: Report generation config (lines 25-29)
 - `DatasetReport`: Mutable result with JSON/markdown outputs (lines 32-38)
 - `generate_dataset_report()`: Analyze dataset statistics (macro columns, null rates, feature counts)
@@ -165,27 +165,27 @@ result = _build_tft_dataset(dataset_cfg)
 - `ml/cli/dataset_report.py` uses reporting
 - CLI converts argparse args → task config → calls task function
 
-### Data Ingestion (ml/tasks/ingest/)
+### Data Ingestion (ml/data/ingest/)
 
 **Coordinated ingestion helpers** wrapping `ml.data.loaders.*` and `ml.data.ingest.*`:
 
-- **`backfill_recent_ohlcv()`** (ml/tasks/ingest/recent.py):
+- **`backfill_recent_ohlcv()`** (ml/data/loaders/ohlcv_recent.py):
   - Wraps `ml.data.loaders.ohlcv_recent.backfill_recent_ohlcv`
   - Returns `OhlcvRecentBackfillResult` with per-symbol status
   - Uses `DatabentoCoveragePolicy.from_env()` for coverage rules
 
-- **`populate_l2_efficient()`** (ml/tasks/ingest/l2.py):
+- **`populate_l2_efficient()`** (ml/data/ingest/l2_efficient.py):
   - Efficient L2 book population via Databento
   - Wraps `ml.data.ingest.l2` loaders
 
-- **`populate_supplementary_data()`** (ml/tasks/ingest/supplementary.py):
+- **`populate_supplementary_data()`** (ml/data/loaders/supplementary.py):
   - Macro data (FRED series, earnings)
   - Wraps `ml.data.loaders.fred_loader` and `ml.data.loaders.alternative`
 
-- **`populate_alternative_data_task()`** (ml/tasks/ingest/alternative.py):
+- **`populate_alternative_data_task()`** (ml/data/loaders/alternative.py):
   - Alternative sources (Databento, custom providers)
 
-- **`ingest_backfill_main()`** (ml/tasks/ingest/backfill.py):
+- **`ingest_backfill_main()`** (ml/cli/ingest_backfill.py):
   - Main CLI entry for historical backfill
   - Multi-symbol coordination with progress tracking
 
@@ -196,7 +196,7 @@ result = _build_tft_dataset(dataset_cfg)
 
 **Used by**: 13 CLI entry points (backfill_ohlcv_recent.py, populate_l2_efficient.py, populate_supplementary_simple.py, etc.)
 
-**Pattern example** (ml/tasks/ingest/recent.py, lines 38-59):
+**Pattern example** (ml/data/loaders/ohlcv_recent.py, lines 38-59):
 ```python
 def backfill_recent_ohlcv(config: BackfillRecentOhlcvTaskConfig) -> OhlcvRecentBackfillResult:
     service = ensure_service()  # Get Databento service
@@ -205,13 +205,13 @@ def backfill_recent_ohlcv(config: BackfillRecentOhlcvTaskConfig) -> OhlcvRecentB
     return _backfill_recent_ohlcv(domain_config, service=service, policy=policy)
 ```
 
-### Training Tasks (ml/tasks/training/)
+### Training Tasks (ml/training/teacher/)
 
-**Quick TFT Training** (ml/tasks/training/quick.py):
+**Quick TFT Training** (ml/training/teacher/quick.py):
 - **`QuickTFTTrainConfig`** (lines 36-48): Data dirs, symbols, horizon_minutes, thresholds, sample_prediction_count
 - **`QuickTFTTrainResult`** (lines 51-62): Result summary (dataset_parquet, dataset_csv, dataset_shape, target_distribution_json, trained, sample_predictions)
 - **`train_tft_quick()`** (lines 92-202): Quick dataset + optional teacher training
-  - Uses `TFTDatasetBuilder` from `ml.data.tft_dataset_builder`
+  - Uses `TFTDatasetBuilder` from `ml.data.tft_dataset_builder_facade`
   - Optional TFT teacher training via `ml.training.teacher.tft_teacher.TFTTeacher`
   - Returns structured result with sample predictions
 
@@ -228,9 +228,9 @@ _DEFAULT_DATA_DIRS = (
 )
 ```
 
-### Pipeline Runners (ml/tasks/pipelines/)
+### Pipeline Runners (ml/orchestration/)
 
-**ml/tasks/pipelines/runner.py** (Cold-path ML pipeline):
+**ml/orchestration/pipeline_runner.py** (Cold-path ML pipeline):
 - **`MLPipelineRunner`** (lines 37-225): Encapsulates backfill/daily/realtime modes
   - `setup_ml_system()`: Initialize catalog, scheduler, collector, feature_engineer
   - `run_backfill()`: Process historical data with date ranges
@@ -244,9 +244,9 @@ _DEFAULT_DATA_DIRS = (
   - Loads config → creates runner → setup ML system → execute mode
 
 **Dependencies**:
-- Uses `DataScheduler` from `ml.data.scheduler` for scheduling
+- Uses `DataScheduler` from `ml.data.scheduler_facade` for scheduling
 - Uses `DataCollector` from `ml.data.collector` for data collection
-- Uses `FeatureEngineer` from `ml.features.engineering` (optional)
+- Uses `FeatureEngineer` from `ml.features` (optional)
 - Requires `DATABENTO_API_KEY` environment variable (unless dry_run)
 - Uses `DB_CONNECTION` for feature store (defaults to localhost PostgreSQL)
 
@@ -255,7 +255,7 @@ _DEFAULT_DATA_DIRS = (
 - Checks `DB_CONNECTION` (optional, defaults to local PostgreSQL)
 - Validates Polars and Databento dependencies
 
-**ml/tasks/pipelines/scheduler.py** (Pipeline scheduling):
+**ml/orchestration/scheduler.py** (Pipeline scheduling):
 - **`PipelineScheduleConfig`** (lines 14-22): Scheduling config (schedule_time, interval_minutes, config_path, dry_run, force)
 - **`run_pipeline_schedule()`** (lines 25-61): Wrapper around `ml.orchestration.scheduler.run_forever()`
   - Maps config fields to environment variables (`ORCH_SCHEDULE_TIME`, `ORCH_INTERVAL_MIN`, etc.)
@@ -265,25 +265,25 @@ _DEFAULT_DATA_DIRS = (
 - `ml/cli/run_ml_pipeline.py` (backfill/daily/realtime modes)
 - `ml/cli/pipeline_scheduler.py` (scheduled execution)
 
-### Monitoring & Observability (ml/tasks/monitoring/, ml/tasks/observability/)
+### Monitoring & Observability (ml/monitoring/, ml/observability/)
 
-**Health Monitoring** (ml/tasks/monitoring/health.py):
+**Health Monitoring** (ml/monitoring/health.py):
 - `PipelineHealthChecker`: Queries health views from database
 - `aggregate_integration_health()`: Aggregate health across components
 - Human-readable or JSON output formats
 - Integration with Grafana dashboards
 
-**Coverage Monitoring** (ml/tasks/monitoring/coverage.py):
+**Coverage Monitoring** (ml/cli/coverage.py):
 - `CoverageReporter`: Analyze data coverage gaps
 - `plan_backfill()`: Generate backfill plans based on gaps
 - Supports tier-based symbol grouping
 
-**Observability Flush** (ml/tasks/observability/flush.py):
+**Observability Flush** (ml/cli/observability.py):
 - Exports metrics & traces to JSONL/CSV
 - Seeds sample data for testing
 - Async support for non-blocking flushes
 
-**Observability Backfill** (ml/tasks/observability/backfill.py):
+**Observability Backfill** (ml/cli/observability_backfill.py):
 - Historical observability data backfill
 - Coordinates with existing data ingestion
 
@@ -295,11 +295,11 @@ _DEFAULT_DATA_DIRS = (
 
 **Pattern**: CLI entry points in `ml/cli/` import tasks and wrap them with argparse.
 
-**20 CLI files import from ml.tasks**, following this standard pattern:
+CLI entry points import from canonical domain modules, following this standard pattern:
 
 Example (`ml/cli/build_tft_dataset.py`, lines 1-24):
 ```python
-from ml.tasks.datasets import TFTDatasetTaskConfig, build_tft_dataset
+from ml.data import TFTDatasetTaskConfig, build_tft_dataset
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
@@ -336,25 +336,25 @@ def main(argv: list[str] | None = None) -> int:
 ```
 CLI args (argparse)
   ↓
-TFTDatasetTaskConfig (ml/tasks/datasets/tft.py)
+TFTDatasetTaskConfig (ml/data/build.py)
   ↓
-DatasetBuildConfig (ml/data/__init__.py)
+DatasetBuildConfig (ml/data/build.py; re-exported via ml/data/__init__.py)
   ↓
-build_tft_dataset() (ml/data/__init__.py)
+build_tft_dataset() (ml/data/build.py; re-exported via ml/data/__init__.py)
   ↓
-TFTDatasetBuilder (ml/data/tft_dataset_builder.py)
+TFTDatasetBuilder (ml/data/tft_dataset_builder_facade.py)
   ↓
 BuildResult
 ```
 
 **Why this layering?**
 - **ml.data**: Public API for programmatic use (typed, documented, stable)
-- **ml.tasks**: CLI-friendly wrappers with field mapping and result presentation
+- **Canonical domain modules**: CLI-friendly typed services with field mapping and result presentation
 - **ml/cli**: Thin argparse wrappers for command-line usage
 
 **Other examples**:
-- `ml/tasks/ingest/recent.py` wraps `ml.data.loaders.ohlcv_recent`
-- `ml/tasks/training/quick.py` wraps `ml.data.tft_dataset_builder.TFTDatasetBuilder`
+- `ml/data/loaders/ohlcv_recent.py` wraps `ml.data.loaders.ohlcv_recent`
+- `ml/training/teacher/quick.py` wraps `ml.data.tft_dataset_builder_facade.TFTDatasetBuilder`
 
 ### Orchestration Layer (ml.orchestration/)
 
@@ -382,16 +382,16 @@ from ml.orchestration.pipeline_orchestrator import main as orchestrator_main
 - **Unified path**: All pipelines eventually go through `ml.orchestration.pipeline_orchestrator`
 - **Migration signal**: This wrapper shows the canonical path for new pipelines
 
-**Also**: `ml/tasks/pipelines/scheduler.py` wraps `ml.orchestration.scheduler.run_forever()` for scheduled execution.
+**Also**: `ml/orchestration/scheduler.py` wraps `ml.orchestration.scheduler.run_forever()` for scheduled execution.
 
 ### Cold vs Hot Path
 
-**Never import ml.tasks or ml.pipelines in**:
+**Never import orchestration helpers in**:
 - Actors (`ml/actors/`)
 - Strategies (`ml/strategies/`)
 - Any hot-path code (< 5ms P99 latency requirement)
 
-**Always import from ml.tasks in**:
+**Always import from canonical domain modules in**:
 - CLI entry points (`ml/cli/`)
 - Background tasks (scheduled jobs, cron)
 - Batch jobs (dataset builds, backfills)
@@ -594,9 +594,9 @@ return int(build_main(args))
 **Test quality**:
 - **Good**: Ingest tasks have dedicated unit tests with monkeypatching
 - **Good**: `test_build_runner.py` covers config loading and execution modes
-- **Gap**: No dedicated tests for `ml/tasks/datasets/report.py` (200+ lines)
-- **Gap**: No dedicated tests for `ml/tasks/registry.py` feature promotion logic
-- **Gap**: Limited coverage for `ml/tasks/db.py` migration plan building (346 lines)
+- **Gap**: No dedicated tests for `ml/data/validation.py` (200+ lines)
+- **Gap**: No dedicated tests for `ml/registry/feature_operations.py` feature promotion logic
+- **Gap**: Limited coverage for `ml/stores/migrations_runner.py` migration plan building (346 lines)
 
 ---
 
@@ -624,8 +624,8 @@ return int(build_main(args))
 ### 2. **Optional Dependencies Without Clear Guidance**
 
 **Examples**:
-- `ml/tasks/datasets/__init__.py` (lines 18-29): Tries to import `ProductionDatasetConfig`, swallows `ModuleNotFoundError`
-- `ml/tasks/pipelines/runner.py` checks `HAS_POLARS`, `HAS_DATABENTO` but doesn't document which tasks require which dependencies
+- `ml/data/__init__.py` (lines 18-29): Tries to import `ProductionDatasetConfig`, swallows `ModuleNotFoundError`
+- `ml/orchestration/pipeline_runner.py` checks `HAS_POLARS`, `HAS_DATABENTO` but doesn't document which tasks require which dependencies
 
 **Gap**: No `pyproject.toml` extra groups for task-specific dependencies.
 
@@ -639,9 +639,9 @@ return int(build_main(args))
 ### 3. **Test Coverage Gaps**
 
 **Missing tests**:
-- `ml/tasks/datasets/report.py`: No dedicated unit tests (200+ lines)
-- `ml/tasks/registry.py`: No tests for `promote_feature_set()` quality gate validation
-- `ml/tasks/db.py`: Limited tests for `split_sql_statements()` (complex dollar-quote parsing)
+- `ml/data/validation.py`: No dedicated unit tests (200+ lines)
+- `ml/registry/feature_operations.py`: No tests for `promote_feature_set()` quality gate validation
+- `ml/stores/migrations_runner.py`: Limited tests for `split_sql_statements()` (complex dollar-quote parsing)
 
 **Missing contract tests**:
 - Task config serialization/deserialization (JSON/TOML roundtrip)
@@ -658,9 +658,9 @@ return int(build_main(args))
 ### 4. **Logging Inconsistencies**
 
 **Current state**:
-- `ml/tasks/db.py`: Uses `structlog.get_logger(__name__)`
-- `ml/tasks/pipelines/runner.py`: Uses `logging.getLogger(__name__)`
-- `ml/tasks/ingest/recent.py`: Uses `logging.getLogger(__name__)`
+- `ml/stores/migrations_runner.py`: Uses `structlog.get_logger(__name__)`
+- `ml/orchestration/pipeline_runner.py`: Uses `logging.getLogger(__name__)`
+- `ml/data/loaders/ohlcv_recent.py`: Uses `logging.getLogger(__name__)`
 
 **Gap**: No centralized task logger prefix; hard to filter task logs from hot-path logs.
 
@@ -675,7 +675,7 @@ return int(build_main(args))
 
 **Current state**:
 - `ml/pipelines/build_runner.py` supports `convert_vintage_to_age` (lines 339-340)
-- `ml/tasks/datasets/tft.py` supports it (lines 113-129)
+- `ml/data/build.py` supports it (lines 113-129)
 - `ml.data.build_tft_dataset()` does **not** support it directly
 
 **Gap**: Vintage conversion is a post-processing step, not part of the core data API.
@@ -683,7 +683,7 @@ return int(build_main(args))
 **Impact**: Users calling `ml.data.build_tft_dataset()` directly won't get vintage age conversion.
 
 **Recommendation**:
-- Add `convert_vintage_to_age: bool = False` to `DatasetBuildConfig` in `ml/data/__init__.py`
+- Add `convert_vintage_to_age: bool = False` to `DatasetBuildConfig` in `ml/data/build.py` (re-exported via `ml.data`)
 - Integrate conversion into `build_tft_dataset()` before returning `BuildResult`
 - Remove duplication from task and pipeline layers
 
@@ -693,16 +693,16 @@ return int(build_main(args))
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| ml/tasks/__init__.py | 41 | Lazy module loader |
-| ml/tasks/registry.py | 97 | Feature promotion |
-| ml/tasks/db.py | 346 | SQL migrations with idempotent error handling |
-| ml/tasks/datasets/tft.py | 137 | TFT dataset config wrapper over ml.data |
-| ml/tasks/datasets/report.py | 200+ | Dataset quality reporting |
-| ml/tasks/ingest/__init__.py | 37 | Ingest task re-exports |
-| ml/tasks/ingest/recent.py | 68 | Recent OHLCV backfill wrapper |
-| ml/tasks/training/quick.py | 210 | Quick TFT training with sample predictions |
-| ml/tasks/pipelines/runner.py | 325 | MLPipelineRunner (backfill/daily/realtime) |
-| ml/tasks/pipelines/scheduler.py | 65 | Scheduled pipeline execution |
+| ml/<domain>/__init__.py | 41 | Lazy module loader |
+| ml/registry/feature_operations.py | 97 | Feature promotion |
+| ml/stores/migrations_runner.py | 346 | SQL migrations with idempotent error handling |
+| ml/data/build.py | 137 | TFT dataset config wrapper over ml.data |
+| ml/data/validation.py | 200+ | Dataset quality reporting |
+| ml/data/ingest/__init__.py | 37 | Ingest task re-exports |
+| ml/data/loaders/ohlcv_recent.py | 68 | Recent OHLCV backfill wrapper |
+| ml/training/teacher/quick.py | 210 | Quick TFT training with sample predictions |
+| ml/orchestration/pipeline_runner.py | 325 | MLPipelineRunner (backfill/daily/realtime) |
+| ml/orchestration/scheduler.py | 65 | Scheduled pipeline execution |
 | ml/pipelines/__init__.py | 172 | Public API with extensive docstrings |
 | ml/pipelines/build_runner.py | 476 | Multi-symbol dataset build orchestration |
 | ml/pipelines/tft_train_distill.py | 150 | Compatibility wrapper → orchestrator |
@@ -734,7 +734,7 @@ return int(build_main(args))
 **DO NOT**:
 - Import tasks in hot-path actors/strategies
 - Call task functions from `on_bar()`, `on_quote()`, or signal generation loops
-- Use tasks for real-time feature computation (use `ml.features.engineering` instead)
+- Use tasks for real-time feature computation (use `ml.features` instead)
 
 ---
 

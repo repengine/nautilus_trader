@@ -27,7 +27,9 @@ from ml.orchestration.config_types import (
     StudentDistillConfig,
     TeacherTrainConfig,
 )
+from ml.tests.utils.targets import build_default_target_semantics
 from ml.tests.utils.targets import build_default_target_semantics_payload
+from ml.training.datasets.target_generator import build_target_semantics_metadata
 if TYPE_CHECKING:
     from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 
@@ -264,6 +266,9 @@ def existing_dataset_dir(tmp_path: Path) -> Path:
         "vintage_policy": "REAL_TIME",
         "vintage_cutoff": None,
         "feature_set_id": "test_features",
+        "target_semantics": build_target_semantics_metadata(
+            build_default_target_semantics(legacy_aliases=True),
+        ),
     }
     (dataset_dir / "dataset_metadata.json").write_text(json.dumps(metadata))
 

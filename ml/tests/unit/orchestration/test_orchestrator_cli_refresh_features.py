@@ -18,11 +18,13 @@ pytestmark = pytest.mark.usefixtures(
     "isolated_orchestrator_env",
 )
 
-def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) -> None:
+def test_orchestrator_cli_refresh_features(
+    tmp_path: Path,
+) -> None:
     # Store original sys.modules state for cleanup
     original_modules: dict[str, Any] = {
         "ml.common.event_emitter": sys.modules.get("ml.common.event_emitter"),
-        "ml.tasks.datasets.tft_cli": sys.modules.get("ml.tasks.datasets.tft_cli"),
+        "ml.cli.build_tft_dataset": sys.modules.get("ml.cli.build_tft_dataset"),
         "ml.training.teacher.tft_cli": sys.modules.get("ml.training.teacher.tft_cli"),
     }
 
@@ -73,7 +75,7 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
         cast(Any, core_integ).MLIntegrationManager = _Mgr
 
         # Stub dataset builder and teacher mains
-        build = ModuleType("ml.tasks.datasets.tft_cli")
+        build = ModuleType("ml.cli.build_tft_dataset")
 
         def _build_main(argv: list[str] | None = None) -> int:  # noqa: D401 - test stub
             if argv and "--out_dir" in argv:
@@ -83,7 +85,7 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
             return 0
 
         setattr(build, "main", _build_main)
-        sys.modules["ml.tasks.datasets.tft_cli"] = build
+        sys.modules["ml.cli.build_tft_dataset"] = build
 
         teacher = ModuleType("ml.training.teacher.tft_cli")
         setattr(teacher, "main", lambda argv=None: 0)

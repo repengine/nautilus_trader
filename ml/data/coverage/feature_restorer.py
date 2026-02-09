@@ -755,7 +755,7 @@ class FeatureCoverageRestorer:
             filler = PANDAS.Series([PANDAS.NA] * len(frame), index=frame.index, dtype="Int64")
             return cast(_PandasSeries, filler)
         converted = PANDAS.to_datetime(series, utc=True, errors="coerce")
-        return cast(_PandasSeries, converted.view("int64"))
+        return cast(_PandasSeries, converted.astype("int64", copy=False))
 
     @staticmethod
     def _select_existing_columns(df: _PandasDataFrame, columns: Sequence[str]) -> list[str]:

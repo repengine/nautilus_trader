@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ml.common.model_sidecar import extract_artifact_digest
 from ml.common.model_sidecar import extract_inference_metadata
 from ml.common.model_sidecar import load_sidecar_metadata
 from ml.common.model_sidecar import resolve_model_sidecar_metadata
@@ -27,6 +28,31 @@ def test_extract_inference_metadata_maps_calibrator_fields() -> None:
 
     assert output_schema == {"kind": "binary_proba", "shape": [None, 1]}
     assert calibration == {"kind": "platt", "params": {"coef": 1.1, "intercept": -0.2}}
+
+
+def test_extract_inference_metadata_reads_nested_inference_scope() -> None:
+    sidecar = {
+        "inference": {
+            "output_schema": {"kind": "binary_proba", "shape": [None, 1]},
+            "calibration": {"kind": "platt", "params": {"coef": 1.1}},
+        },
+    }
+    output_schema, calibration = extract_inference_metadata(sidecar)
+
+    assert output_schema == {"kind": "binary_proba", "shape": [None, 1]}
+    assert calibration == {"kind": "platt", "params": {"coef": 1.1}}
+
+
+def test_extract_artifact_digest_supports_nested_aliases() -> None:
+    sidecar = {
+        "integrity": {
+            "sha256": "abc123",
+        },
+    }
+
+    digest = extract_artifact_digest(sidecar)
+
+    assert digest == "abc123"
 
 
 def test_resolve_model_sidecar_metadata_prefers_existing_candidates(tmp_path: Path) -> None:

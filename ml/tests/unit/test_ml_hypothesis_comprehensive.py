@@ -27,6 +27,8 @@ from ml.registry import DataRequirements
 from ml.registry import ModelManifest
 from ml.registry import ModelRegistry
 from ml.registry import ModelRole
+from ml.tests.utils.model_artifacts import default_output_schema
+from ml.tests.utils.model_artifacts import register_feature_set_for_schema
 
 
 @pytest.mark.property
@@ -141,6 +143,12 @@ class TestEndToEndProperties:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             registry = ModelRegistry(Path(tmpdir))
+            feature_schema_hash = "test_hash"
+            feature_set_id = register_feature_set_for_schema(
+                registry_path=Path(tmpdir),
+                schema_hash=feature_schema_hash,
+                feature_set_id="selection_consistency_features",
+            )
 
             # Register models with different metrics
             model_metrics = {}
@@ -162,7 +170,9 @@ class TestEndToEndProperties:
                     data_requirements=DataRequirements.L1_ONLY,
                     architecture="TestModel",
                     feature_schema={"test": "float32"},
-                    feature_schema_hash="test_hash",
+                    feature_schema_hash=feature_schema_hash,
+                    feature_set_id=feature_set_id,
+                    output_schema=default_output_schema(),
                     version=str(i),
                     performance_metrics=metrics,
                 )

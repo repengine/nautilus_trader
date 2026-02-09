@@ -18,11 +18,13 @@ pytestmark = pytest.mark.usefixtures(
     "isolated_orchestrator_env",
 )
 
-def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> None:
+def test_orchestrator_cli_promotions(
+    tmp_path: Path,
+) -> None:
     # Store original sys.modules state for cleanup
     original_modules: dict[str, Any] = {
         "ml.orchestration.promotions": sys.modules.get("ml.orchestration.promotions"),
-        "ml.tasks.datasets.tft_cli": sys.modules.get("ml.tasks.datasets.tft_cli"),
+        "ml.cli.build_tft_dataset": sys.modules.get("ml.cli.build_tft_dataset"),
         "ml.training.teacher.tft_cli": sys.modules.get("ml.training.teacher.tft_cli"),
     }
 
@@ -48,7 +50,7 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
         sys.modules["ml.orchestration.promotions"] = prom
 
         # Stub dataset builder to write dataset.csv and return 0
-        build = ModuleType("ml.tasks.datasets.tft_cli")
+        build = ModuleType("ml.cli.build_tft_dataset")
 
         def _build_main(argv: list[str] | None = None) -> int:
             out_dir = None
@@ -59,7 +61,7 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
             return 0
 
         setattr(build, "main", _build_main)
-        sys.modules["ml.tasks.datasets.tft_cli"] = build
+        sys.modules["ml.cli.build_tft_dataset"] = build
 
         # Stub teacher CLI
         tft = ModuleType("ml.training.teacher.tft_cli")

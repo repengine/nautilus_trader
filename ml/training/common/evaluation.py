@@ -255,7 +255,8 @@ class EvaluationComponent:
             metrics["win_rate"] = win_rate
 
         # Information ratio (excess return / tracking error)
-        benchmark_return = float(np.mean(returns))
+        finite_returns = returns[np.isfinite(returns)]
+        benchmark_return = float(np.mean(finite_returns)) if finite_returns.size else 0.0
         excess_returns = strategy_returns - benchmark_return
         std_excess = float(np.std(excess_returns))
         if std_excess > 0:

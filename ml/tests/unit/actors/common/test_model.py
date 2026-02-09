@@ -23,6 +23,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.actors.common.model import ModelComponent
 from ml.config.base import MLActorConfig
+from ml.tests.utils.model_artifacts import ensure_strict_onnx_sidecar
 from ml.tests.utils.db import build_postgres_url
 
 TEST_DB_CONNECTION = build_postgres_url()
@@ -94,6 +95,7 @@ def onnx_model_file(tmp_path: Path) -> Path:
     model_path = tmp_path / "test_xgboost_classifier.onnx"
     with open(model_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
+    ensure_strict_onnx_sidecar(model_path)
 
     return model_path
 
@@ -124,6 +126,7 @@ def onnx_model_file_v2(tmp_path: Path) -> Path:
     model_path = tmp_path / "test_xgboost_classifier_v2.onnx"
     with open(model_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
+    ensure_strict_onnx_sidecar(model_path)
 
     return model_path
 
@@ -469,6 +472,9 @@ def test_model_hot_reload_detects_changes(
     import shutil
 
     shutil.copy(str(onnx_model_file_v2), str(onnx_model_file))
+    ensure_strict_onnx_sidecar(onnx_model_file)
+    if component._model_metadata is not None:
+        component._model_metadata.pop("artifact_sha256_digest", None)
 
     # Touch file to ensure mtime changes
     time.sleep(0.1)  # Ensure mtime difference

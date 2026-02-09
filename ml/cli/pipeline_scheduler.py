@@ -10,8 +10,8 @@ from typing import cast
 
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
-from ml.tasks.pipelines import PipelineScheduleConfig
-from ml.tasks.pipelines import run_pipeline_schedule
+from ml.orchestration import PipelineScheduleConfig
+from ml.orchestration import run_pipeline_schedule
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

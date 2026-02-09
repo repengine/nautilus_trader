@@ -37,6 +37,12 @@ from typing import TYPE_CHECKING
 from ml.common.cascade import EventDict
 from ml.common.cascade import emit_cascade
 
+# Causality guard utilities
+from ml.common.causality_guard import CausalityAction
+from ml.common.causality_guard import CausalityGuard
+from ml.common.causality_guard import CausalityGuardResult
+from ml.common.causality_guard import CausalityViolation
+
 # Correlation and cascading utilities
 from ml.common.correlation import make_correlation_id
 from ml.common.databento_credentials import CredentialResolution
@@ -87,6 +93,9 @@ from ml.common.metrics_export import generate_latest
 from ml.common.metrics_manager import MetricsManager
 from ml.common.observability_utils import is_observability_enabled
 from ml.common.observability_utils import record_stage_boundary
+from ml.common.output_semantics import OutputSemanticsValidationResult
+from ml.common.output_semantics import OutputSemanticsValidator
+from ml.common.output_semantics import validate_output_semantics
 from ml.common.precision import MAX_PRICE_DECIMALS
 from ml.common.precision import clamp_price_str
 
@@ -96,6 +105,12 @@ from ml.common.precision import clamp_price_str
 # Universal component protocol and mixin for structural typing
 from ml.common.protocols import MLComponentMixin
 from ml.common.protocols import MLComponentProtocol
+from ml.common.reproducibility import DeterministicSeedResult
+from ml.common.reproducibility import ReproducibilityHelper
+from ml.common.reproducibility import apply_reproducibility_seed
+from ml.common.reproducibility import build_configured_reproducibility_provenance
+from ml.common.reproducibility import build_reproducibility_provenance
+from ml.common.reproducibility import validate_reproducibility_provenance
 
 # Safe math operations
 from ml.common.safe_math import safe_divide
@@ -187,10 +202,15 @@ __all__ = [
     "MAX_PRICE_DECIMALS",
     "ArtifactIntegrityError",
     "BusPublisherMixin",
+    "CausalityAction",
+    "CausalityGuard",
+    "CausalityGuardResult",
+    "CausalityViolation",
     "ConnectionCandidates",
     "ConnectionRole",
     "CredentialResolution",
     "CredentialSource",
+    "DeterministicSeedResult",
     "EventDict",
     "Handler",
     "InMemoryPublisher",
@@ -199,12 +219,18 @@ __all__ = [
     "MessagePublisherProtocol",
     "MetricsManager",
     "NoopPublisher",
+    "OutputSemanticsValidationResult",
+    "OutputSemanticsValidator",
     "RedisStreamsPublisher",
+    "ReproducibilityHelper",
     "SourceStr",
     "Throttler",
     "WatermarkRegistryProtocol",
     "WatermarkWindowResult",
+    "apply_reproducibility_seed",
     "build_bus_payload",
+    "build_configured_reproducibility_provenance",
+    "build_reproducibility_provenance",
     "build_stage_topic",
     "build_topic",
     "build_topic_for_stage",
@@ -255,6 +281,8 @@ __all__ = [
     "select_latest_symbol_file",
     "to_source_enum",
     "to_source_str",
+    "validate_output_semantics",
+    "validate_reproducibility_provenance",
     "verify_artifact_integrity",
     "with_db_error_handling",
     "with_fallback",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Thin CLI wrapper for quick TFT training via :mod:`ml.tasks.training`.
+Thin CLI wrapper for quick TFT training via :mod:`ml.training.teacher`.
 """
 
 from __future__ import annotations
@@ -16,9 +16,8 @@ from typing import cast
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.targets import TargetSemanticsConfig
-from ml.tasks.training import QuickTFTTrainConfig
-from ml.tasks.training import train_tft_quick
-from ml.tasks.training.quick import _DEFAULT_SYMBOLS
+from ml.training.teacher import QuickTFTTrainConfig
+from ml.training.teacher import train_tft_quick
 
 
 __all__ = ["main"]
@@ -55,9 +54,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
-def _parse_symbols(value: str | None) -> Sequence[str]:
+def _parse_symbols(value: str | None, *, default_symbols: Sequence[str]) -> Sequence[str]:
     if value is None:
-        return _DEFAULT_SYMBOLS
+        return default_symbols
     symbols = [tok.strip().upper() for tok in value.split(",") if tok.strip()]
     if not symbols:
         raise ValueError("At least one symbol must be provided when --symbols is used")
@@ -89,10 +88,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     default_fields = QuickTFTTrainConfig.__dataclass_fields__
     default_data_dirs = cast(Sequence[Path], default_fields["data_dirs"].default)
+    default_symbols = cast(Sequence[str], default_fields["symbols"].default)
     default_output_dir = cast(Path, default_fields["output_dir"].default)
     candidate_dirs = tuple(args.data_dir) if args.data_dir else default_data_dirs
     try:
-        symbols = _parse_symbols(args.symbols)
+        symbols = _parse_symbols(args.symbols, default_symbols=default_symbols)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2

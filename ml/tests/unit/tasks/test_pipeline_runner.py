@@ -1,54 +1,24 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any
+import importlib
 
 import pytest
 
-from ml.tasks.pipelines.runner import PipelineRunConfig
-from ml.tasks.pipelines.runner import run_pipeline
-
-pytest_plugins = ("ml.tests.fixtures.pytest_plugins",)
-
-pytestmark = pytest.mark.usefixtures(
-    "isolated_prometheus_registry",
-    "mock_tracing_backend",
-    "isolated_orchestrator_env",
-)
+from ml.orchestration.pipeline_runner import MLPipelineRunner as CanonicalMLPipelineRunner
+from ml.orchestration.pipeline_runner import PipelineRunConfig as CanonicalPipelineRunConfig
+from ml.orchestration.pipeline_runner import load_config as canonical_load_config
+from ml.orchestration.pipeline_runner import run_pipeline as canonical_run_pipeline
+from ml.orchestration.pipeline_runner import setup_logging as canonical_setup_logging
 
 
-def test_run_pipeline_initialises_runner(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
+def test_pipeline_runner_canonical_symbols_are_available() -> None:
+    assert CanonicalMLPipelineRunner.__name__ == "MLPipelineRunner"
+    assert CanonicalPipelineRunConfig.__name__ == "PipelineRunConfig"
+    assert callable(canonical_load_config)
+    assert callable(canonical_setup_logging)
+    assert callable(canonical_run_pipeline)
 
-    monkeypatch.setattr("ml.tasks.pipelines.runner.load_config", lambda _: {"catalog_path": "./data"})
 
-    class _DummyRunner:
-        def __init__(self, config: dict[str, Any], dry_run: bool) -> None:
-            captured["config"] = config
-            captured["dry_run"] = dry_run
-
-        def setup_ml_system(self) -> Any:
-            captured["setup_called"] = True
-            return SimpleNamespace(config=SimpleNamespace(symbols=["SPY"]))
-
-    def _fake_execute(runner: Any, mode: str, start: str | None, end: str | None) -> None:
-        captured["mode"] = mode
-        captured["start"] = start
-        captured["end"] = end
-        captured["runner"] = runner
-
-    monkeypatch.setattr("ml.tasks.pipelines.runner.MLPipelineRunner", _DummyRunner)
-    monkeypatch.setattr("ml.tasks.pipelines.runner._execute_pipeline_mode", _fake_execute)
-
-    run_pipeline(
-        PipelineRunConfig(
-            mode="daily",
-            dry_run=True,
-            config_path="config.json",
-        ),
-    )
-
-    assert captured["config"] == {"catalog_path": "./data"}
-    assert captured["dry_run"] is True
-    assert captured["setup_called"] is True
-    assert captured["mode"] == "daily"
+def test_pipeline_runner_task_shim_module_is_retired() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("ml.tasks.pipelines.runner")

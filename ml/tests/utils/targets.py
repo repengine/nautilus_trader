@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from ml.config.targets import BinaryTargetConfig
+from ml.config.targets import HORIZON_RESOLUTION_BAR_INDEX
+from ml.config.targets import HorizonResolutionMode
 from ml.config.targets import MulticlassTargetConfig
 from ml.config.targets import RegressionTargetConfig
 from ml.config.targets import TargetHorizonSpec
@@ -21,6 +23,8 @@ def build_default_target_semantics(
     threshold: float = 0.001,
     legacy_aliases: bool = False,
     primary_target: str | None = None,
+    horizon_resolution_mode: HorizonResolutionMode = HORIZON_RESOLUTION_BAR_INDEX,
+    wall_clock_timestamp_column: str = "timestamp",
 ) -> TargetSemanticsConfig:
     """
     Build a minimal target semantics configuration for tests.
@@ -30,6 +34,8 @@ def build_default_target_semantics(
         threshold: Binary threshold in decimal return units.
         legacy_aliases: Whether to emit legacy alias columns.
         primary_target: Optional primary target column name.
+        horizon_resolution_mode: Horizon resolution mode (`bar_index`/`wall_clock`).
+        wall_clock_timestamp_column: Timestamp column for `wall_clock` mode.
 
     Returns:
         TargetSemanticsConfig instance.
@@ -45,6 +51,8 @@ def build_default_target_semantics(
         regression=RegressionTargetConfig(enabled=False),
         primary_target=primary_target,
         legacy_aliases=legacy_aliases,
+        horizon_resolution_mode=horizon_resolution_mode,
+        wall_clock_timestamp_column=wall_clock_timestamp_column,
     )
 
 
@@ -54,6 +62,8 @@ def build_default_target_semantics_payload(
     threshold: float = 0.001,
     legacy_aliases: bool = False,
     primary_target: str | None = None,
+    horizon_resolution_mode: HorizonResolutionMode = HORIZON_RESOLUTION_BAR_INDEX,
+    wall_clock_timestamp_column: str = "timestamp",
 ) -> dict[str, object]:
     """
     Build a JSON-ready target semantics payload for orchestration configs.
@@ -63,6 +73,8 @@ def build_default_target_semantics_payload(
         threshold: Binary threshold in decimal return units.
         legacy_aliases: Whether to emit legacy alias columns.
         primary_target: Optional primary target column name.
+        horizon_resolution_mode: Horizon resolution mode (`bar_index`/`wall_clock`).
+        wall_clock_timestamp_column: Timestamp column for `wall_clock` mode.
 
     Returns:
         Target semantics payload dictionary.
@@ -72,5 +84,7 @@ def build_default_target_semantics_payload(
         threshold=threshold,
         legacy_aliases=legacy_aliases,
         primary_target=primary_target,
+        horizon_resolution_mode=horizon_resolution_mode,
+        wall_clock_timestamp_column=wall_clock_timestamp_column,
     )
     return asdict(semantics)

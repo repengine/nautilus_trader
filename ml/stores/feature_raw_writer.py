@@ -140,7 +140,7 @@ class FeatureDatasetParquetRawWriter(RawIngestionWriterProtocol):
         work = work.dropna(subset=["event_timestamp"])
         if work.empty:
             return 0
-        work["event_timestamp"] = work["event_timestamp"].view("int64")
+        work["event_timestamp"] = work["event_timestamp"].astype("int64", copy=False)
         if "ts_event" not in work.columns:
             work["ts_event"] = work["event_timestamp"]
         else:
@@ -174,7 +174,10 @@ class FeatureDatasetParquetRawWriter(RawIngestionWriterProtocol):
                     )
                     existing = existing.dropna(subset=["event_timestamp"])
                     if not existing.empty:
-                        existing["event_timestamp"] = existing["event_timestamp"].view("int64")
+                        existing["event_timestamp"] = existing["event_timestamp"].astype(
+                            "int64",
+                            copy=False,
+                        )
                 combined = pd.concat([existing, work], ignore_index=True)
             except Exception:
                 logger.warning(
@@ -300,7 +303,7 @@ class FeatureValuesParquetMirrorWriter:
         work[self.partition_field] = work[self.partition_field].fillna("").astype(str)
         ts_series = work[self.timestamp_field]
         if pd.api.types.is_datetime64_any_dtype(ts_series):
-            numeric_ts = ts_series.view("int64")
+            numeric_ts = ts_series.astype("int64", copy=False)
         else:
             numeric_ts = pd.to_numeric(ts_series, errors="coerce")
         work = work.loc[numeric_ts.notna()].copy()

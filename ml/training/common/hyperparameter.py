@@ -25,6 +25,7 @@ from ml._imports import HAS_OPTUNA
 from ml._imports import HAS_SKLEARN
 from ml._imports import check_ml_dependencies
 from ml._imports import optuna
+from ml.common.reproducibility import resolve_configured_seed
 from ml.training.common.trading_costs import apply_round_trip_costs
 from ml.training.common.trading_costs import resolve_round_trip_cost_decimal
 
@@ -167,6 +168,15 @@ class HyperparameterComponent:
             and getattr(self._trainer._config.optuna_config, "enabled", True)
         )
 
+    def _resolve_sampler_seed(self) -> int | None:
+        """Resolve the canonical seed used by Optuna samplers."""
+        configured_seed = getattr(self._trainer._config, "random_seed", None)
+        return resolve_configured_seed(
+            primary_seed=configured_seed,
+            required=False,
+            context="optuna sampler seed",
+        )
+
     def _optimize_hyperparameters(
         self,
         X_train: npt.NDArray[np.float64],
@@ -228,11 +238,12 @@ class HyperparameterComponent:
         metric_name = self._resolve_optuna_metric_name(y_train, optuna_cfg)
         direction = self._resolve_optuna_direction(metric_name, optuna_cfg)
 
-        sampler: optuna.samplers.BaseSampler = optuna.samplers.TPESampler(seed=42)
+        sampler_seed = self._resolve_sampler_seed()
+        sampler: optuna.samplers.BaseSampler = optuna.samplers.TPESampler(seed=sampler_seed)
         pruner: optuna.pruners.BasePruner | None = None
         if optuna_cfg is not None:
             try:
-                sampler = self._build_optuna_sampler(optuna_cfg)
+                sampler = self._build_optuna_sampler(optuna_cfg, seed=sampler_seed)
             except Exception as exc:  # pragma: no cover - defensive fallback
                 self._trainer._log_warning(
                     "Optuna sampler '%s' unavailable (%s); falling back to TPE",
@@ -581,6 +592,8 @@ class HyperparameterComponent:
     def _build_optuna_sampler(
         self,
         cfg: OptunaConfig,
+        *,
+        seed: int | None = None,
     ) -> optuna.samplers.BaseSampler:
         """
         Build Optuna sampler from configuration.
@@ -604,17 +617,18 @@ class HyperparameterComponent:
         - 'grid': Falls back to TPE with warning (requires explicit search space)
 
         """
+        sampler_seed = seed if seed is not None else self._resolve_sampler_seed()
         sampler_name = cfg.sampler.lower()
         if sampler_name == "random":
-            return optuna.samplers.RandomSampler()
+            return optuna.samplers.RandomSampler(seed=sampler_seed)
         if sampler_name == "cmaes":
-            return optuna.samplers.CmaEsSampler()
+            return optuna.samplers.CmaEsSampler(seed=sampler_seed)
         if sampler_name == "grid":
             self._trainer._log_warning(
                 "Grid sampler requires explicit search space; using TPE instead"
             )
-            return optuna.samplers.TPESampler(seed=42)
-        return optuna.samplers.TPESampler(seed=42)
+            return optuna.samplers.TPESampler(seed=sampler_seed)
+        return optuna.samplers.TPESampler(seed=sampler_seed)
 
     def _build_optuna_pruner(
         self,

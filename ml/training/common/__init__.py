@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from ml.training.common.cross_validation import CrossValidationComponent
 from ml.training.common.cross_validation import CVTrainerProtocol
+from ml.training.common.cross_validation import PurgedSplitResult
+from ml.training.common.cross_validation import create_purged_splits
 from ml.training.common.data_preparation import DataPreparationComponent
 from ml.training.common.data_preparation import DataPreparationTrainerProtocol
 from ml.training.common.evaluation import EvaluationComponent
@@ -45,5 +47,7 @@ __all__ = [
     "MLflowTrainerProtocol",
     "PersistenceComponent",
     "PersistenceTrainerProtocol",
+    "PurgedSplitResult",
     "TrainingOrchestratorComponent",
+    "create_purged_splits",
 ]

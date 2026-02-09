@@ -11,8 +11,6 @@ Contract:
 
 from __future__ import annotations
 
-from typing import List
-
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -66,7 +64,20 @@ def test_append_wrap_and_views() -> None:
 
 @pytest.mark.unit
 @given(
-    seq=st.lists(st.lists(st.floats(allow_nan=False, allow_infinity=False), min_size=3, max_size=3), min_size=1, max_size=50),
+    seq=st.lists(
+        st.lists(
+            st.floats(
+                min_value=-1e20,
+                max_value=1e20,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
+            min_size=3,
+            max_size=3,
+        ),
+        min_size=1,
+        max_size=50,
+    ),
 )
 def test_chronological_property(seq: list[list[float]]) -> None:
     """

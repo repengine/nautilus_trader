@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from ml.actors.base import ONNXModelLoader, ProductionModelLoader
+from ml.tests.utils.model_artifacts import write_stub_onnx_artifact
 
 
 pytestmark = pytest.mark.usefixtures("isolated_prometheus_registry")
@@ -143,7 +144,7 @@ def test_production_model_loader_loads_onnx_with_secure_loader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model_path = tmp_path / "model.onnx"
-    model_path.write_bytes(b"onnx")
+    write_stub_onnx_artifact(model_path, content=b"onnx")
     session = _Session()
 
     monkeypatch.setattr(
@@ -161,12 +162,66 @@ def test_production_model_loader_loads_onnx_with_secure_loader(
 
 
 @pytest.mark.unit
-def test_onnx_model_loader_loads_model_with_metadata(
+def test_production_model_loader_strict_missing_digest_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model_path = tmp_path / "model.onnx"
     model_path.write_bytes(b"onnx")
+    monkeypatch.setenv("ML_STRICT_MODEL_COMPATIBILITY", "1")
+    monkeypatch.setenv("ML_ALLOW_COMPATIBILITY_MIGRATION_OVERRIDE", "0")
+    monkeypatch.setenv("ML_ALLOW_UNSIGNED_ARTIFACTS", "0")
+
+    loader = ProductionModelLoader()
+
+    with pytest.raises(ValueError, match="No SHA-256 digest available"):
+        loader.load_model(str(model_path))
+
+
+@pytest.mark.unit
+def test_production_model_loader_onnx_uses_sidecar_digest_and_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_path = tmp_path / "model.onnx"
+    model_path.write_bytes(b"onnx")
+    model_path.with_suffix(".meta.json").write_text(
+        json.dumps(
+            {
+                "integrity": {"sha256": "sha256:" + ("a" * 64)},
+                "output_schema": {"kind": "binary_proba", "shape": [None, 1]},
+                "calibration": {"kind": "platt", "params": {"coef": 1.0}},
+            },
+        ),
+        encoding="utf-8",
+    )
+    captured_kwargs: dict[str, object] = {}
+    session = _Session()
+
+    def _secure_load(**kwargs: object) -> _Session:
+        captured_kwargs.update(kwargs)
+        return session
+
+    monkeypatch.setattr("ml.common.security.secure_onnx_load", _secure_load)
+
+    loader = ProductionModelLoader()
+    loaded, metadata = loader.load_model(str(model_path))
+
+    assert loaded is session
+    assert captured_kwargs["expected_digest"] == "a" * 64
+    assert captured_kwargs["strict_integrity"] is True
+    assert metadata["output_schema"] == {"kind": "binary_proba", "shape": [None, 1]}
+    assert metadata["calibration"] == {"kind": "platt", "params": {"coef": 1.0}}
+    assert metadata["artifact_sha256_digest"] == "a" * 64
+
+
+@pytest.mark.unit
+def test_onnx_model_loader_loads_model_with_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_path = tmp_path / "model.onnx"
+    write_stub_onnx_artifact(model_path, content=b"onnx")
     session = _Session()
 
     monkeypatch.setattr(
@@ -188,6 +243,27 @@ def test_onnx_model_loader_loads_model_with_metadata(
     assert metadata["providers"] == ["CPUExecutionProvider"]
     assert metadata["input_names"] == ["input"]
     assert metadata["output_names"] == ["output"]
+
+
+@pytest.mark.unit
+def test_onnx_model_loader_require_output_semantics_raises_when_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_path = tmp_path / "model.onnx"
+    model_path.write_bytes(b"onnx")
+    model_path.with_suffix(".meta.json").write_text(
+        json.dumps({"artifact_sha256_digest": "b" * 64}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ML_REQUIRE_OUTPUT_SEMANTICS", "1")
+    monkeypatch.setenv("ML_ALLOW_COMPATIBILITY_MIGRATION_OVERRIDE", "0")
+
+    loader = ONNXModelLoader()
+    loader._onnx_available = True
+
+    with pytest.raises(ValueError, match="Output semantics validation failed"):
+        loader.load_model(str(model_path))
 
 
 @pytest.mark.unit

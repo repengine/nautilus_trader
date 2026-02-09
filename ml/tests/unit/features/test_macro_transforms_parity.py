@@ -4,7 +4,7 @@ Test macro feature transform parity (batch vs. real-time).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import importlib
 import math
 from pathlib import Path
@@ -261,11 +261,12 @@ class TestMacroTransformParity:
             def is_loaded(self) -> bool:
                 return True
 
-            def get_all_features(self, mode: str = "core") -> dict[str, float]:
-                return {
-                    f"{series_id}__value_real_time": snapshot.current_value
-                    for series_id, snapshot in self._snapshots.items()
-                }
+            def get_features(self, series_id: str, mode: str = "core") -> dict[str, float]:
+                del mode
+                snapshot = self._snapshots.get(series_id)
+                if snapshot is None:
+                    return {}
+                return {f"{series_id}__value_real_time": snapshot.current_value}
 
             def get_snapshot(self, series_id: str) -> MacroSeriesSnapshot | None:
                 return self._snapshots.get(series_id)
@@ -431,14 +432,15 @@ class TestMacroTransformParity:
         }
 
         class _FakeCache:
-            def __init__(self) -> None:
-                self._features = {"PAYEMS__value_real_time": 152_000.0}
-
             def is_loaded(self) -> bool:
                 return True
 
-            def get_all_features(self, *, mode: str) -> dict[str, float]:
-                return dict(self._features)
+            def get_features(self, series_id: str, mode: str = "core") -> dict[str, float]:
+                del mode
+                snapshot = snapshots.get(series_id)
+                if snapshot is None:
+                    return {}
+                return {f"{series_id}__value_real_time": snapshot.current_value}
 
             def get_snapshot(self, series_id: str) -> MacroSeriesSnapshot | None:
                 return snapshots.get(series_id)
@@ -496,10 +498,12 @@ class TestMacroTransformParity:
             def is_loaded(self) -> bool:
                 return True
 
-            def get_all_features(self, *, mode: str) -> dict[str, float]:
+            def get_features(self, series_id: str, mode: str = "core") -> dict[str, float]:
+                del series_id, mode
                 return {}
 
             def get_snapshot(self, series_id: str) -> MacroSeriesSnapshot | None:
+                del series_id
                 return None
 
         transform = MacroFeatureTransform(
@@ -589,6 +593,82 @@ class TestMacroTransformParity:
                 pl.DataFrame({"timestamp": timestamps}),
             )
 
+    def test_realtime_when_no_eligible_release_for_event_timestamp_returns_empty(self) -> None:
+        """Event-time lookup should return empty when all releases are in the future."""
+        release_ts = datetime(2024, 6, 1, tzinfo=UTC)
+        snapshot = MacroSeriesSnapshot(
+            series_id="PAYEMS",
+            current_value=100.0,
+            observation_ts=release_ts,
+            release_ts=release_ts,
+        )
+
+        class _FutureOnlyCache:
+            def is_loaded(self) -> bool:
+                return True
+
+            def get_features(self, series_id: str, mode: str = "core") -> dict[str, float]:
+                del mode
+                if series_id != "PAYEMS":
+                    return {}
+                return {"PAYEMS__value_real_time": 100.0}
+
+            def get_snapshot(self, series_id: str) -> MacroSeriesSnapshot | None:
+                if series_id != "PAYEMS":
+                    return None
+                return snapshot
+
+        transform = MacroFeatureTransform(
+            macro_series_ids=["PAYEMS"],
+            vintage_base_dir=Path("/tmp"),
+            include_revisions=False,
+        )
+        transform._cache = _FutureOnlyCache()
+
+        event_ts_ns = int(datetime(2024, 5, 1, tzinfo=UTC).timestamp() * 1_000_000_000)
+        assert transform.compute_realtime(ts_event=event_ts_ns) == {}
+        assert transform.compute_realtime(ts_event=event_ts_ns) == {}
+
+    def test_realtime_when_event_timestamp_backsteps_returns_empty_until_watermark_advances(self) -> None:
+        """Backstep timestamps should not regress macro progression watermark."""
+        release_ts = datetime(2024, 1, 1, tzinfo=UTC)
+        snapshot = MacroSeriesSnapshot(
+            series_id="PAYEMS",
+            current_value=250.0,
+            observation_ts=release_ts,
+            release_ts=release_ts,
+        )
+
+        class _StableCache:
+            def is_loaded(self) -> bool:
+                return True
+
+            def get_features(self, series_id: str, mode: str = "core") -> dict[str, float]:
+                del mode
+                if series_id != "PAYEMS":
+                    return {}
+                return {"PAYEMS__value_real_time": 250.0}
+
+            def get_snapshot(self, series_id: str) -> MacroSeriesSnapshot | None:
+                if series_id != "PAYEMS":
+                    return None
+                return snapshot
+
+        transform = MacroFeatureTransform(
+            macro_series_ids=["PAYEMS"],
+            vintage_base_dir=Path("/tmp"),
+            include_revisions=False,
+        )
+        transform._cache = _StableCache()
+
+        first_ts_ns = int(datetime(2024, 2, 1, tzinfo=UTC).timestamp() * 1_000_000_000)
+        backstep_ts_ns = int(datetime(2024, 1, 15, tzinfo=UTC).timestamp() * 1_000_000_000)
+        forward_ts_ns = int(datetime(2024, 2, 15, tzinfo=UTC).timestamp() * 1_000_000_000)
+
+        assert transform.compute_realtime(ts_event=first_ts_ns)["PAYEMS__value_real_time"] == 250.0
+        assert transform.compute_realtime(ts_event=backstep_ts_ns) == {}
+        assert transform.compute_realtime(ts_event=forward_ts_ns)["PAYEMS__value_real_time"] == 250.0
+
 
 def test_macro_transform_parity_when_fixture_matches_realtime(
     macro_vintage_artifacts,
@@ -609,7 +689,8 @@ def test_macro_transform_parity_when_fixture_matches_realtime(
     batch_df = transform.compute_batch(market)
     feature_names = transform.get_feature_names()
     batch_row = batch_df.select(feature_names).row(0, named=True)
-    realtime_features = transform.compute_realtime()
+    ts_event_ns = int(ts_event.timestamp() * 1_000_000_000)
+    realtime_features = transform.compute_realtime(ts_event=ts_event_ns)
 
     for name in feature_names:
         assert name in realtime_features

@@ -1,7 +1,7 @@
 # ML CLI Tooling: Build, Report, Promote
 
 This guide documents the lightweight ML dataset tooling added under `ml/scripts/` and `ml/pipelines/`.
-The executable entrypoints now delegate to typed tasks in `ml.tasks.*` so they can be reused from orchestrators
+The executable entrypoints now delegate to typed domain services in `ml/<domain>/` so they can be reused from orchestrators
 and tests without shelling out.
 
 Contents
